@@ -15,6 +15,32 @@ const widths = [
 const b = await chromium.launch();
 const issues = [];
 
+// Desktop scroll-spy check: after loading / at scrollTop=0, #overview link must
+// be aria-current="page" and no other nav link may be.
+async function checkDesktopScrollSpy(b) {
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  await page.goto(base + '/', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600); // allow IntersectionObserver + scroll listener to fire
+  const result = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('header nav a[href^="#"]'));
+    const active = links.filter(a => a.getAttribute('aria-current') === 'page').map(a => a.getAttribute('href'));
+    const overviewActive = document.querySelector('a[href="#overview"]')?.getAttribute('aria-current') === 'page';
+    return { active, overviewActive };
+  });
+  await ctx.close();
+  return result;
+}
+
+const spyResult = await checkDesktopScrollSpy(b);
+if (!spyResult.overviewActive) {
+  issues.push(`[desktop] scroll-spy: #overview link NOT aria-current="page" at scrollTop=0 (active: ${spyResult.active.join(', ') || 'none'})`);
+} else if (spyResult.active.length > 1) {
+  issues.push(`[desktop] scroll-spy: multiple links are aria-current="page" at scrollTop=0 (${spyResult.active.join(', ')})`);
+} else {
+  console.log('[desktop] scroll-spy: #overview is active at scrollTop=0 OK');
+}
+
 for (const vp of widths) {
   const ctx = await b.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();

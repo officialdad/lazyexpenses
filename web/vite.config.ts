@@ -8,7 +8,6 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		sveltekit(),
-		svelteTesting(),
 		SvelteKitPWA({
 			registerType: 'autoUpdate',
 			strategies: 'generateSW',
@@ -37,7 +36,8 @@ export default defineConfig({
 				navigateFallback: '/'
 			},
 			devOptions: { enabled: true, type: 'module', navigateFallback: '/' }
-		})
+		}),
+		svelteTesting()
 	],
 	test: {
 		environment: 'jsdom'

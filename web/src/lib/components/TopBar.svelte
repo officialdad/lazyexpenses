@@ -18,17 +18,29 @@
 
   $effect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
+    // rootMargin: top-anchored band — a section activates when its top enters
+    // the upper 30% of the viewport (0px top, -70% bottom shrinks the root).
+    // This means #overview (at scrollTop≈0) is immediately intersecting on load.
     const obs = new IntersectionObserver(
       (entries) => {
         for (const en of entries) if (en.isIntersecting) active = en.target.id;
       },
-      { rootMargin: '-40% 0px -55% 0px' }
+      { rootMargin: '0px 0px -70% 0px' }
     );
     for (const s of sections) {
       const el = document.getElementById(s.id);
       if (el) obs.observe(el);
     }
-    return () => obs.disconnect();
+    // Force Overview active when scrolled to the very top (e.g. after manual
+    // scroll-up that leaves no section top within the observer band).
+    function onScroll() {
+      if (window.scrollY < 10) active = 'overview';
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      obs.disconnect();
+      window.removeEventListener('scroll', onScroll);
+    };
   });
 </script>
 

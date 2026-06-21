@@ -59,7 +59,7 @@
   })());
 </script>
 
-<div class="mb-2 overflow-hidden" style="border:1px solid var(--divider)">
+<div class="overflow-hidden" style="border:1px solid var(--divider)">
   <!-- Header row — full-width button -->
   <button
     class="w-full flex items-center gap-3 px-4 py-3 text-left"
