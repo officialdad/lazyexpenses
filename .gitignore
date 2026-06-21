@@ -1,0 +1,12 @@
+node_modules/
+.superpowers/
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.env*
+*.pyc
+__pycache__/
+
+# raw bank statements & generated artifacts — never commit
+cc-statements/
+audit-shots/

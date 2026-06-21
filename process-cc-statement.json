@@ -1,0 +1,545 @@
+{
+  "name": "process-cc-statement",
+  "nodes": [
+    {
+      "parameters": {
+        "task": "MTM0NTQ1MTEyNDY5ODEwNTY3NTQ6MDow",
+        "title": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Title', \"`pay bank_name`\", 'string') }}",
+        "additionalFields": {
+          "dueDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Due_Date', \"`<due_date>T00:00:00.000Z`\", 'string') }}",
+          "notes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Notes', `account_name\naccount_no\namount`, 'string') }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleTasksTool",
+      "typeVersion": 1,
+      "position": [
+        560,
+        336
+      ],
+      "id": "3788511f-09fc-4f50-b080-3efe52d6b9a9",
+      "name": "Google Tasks",
+      "credentials": {
+        "googleTasksOAuth2Api": {
+          "id": "sjB44Wom222Gg6u3",
+          "name": "google-tasks-creds-ariff"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item;\n// Use optional chaining to prevent errors if html is missing\nconst html = item.json.html || item.json.text || \"\";\nconst banks = [\"cimb\", \"maybank\", \"alliance\", \"sc\", \"hsbc\", \"rhb\"];\nconst regex = new RegExp(`\\\\b(${banks.join(\"|\")})\\\\b`, \"i\");\nconst match = html.match(regex);\n\nlet bankName = null;\nif (match) {\n  bankName = match[1].toLowerCase();\n}\n\n// Set the value back to the JSON\nitem.json.bankName = bankName;\n\n// Handle Binary Attachments\nif (item.binary) {\n  let firstPdf = null;\n  \n  for (const key of Object.keys(item.binary)) {\n    const attachment = item.binary[key];\n    if (attachment.mimeType === 'application/pdf') {\n      firstPdf = attachment;\n      break;\n    }\n  }\n  \n  if (firstPdf) {\n    // Overwrite binary to only include the first PDF\n    item.binary = { data: firstPdf }; \n  }\n}\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -752,
+        64
+      ],
+      "id": "bcf1b342-d442-4388-b33e-d923e12f9914",
+      "name": "get bank",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Replace \"country\" with whatever field you want to check\nconst inputFieldName = \"bankName\";\nconst outputFieldName = \"password\";\n\n// Now write our result depending on the input field value\nswitch ($input.item.json[inputFieldName]) {\n  case 'maybank':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'cimb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'sc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'alliance':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break\n  case 'hsbc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'rhb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;    \n  default:\n    $input.item.json.error = 'Could not validate bankName';\n}\n\nreturn $input.item;"
+      },
+      "id": "d9724479-39f3-4d30-b0e3-f2fcad7472d6",
+      "name": "set pass",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pdf.opariffazman.com/api/v1/security/remove-password",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "fileInput",
+              "inputDataFieldName": "=data"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b918405-f9d0-4636-9e68-b2371a5fd3e1",
+      "name": "unlock pdf",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -384,
+        64
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wWP2trG8rMNF7wt7",
+          "name": "stirling-pdf-header-auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "file_0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        96,
+        64
+      ],
+      "id": "5f30ab73-c191-43b0-8aa6-ad538ec4d355",
+      "name": "extract text"
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "[{\n    \"bank_name\":\"alliance\",\n    \"account_name\":\"virtual\",\n    \"statement_date\": \"2025-05-16\",\n    \"payment_due_date\": \"2025-06-05\",\n    \"account_no\": \"1\",\n    \"statement_amount\": \"100\",\n    \"minimum_payment_amount\": \"10\"\n},\n{\n    \"bank_name\":\"alliance\",\n    \"account_name\":\"visa\",\n    \"statement_date\": \"2025-05-16\",\n    \"payment_due_date\": \"2025-06-05\",\n    \"account_no\": \"2\",\n    \"statement_amount\": \"1000\",\n    \"minimum_payment_amount\": \"100\"\n}]",
+        "options": {
+          "systemPromptTemplate": "=This statement contains raw exported text file showing\n- account number of the credit card\n- account name for the credit card or card type\n- statement amount or balance amount or outstanding amount or outstanding balance, never use minimum amount and always make sure amount is not empty, if amount is equals to 0, then omit the whole row for the credit card, \n- statement due date or payment due date. Ensure the dates would be in YYYY-MM-DD."
+        }
+      },
+      "id": "f8ed29e3-76a1-4e74-8634-fe192f08ed2c",
+      "name": "extract info with AI (cc statement)",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "position": [
+        240,
+        64
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pdf.opariffazman.com/api/v1/general/split-pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "fileInput",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "pageNumbers",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9bbe78d1-2f56-4614-9b41-5a3753d3127c",
+      "name": "split pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -224,
+        64
+      ],
+      "typeVersion": 4.2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wWP2trG8rMNF7wt7",
+          "name": "stirling-pdf-header-auth"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        -64,
+        64
+      ],
+      "id": "afbbd000-cedf-44fe-95e1-379c3135f38a",
+      "name": "decompress"
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('email received').item.json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        992,
+        64
+      ],
+      "id": "53d4faef-970c-48b8-a231-3ae4e5adc7f2",
+      "name": "mark email read",
+      "webhookId": "c68ab613-348c-4c0d-92af-df96cb3a9c62",
+      "alwaysOutputData": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Eflopj0v5mU7eLI4",
+          "name": "gmail-creds-ariff"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "***REMOVED***",
+        "text": "={{ $('AI Agent').item.json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1232,
+        64
+      ],
+      "id": "aac28531-98a3-4ca1-8bcb-90b42a189aec",
+      "name": "send message to op",
+      "webhookId": "188c24aa-56e3-4563-99ae-02a5e6348b79",
+      "credentials": {
+        "telegramApi": {
+          "id": "BzOqQYtm6k0wVPTV",
+          "name": "opn8nbot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {
+          "safetySettings": {
+            "values": [
+              {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE"
+              }
+            ]
+          }
+        }
+      },
+      "id": "17288b3b-990c-4aa4-87e3-443385773675",
+      "name": "gemini-flash-latest",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        112,
+        320
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "F704ATb1UHr3GAGq",
+          "name": "gemini-api-ariff"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.output[0] }}",
+        "options": {
+          "systemMessage": "=Use google task tools to create a reminder with the following fields & set the due date 3 days before {{ $json.output[0].payment_due_date }}:\n\nTitle: Pay {{ $json.output[0].bank_name }}\n\nDetails: \n```\nAccount Name: {{ $json.output[0].account_name }}\nAccount Number: {{ $json.output[0].account_no }}\nStatement Amount: {{ $json.output[0].statement_amount }}\n```\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        560,
+        64
+      ],
+      "id": "ddea97f6-6887-47fd-a808-83444fda9c00",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "Label_5147692669189973304"
+          ],
+          "readStatus": "unread"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -928,
+        64
+      ],
+      "id": "528e6536-530f-4e93-b1c9-50ddda8c584e",
+      "name": "email received",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Eflopj0v5mU7eLI4",
+          "name": "gmail-creds-ariff"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "email received": [
+      {
+        "json": {
+          "id": "19eda6e2675ddfb9",
+          "threadId": "19eda6e2675ddfb9",
+          "labelIds": [
+            "Label_5147692669189973304",
+            "UNREAD",
+            "IMPORTANT",
+            "STARRED",
+            "CATEGORY_UPDATES",
+            "INBOX"
+          ],
+          "sizeEstimate": 573198,
+          "headers": {
+            "delivered-to": "Delivered-To: ***REMOVED***",
+            "received": "Received: from mail-10697.protonmail.ch (mail-10697.protonmail.ch. [79.135.106.97])\r\n        by mx.google.com with ESMTPS id 2adb3069b0e04-5ad2e1afbdfsi6108725e87.106.2026.06.18.04.11.52\r\n        for <***REMOVED***>\r\n        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);\r\n        Thu, 18 Jun 2026 04:11:52 -0700 (PDT)",
+            "x-received": "X-Received: by 2002:a05:6512:1281:b0:5aa:62d2:56bb with SMTP id 2adb3069b0e04-5ad47ef47dbmr952017e87.8.1781781112783;\r\n        Thu, 18 Jun 2026 04:11:52 -0700 (PDT)",
+            "arc-seal": "ARC-Seal: i=1; a=rsa-sha256; t=1781781112; cv=none;\r\n        d=google.com; s=arc-20240605;\r\n        b=PZfzjVBWTqRmUR6JIhBMBv67opdNX8jmujgEzhrz0CcDydGAsgjdoxFxsW2ZmJ8vrA\r\n         n4ymjV4ByZaI8gbayXXqY1gQjhMs598g98cq7U+Arv6L+IwsUklMQHz649I/PUX4hG2O\r\n         S1gjuoLr/38u9jncLI7SY9xe3QGJ/81FZ8dxw8GxrbxihCmaespZK1vLKQn0tn4xvOfQ\r\n         p6ytaS2ai4BrZZZVBU+68qj3IYa+NMR83fAidfVsZkmpYdpuMIM/wQbpheZzbMYByVQA\r\n         GBJ8ub2SrDjSCu5H85UpRZwXFEvpggdWRZchvPVM9RRY7zk76XJ3B2ZVmNMvVFNr7LlO\r\n         eJhw==",
+            "arc-message-signature": "ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;\r\n        h=mime-version:feedback-id:references:in-reply-to:message-id:subject\r\n         :from:to:date:dkim-signature;\r\n        bh=bNAVEktZfvsi7CQPsEZ4eA5rAeBc6kYfWMx774atm4c=;\r\n        fh=Tl+h2os0m1sCYCbWU8/lagyve629uTmo9LSg/GoO6Mg=;\r\n        b=TnAWNEVCMFaf1U1rVsYMQOqzGaHOrvmavSPeB5rbOaZpYh3olw46cQh0Jif80HJnwU\r\n         O5a/LIfqMTdJ6citnknRtogaPte8TdpwX0sfA55dDsjxhfoODQb8iU4h+qDpUoYs7jT1\r\n         fBPMyNP7EEUc6s8u8lb6/0letq6qxBpAd0u57LZ3XjVaHEWiBsKH8qQI7dO7R1w4AoQJ\r\n         Q2zF/D3AyG4Dr66HQmcC+H7c5ZcPBq9Y7txm4zRyboI01SdDdWWrUjkuXM5pu4ff8MFk\r\n         XpZ3xKXj/a6Yz3xIX6/55ilAKKo0Plzoyvrq80yPjO7jInwbIbAIeGNp58hVQMD4jU+J\r\n         Lw0Q==;\r\n        dara=google.com",
+            "arc-authentication-results": "ARC-Authentication-Results: i=1; mx.google.com;\r\n       dkim=pass header.i=@proton.me header.s=protonmail header.b=CI8jZTTJ;\r\n       spf=pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) smtp.mailfrom=***REMOVED***;\r\n       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=proton.me",
+            "return-path": "Return-Path: <***REMOVED***>",
+            "received-spf": "Received-SPF: pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) client-ip=79.135.106.97;",
+            "authentication-results": "Authentication-Results: mx.google.com;\r\n       dkim=pass header.i=@proton.me header.s=protonmail header.b=CI8jZTTJ;\r\n       spf=pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) smtp.mailfrom=***REMOVED***;\r\n       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=proton.me",
+            "dkim-signature": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=proton.me;\r\n\ts=protonmail; t=1781781109; x=1782040309;\r\n\tbh=bNAVEktZfvsi7CQPsEZ4eA5rAeBc6kYfWMx774atm4c=;\r\n\th=Date:To:From:Subject:Message-ID:In-Reply-To:References:\r\n\t Feedback-ID:From:To:Cc:Date:Subject:Reply-To:Feedback-ID:\r\n\t Message-ID:BIMI-Selector;\r\n\tb=CI8jZTTJg420EPIbH4zytpgO4y2CLob4UcL3TCXiLueuYQwi/cCkaXaHSAW5+4L1K\r\n\t UQdQOdiRnw3xfYhiVV7G+/pX1aiuvmdi6Uz1tuTKTwvmyRgC11NeYaFE4dZ+nT8hbQ\r\n\t fLLxIQdi6fhQsZ9yUdQF6HadqgGoht8D1maxC+foeOJHJ8n4lNjD9Lkry/TgviUobE\r\n\t 2nfog8hN/JqB6+ceff9WouL4b0h3j+58M8FQAoz4BW84ablJe7UIerKgCBCZqXKfQj\r\n\t 3tILtzbVzg5kTKgQlQlzRElJZKhcVHjJPWIN7Ll6OmHN1d0kxpEkQAM0oFffS2ZjL3\r\n\t hr+AXWn8J3pTQ==",
+            "date": "Date: Thu, 18 Jun 2026 11:11:46 +0000",
+            "to": "To: ***REMOVED***",
+            "from": "From: ariff azman <***REMOVED***>",
+            "subject": "Subject: Fw: Alliance Bank Credit Card",
+            "message-id": "Message-ID: <PO_L4chz7nFbtDH90LpCrcAHECCrhDpMZdSYWhMR1THbV-rJpjG7NBz3_dGFDz5Y12i4UfwF16cyqSyiV2Aewnh8vrf7aZdOtExlnlMfqPk=@proton.me>",
+            "in-reply-to": "In-Reply-To: <0001|@|18KoJDzHhc>",
+            "references": "References: <0001|@|18KoJDzHhc>",
+            "feedback-id": "Feedback-ID: 75401366:user:proton",
+            "x-pm-message-id": "X-Pm-Message-ID: e26c0f4c595e1d543c2caa6f1c7c6eef6260cb92",
+            "mime-version": "MIME-Version: 1.0",
+            "content-type": "Content-Type: multipart/mixed;\r\n boundary=\"b1=_xZ72zzuSoWnrPgVN1oVwy74EkYEU3OAuezaWXZfPxqw\""
+          },
+          "html": "<html><head></head><body><br><br><br><div class=\"protonmail_signature_block-user\"><div style=\"font-size: 14px; color: #000\"><font face=\"Menlo, Consolas, Courier New, monospace\">ariff azman</font></div></div><br><br>Sent from <a target=\"_blank\" href=\"https://proton.me/mail/home\" rel=\"noreferrer\">Proton Mail</a> for Android.<div class=\"protonmail_quote\"><br><br>-------- Original Message --------<br>On Thursday, 06/18/26 at 18:14 AllianceBank &lt;e-statement@alliancebank.e-statement.com.my&gt; wrote:<br><blockquote class=\"protonmail_quote\">\n    <table id=\"main\" class=\"outer\" align=\"center\">\n        <tbody><tr>\n            <td>\n               Dear Customer,\n               <br><br>\n               We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.\n               <br><br>\n               For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:\n            </td>\n        </tr>\n        <tr>\n            <td>\n                <ol class=\"list\">\n                    <li>The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).</li>\n                    <li>Special character \"#\".</li>\n                    <li>The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)</li>\n                </ol>\n            </td>\n        </tr>\n        <tr>\n            <td>\n               Example: W#5768 (IC No) or W#429R (Passport No).\n               <br><br>\n               To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.\n               <br><br>\n               You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer.\n               To avoid future emails like this being automatically sent to the junk folder,\n               please add e-statement@alliancebank.e-statement.com.my to your Address Book and/or the \"Approved Sender\" list.\n            </td>\n        </tr>\n        <tr>\n            <td class=\"middleline\" style=\"height: 1px\"> </td>\n        </tr>\n        <tr>\n            <td>\n                <b>NOTICE</b>\n                <br><br>\n\n                This is a PRIVATE electronic message transmission intended only for the use of the person to whom\n                it is expressively addressed and may contain information that is confidential and legally privileged.\n                If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to,\n                review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited.\n                <b>If you have received this message in error, please disregard and delete all its contents immediately.</b>\n                <br><br>\n\n                This is an <b>auto-generated</b> email. <b>Please do not reply to this message.</b>\n                For more information or assistance, please contact our <b>Customer Service</b> at 03-5516 9988.\n            </td>\n        </tr>\n      </tbody></table>\n<img src=\"http://tracking2.e-statement.com.my/MTAwMQ0KKzAwMDErKysxOEtvSkR6SGhjKw0KKzAwMDErKysxOEtvSkR6SGhjKw0KMzliMDAwMDAwMDY0NTBjDQpBUklGRi5BWk1BTkBQUk9UT04uTUU%3d.gif\" alt=\"\" width=\"0\" height=\"0\">\n\n<p><img src=\"http://www.google-analytics.com/collect?v=1&amp;tid=UA-78233423-2&amp;cid=AlliancCC&amp;t=event&amp;ec=email&amp;ea=open&amp;el=June 2026&amp;cs=Alliance_309041&amp;cm=email&amp;cn=AllianceCC_13675873\" alt=\"\"></p>\n\n\n</blockquote></div></body></html>",
+          "text": "ariff azman\n\nSent from [Proton Mail](https://proton.me/mail/home) for Android.\n\n-------- Original Message --------\nOn Thursday, 06/18/26 at 18:14 AllianceBank <e-statement@alliancebank.e-statement.com.my> wrote:\n\n> Dear Customer,\n>\n> We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.\n>\n> For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:\n>\n> - The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).\n> - Special character \"#\".\n> - The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)\n>\n> Example: W#5768 (IC No) or W#429R (Passport No).\n>\n> To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.\n>\n> You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer. To avoid future emails like this being automatically sent to the junk folder, please add e-statement@alliancebank.e-statement.com.my to your Address Book and/or the \"Approved Sender\" list.\n>\n> NOTICE\n>\n> This is a PRIVATE electronic message transmission intended only for the use of the person to whom it is expressively addressed and may contain information that is confidential and legally privileged. If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to, review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited. If you have received this message in error, please disregard and delete all its contents immediately.\n>\n> This is an auto-generated email. Please do not reply to this message. For more information or assistance, please contact our Customer Service at 03-5516 9988.",
+          "textAsHtml": "<p>ariff azman</p><p>Sent from [Proton Mail](<a href=\"https://proton.me/mail/home\">https://proton.me/mail/home</a>) for Android.</p><p>-------- Original Message --------<br/>On Thursday, 06/18/26 at 18:14 AllianceBank &lt;<a href=\"mailto:e-statement@alliancebank.e-statement.com.my\">e-statement@alliancebank.e-statement.com.my</a>&gt; wrote:</p><p>&gt; Dear Customer,<br/>&gt;<br/>&gt; We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.<br/>&gt;<br/>&gt; For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:<br/>&gt;<br/>&gt; - The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).<br/>&gt; - Special character &quot;#&quot;.<br/>&gt; - The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)<br/>&gt;<br/>&gt; Example: W#5768 (IC No) or W#429R (Passport No).<br/>&gt;<br/>&gt; To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.<br/>&gt;<br/>&gt; You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer. To avoid future emails like this being automatically sent to the junk folder, please add <a href=\"mailto:e-statement@alliancebank.e-statement.com.my\">e-statement@alliancebank.e-statement.com.my</a> to your Address Book and/or the &quot;Approved Sender&quot; list.<br/>&gt;<br/>&gt; NOTICE<br/>&gt;<br/>&gt; This is a PRIVATE electronic message transmission intended only for the use of the person to whom it is expressively addressed and may contain information that is confidential and legally privileged. If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to, review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited. If you have received this message in error, please disregard and delete all its contents immediately.<br/>&gt;<br/>&gt; This is an auto-generated email. Please do not reply to this message. For more information or assistance, please contact our Customer Service at 03-5516 9988.</p>",
+          "subject": "Fw: Alliance Bank Credit Card",
+          "references": "<0001|@|18KoJDzHhc>",
+          "date": "2026-06-18T11:11:46.000Z",
+          "to": {
+            "value": [
+              {
+                "address": "***REMOVED***",
+                "name": ""
+              }
+            ],
+            "html": "<span class=\"mp_address_group\"><a href=\"mailto:***REMOVED***\" class=\"mp_address_email\">***REMOVED***</a></span>",
+            "text": "***REMOVED***"
+          },
+          "from": {
+            "value": [
+              {
+                "address": "***REMOVED***",
+                "name": "ariff azman"
+              }
+            ],
+            "html": "<span class=\"mp_address_group\"><span class=\"mp_address_name\">ariff azman</span> &lt;<a href=\"mailto:***REMOVED***\" class=\"mp_address_email\">***REMOVED***</a>&gt;</span>",
+            "text": "\"ariff azman\" <***REMOVED***>"
+          },
+          "messageId": "<PO_L4chz7nFbtDH90LpCrcAHECCrhDpMZdSYWhMR1THbV-rJpjG7NBz3_dGFDz5Y12i4UfwF16cyqSyiV2Aewnh8vrf7aZdOtExlnlMfqPk=@proton.me>",
+          "inReplyTo": "<0001|@|18KoJDzHhc>"
+        },
+        "binary": {
+          "attachment_0": {
+            "mimeType": "application/pdf",
+            "fileType": "pdf",
+            "fileExtension": "pdf",
+            "data": "filesystem-v2",
+            "fileName": "June_Credit_Card_Statement.pdf",
+            "id": "filesystem-v2:workflows/qmyixyXa043I59m3/executions/temp/binary_data/f1377c21-3979-416f-877b-bedaa97b6cc3",
+            "fileSize": "410 kB",
+            "bytes": 409653
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Google Tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get bank": {
+      "main": [
+        [
+          {
+            "node": "set pass",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set pass": {
+      "main": [
+        [
+          {
+            "node": "unlock pdf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "unlock pdf": {
+      "main": [
+        [
+          {
+            "node": "split pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract text": {
+      "main": [
+        [
+          {
+            "node": "extract info with AI (cc statement)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract info with AI (cc statement)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split pages": {
+      "main": [
+        [
+          {
+            "node": "decompress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "decompress": {
+      "main": [
+        [
+          {
+            "node": "extract text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mark email read": {
+      "main": [
+        [
+          {
+            "node": "send message to op",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gemini-flash-latest": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "extract info with AI (cc statement)",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "mark email read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "email received": {
+      "main": [
+        [
+          {
+            "node": "get bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "JJVEmOJL8mDXn96v"
+  },
+  "versionId": "d0344d98-c8e9-44a0-a435-4aa29724dfd3",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2db4cebb2e29355fc40aa372f4dd032db36d2bf2575deedb8d24a8d9c1bb1f19"
+  },
+  "nodeGroups": [],
+  "id": "qmyixyXa043I59m3",
+  "tags": []
+}
