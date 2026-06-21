@@ -24,7 +24,7 @@
 </script>
 
 <!-- Page header -->
-<p class="text-[11px] uppercase tracking-widest mb-4 font-medium" style="color:var(--muted)">Cuts</p>
+<p class="text-xs uppercase tracking-widest mb-4 font-medium" style="color:var(--muted)">Cuts</p>
 
 {#each groups as g}
   <!-- Group accent header -->
@@ -32,7 +32,7 @@
     {g.title}
   </h2>
 
-  {#each g.items as rec (rec.merchant ?? rec.name)}
+  {#each g.items as rec (rec.merchant ?? rec.name ?? rec.title ?? rec.cat)}
     <RecCard {rec} />
   {/each}
 {/each}

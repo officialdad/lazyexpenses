@@ -9,7 +9,7 @@
 
   const cat = $derived(rec.cat ?? rec.category ?? rec.g ?? 'Other');
   const icon = $derived(app.catIcon[cat] ?? 'shape-outline');
-  const name = $derived(rec.merchant ?? rec.name ?? '—');
+  const name = $derived(rec.merchant ?? rec.name ?? rec.title ?? rec.cat ?? '—');
 
   // Annual figure for subs/creep/oneoff; monthly for installments/transfers
   const hasAnnual = $derived(rec.rmAnnual != null);
@@ -120,12 +120,25 @@
       {/if}
 
       <!-- Cat label -->
-      <p class="uppercase tracking-wider text-[11px]" style="color:{app.colors[cat] ?? 'var(--muted)'}">{cat}</p>
+      <p class="uppercase tracking-wider text-xs" style="color:{app.colors[cat] ?? 'var(--muted)'}">{cat}</p>
 
-      <!-- Evidence: aggregated by month -->
-      {#if evidenceByMonth.length > 0}
+      <!-- Evidence: creep shows per-merchant prev→recent breakdown -->
+      {#if rec.type === 'creep'}
+        {#if rec.evidence && rec.evidence.length > 0}
+          <div class="mt-2 space-y-1">
+            <p class="uppercase tracking-wider text-xs" style="color:var(--muted)">Merchant breakdown</p>
+            {#each rec.evidence as ev}
+              <div class="flex justify-between tabular-nums text-xs gap-2" style="color:var(--fg-2)">
+                <span class="truncate">{ev.merchant}</span>
+                <span class="shrink-0">{rm(ev.prev)} → {rm(ev.recent)} <span style="color:var(--red,#f87171)">+{rm(ev.delta)}</span></span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else if evidenceByMonth.length > 0}
+        <!-- Evidence: aggregated by month for sub/oneoff/installment/transfer -->
         <div class="mt-2 space-y-1">
-          <p class="uppercase tracking-wider text-[11px]" style="color:var(--muted)">Charge history</p>
+          <p class="uppercase tracking-wider text-xs" style="color:var(--muted)">Charge history</p>
           {#each evidenceByMonth as [month, total]}
             <div class="flex justify-between tabular-nums text-xs" style="color:var(--fg-2)">
               <span>{month}</span>
