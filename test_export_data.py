@@ -17,7 +17,7 @@ def test_build_committed_sums_subs_and_installments():
             {"name": "OldPlan -12M", "monthly": 200.0, "ended": True},
         ],
         "recs": [
-            {"type": "sub", "merchant": "Claude.ai", "rmMonthly": 180.0, "stale": False},
+            {"type": "sub", "merchant": "Claude.ai", "rmMonthly": 180.0, "stale": False, "cat": "Subscriptions"},
             {"type": "sub", "merchant": "OldGym", "rmMonthly": 99.0, "stale": True},
             {"type": "creep", "cat": "Telco/Utilities"},
         ],
@@ -30,6 +30,9 @@ def test_build_committed_sums_subs_and_installments():
     assert kinds == ["installment", "sub"]
     # ended plan must not appear in items
     assert not any(i["name"] == "OldPlan -12M" for i in c["items"])
+    # subCats must include the active sub's category
+    assert "subCats" in c, "subCats key missing"
+    assert c["subCats"] == ["Subscriptions"], f"unexpected subCats: {c['subCats']}"
 
 
 def test_payload_has_required_keys():

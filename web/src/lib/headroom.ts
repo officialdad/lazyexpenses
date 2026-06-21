@@ -8,7 +8,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function computeHeadroom(p: {
   rows: Row[]; month: string; ceiling: number; committed: Committed; nonSpend: string[];
 }): Headroom {
-  const skip = new Set([...p.nonSpend, 'Subscriptions']);
+  const skip = new Set([...p.nonSpend, ...(p.committed.subCats?.length ? p.committed.subCats : ['Subscriptions'])]);
   let spent = 0;
   for (const row of p.rows) {
     if (row.m !== p.month) continue;

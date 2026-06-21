@@ -36,6 +36,7 @@ def build_committed(insights_out):
               "kind": "installment"} for p in active_inst]
 
     subs_total = 0.0
+    sub_cats: list[str] = []
     for r in insights_out.get("recs", []) or []:
         # insights.py uses r["type"] == "sub" (not "kind")
         # and r["rmMonthly"] for the per-sub monthly price (not "monthly")
@@ -49,12 +50,17 @@ def build_committed(insights_out):
                     "kind": "sub",
                 }
             )
+            cat = r.get("cat")
+            if cat and cat not in sub_cats:
+                sub_cats.append(cat)
     subs_total = round(subs_total, 2)
+    sub_cats.sort()
 
     return {
         "monthly": round(inst_total + subs_total, 2),
         "subs": subs_total,
         "installments": inst_total,
+        "subCats": sub_cats,
         "items": items,
     }
 

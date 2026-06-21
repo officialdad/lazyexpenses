@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { computeHeadroom } from './headroom';
 import type { Row, Committed } from './types';
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
 const NON = ['Installments/BT', 'Transfers/Payments', 'Rebate/Cashback'];
-const committed = (monthly: number): Committed => ({ monthly, subs: 0, installments: monthly, items: [] });
+const committed = (monthly: number): Committed => ({ monthly, subs: 0, installments: monthly, subCats: ['Subscriptions'], items: [] });
 
 const r = (g: string, a: number, t: 0 | 1 = 0): Row => ({ c: 'x', m: '2026-06', g, a, t, d: '' });
 
@@ -53,5 +54,25 @@ describe('computeHeadroom', () => {
     const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committed(640), nonSpend: NON });
     expect(h.free).toBe(160);
     expect(h.status).toBe('warn');
+  });
+
+  it('excludes Telco/Utilities from spent when subCats includes it (no double-count)', () => {
+    // Telco sub (e.g. TIMEDOTCOM ~RM208.82) is in committed.subs AND appears as a row.
+    // subCats: ['Telco/Utilities'] → skip set must exclude it from spent.
+    const telcoMonthly = 208.82;
+    const committedWithTelco: Committed = {
+      monthly: telcoMonthly,
+      subs: telcoMonthly,
+      installments: 0,
+      subCats: ['Telco/Utilities'],
+      items: [{ name: 'TIMEDOTCOM SHAH ALAM', monthly: telcoMonthly, kind: 'sub' }],
+    };
+    const rows = [r('F&B', 900), r('Telco/Utilities', telcoMonthly)];
+    const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committedWithTelco, nonSpend: NON });
+    // Telco charge must NOT appear in spent — it's already in locked
+    expect(h.spent).toBe(900);
+    expect(h.locked).toBe(telcoMonthly);
+    expect(h.used).toBe(round2(telcoMonthly + 900));
+    expect(h.free).toBe(round2(3000 - telcoMonthly - 900));
   });
 });
