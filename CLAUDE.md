@@ -72,6 +72,12 @@ The **"LLM polish" is a build-time human-in-the-loop step, not embedded**: after
 ### Ranking, savings & the tab
 Subs/creep/one-offs are ranked into `recs` by **annual RM impact** (`severity`); installments/transfers are separate top-level arrays sorted by monthly. **`savingsAnnual` = cancellable subs + creep only** — installments and balance transfers are committed debt, never counted as "savings" (and Akmal-style false subs were the reason the number kept moving during tuning). The tab renders five groups: Subscriptions → Installments → Balance transfers → Creep → One-offs, each card category-badged with click-to-expand drill-down (charge history / merchant-delta / txn detail). Design specs live in `docs/superpowers/specs/2026-06-21-*.md`.
 
+### Hosted PWA build (web/)
+After `parse.py`: `python export_data.py` regenerates `web/src/lib/data/app.json`,
+then `cd web && npm run build` produces the static PWA in `web/build/`.
+Full refresh: `python parse.py && python insights.py && python export_data.py && python verify_parity.py && cd web && npm run build`.
+(Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
+
 ### Refresh loop (adding new statements)
 New statements → run the n8n `compile-cc-statements` workflow (re-exports the **full** label-`CC` history, not just new mail) → unzip into `cc-statements/`, replacing contents (keep the `<bank>_…` filename prefix; the `_N` index is meaningless) → `python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs` → check the reconciliation report stays all-VERIFIED, and that `audit.mjs` prints no ISSUES (overflow / sub-11px text — e.g. a new long card name or category could overflow a chart) (a new `REVIEW` means the bank changed its template — debug with `probe.py`) and skim `recommendations.csv` for new false-positives (a new unseen recurring merchant may need an `INSTALLMENT_MERCHANTS` / category-allowlist tweak). New months/cards surface in all dashboard views automatically.
 

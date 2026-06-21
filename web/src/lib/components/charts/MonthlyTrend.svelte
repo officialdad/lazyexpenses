@@ -25,7 +25,7 @@
         {@const pct = max > 0 ? (s.total / max) * 140 : 0}
         <div class="flex flex-col items-center shrink-0" style="min-width:36px;flex:1">
           <!-- Value label above bar -->
-          <span class="text-[11px] mb-1 tabular-nums text-center leading-tight" style="color:var(--muted)">
+          <span class="text-[12px] mb-1 tabular-nums text-center leading-tight" style="color:var(--muted)">
             {rm(s.total)}
           </span>
           <!-- Bar -->
@@ -35,7 +35,7 @@
             title="{fmtMonth(s.month)}: {rm(s.total)}"
           ></div>
           <!-- Month label below bar -->
-          <span class="text-[11px] mt-1 text-center leading-tight" style="color:var(--muted); max-width:40px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+          <span class="text-[12px] mt-1 text-center leading-tight" style="color:var(--muted); max-width:40px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
             {fmtMonth(s.month)}
           </span>
         </div>

@@ -7,7 +7,7 @@
 </script>
 
 <header
-  class="flex justify-between items-center text-[10px] uppercase tracking-wide font-bold mb-3"
+  class="flex justify-between items-center text-[13px] uppercase tracking-wide font-bold mb-3"
   style="color:var(--muted)"
 >
   <span>{month}</span>

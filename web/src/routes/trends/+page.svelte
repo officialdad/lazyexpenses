@@ -4,7 +4,7 @@
   import TopMerchants from '$lib/components/charts/TopMerchants.svelte';
 </script>
 
-<h1 class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--muted)">Trends</h1>
+<h1 class="text-[13px] uppercase tracking-widest mb-3" style="color:var(--muted)">Trends</h1>
 <MonthlyTrend />
 <CategoryDonut />
 <TopMerchants />

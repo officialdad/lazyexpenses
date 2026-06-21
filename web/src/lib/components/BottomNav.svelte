@@ -12,7 +12,7 @@
   {#each tabs as t}
     {@const on = path === t.href}
     <a href={t.href} aria-current={on ? 'page' : undefined}
-       class="flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-bold uppercase tracking-wide"
+       class="flex-1 flex flex-col items-center gap-1 py-3 text-[12px] font-bold uppercase tracking-wide"
        style="color:{on ? 'var(--accent)' : 'var(--muted)'}">
       <Icon name={t.icon} size={22} />
       {t.label}

@@ -59,11 +59,11 @@
   })());
 </script>
 
-<div class="mb-2 rounded-lg overflow-hidden" style="border:1px solid var(--divider)">
+<div class="mb-2 overflow-hidden" style="border:1px solid var(--divider)">
   <!-- Header row — full-width button -->
   <button
     class="w-full flex items-center gap-3 px-4 py-3 text-left"
-    style="background:var(--panel2)"
+    style="background:var(--surface2)"
     aria-expanded={open}
     onclick={toggle}
     {onkeydown}
@@ -75,7 +75,7 @@
 
     <!-- Name + badges -->
     <span class="flex-1 min-w-0">
-      <span class="block font-semibold text-sm truncate" style="color:var(--fg)">
+      <span class="block font-semibold text-sm truncate" style="color:var(--text)">
         {name}
       </span>
       {#if stale}
@@ -104,7 +104,7 @@
 
       <!-- Monthly sub-figure (when headline is annual) -->
       {#if hasAnnual && rec.rmMonthly != null}
-        <p class="tabular-nums" style="color:var(--fg-2)">
+        <p class="tabular-nums" style="color:var(--muted)">
           ~{rm(rec.rmMonthly)}/mo
         </p>
       {/if}
@@ -128,9 +128,9 @@
           <div class="mt-2 space-y-1">
             <p class="uppercase tracking-wider text-xs" style="color:var(--muted)">Merchant breakdown</p>
             {#each rec.evidence as ev}
-              <div class="flex justify-between tabular-nums text-xs gap-2" style="color:var(--fg-2)">
+              <div class="flex justify-between tabular-nums text-xs gap-2" style="color:var(--muted)">
                 <span class="truncate">{ev.merchant}</span>
-                <span class="shrink-0">{rm(ev.prev)} → {rm(ev.recent)} <span style="color:var(--red,#f87171)">+{rm(ev.delta)}</span></span>
+                <span class="shrink-0">{rm(ev.prev)} → {rm(ev.recent)} <span style="color:var(--over)">+{rm(ev.delta)}</span></span>
               </div>
             {/each}
           </div>
@@ -140,7 +140,7 @@
         <div class="mt-2 space-y-1">
           <p class="uppercase tracking-wider text-xs" style="color:var(--muted)">Charge history</p>
           {#each evidenceByMonth as [month, total]}
-            <div class="flex justify-between tabular-nums text-xs" style="color:var(--fg-2)">
+            <div class="flex justify-between tabular-nums text-xs" style="color:var(--muted)">
               <span>{month}</span>
               <span>{rm(total)}</span>
             </div>
