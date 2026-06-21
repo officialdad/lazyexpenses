@@ -30,15 +30,10 @@ def build_committed(insights_out):
     the field name so Svelte consumers get a consistent, clean contract.
     """
     inst = insights_out.get("installments", []) or []
-    inst_total = round(sum(float(p.get("monthly", 0) or 0) for p in inst), 2)
-    items = [
-        {
-            "name": p.get("name", "?"),
-            "monthly": round(float(p.get("monthly", 0) or 0), 2),
-            "kind": "installment",
-        }
-        for p in inst
-    ]
+    active_inst = [p for p in inst if not p.get("ended", False)]
+    inst_total = round(sum(float(p.get("monthly", 0) or 0) for p in active_inst), 2)
+    items = [{"name": p.get("name", "?"), "monthly": round(float(p.get("monthly", 0) or 0), 2),
+              "kind": "installment"} for p in active_inst]
 
     subs_total = 0.0
     for r in insights_out.get("recs", []) or []:
@@ -76,7 +71,7 @@ def build_payload(rows, insights_out):
         "months": months,
         "cards": cards,
         "cats": cats,
-        "nonSpend": dashboard.NON_SPEND,
+        "nonSpend": dashboard.NON_SPEND,  # a list (Svelte: use .includes())
         "colors": dashboard.COLORS,
         "catIcon": dashboard.CAT_ICON,
         "icons": dashboard.MDI,

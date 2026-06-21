@@ -10,9 +10,12 @@ import export_data
 def test_build_committed_sums_subs_and_installments():
     # Fixture matches REAL insights.compute() output shape:
     #   recs[].type (not .kind), recs[].rmMonthly (not .monthly), recs[].stale
-    #   installments[].monthly, installments[].name
+    #   installments[].monthly, installments[].name, installments[].ended
     insights_out = {
-        "installments": [{"name": "Senheng -36M", "monthly": 460.0}],
+        "installments": [
+            {"name": "Senheng -36M", "monthly": 460.0},
+            {"name": "OldPlan -12M", "monthly": 200.0, "ended": True},
+        ],
         "recs": [
             {"type": "sub", "merchant": "Claude.ai", "rmMonthly": 180.0, "stale": False},
             {"type": "sub", "merchant": "OldGym", "rmMonthly": 99.0, "stale": True},
@@ -20,11 +23,13 @@ def test_build_committed_sums_subs_and_installments():
         ],
     }
     c = export_data.build_committed(insights_out)
-    assert c["installments"] == 460.0
+    assert c["installments"] == 460.0    # ended 200 excluded
     assert c["subs"] == 180.0            # stale sub excluded
     assert c["monthly"] == 640.0
     kinds = sorted(i["kind"] for i in c["items"])
     assert kinds == ["installment", "sub"]
+    # ended plan must not appear in items
+    assert not any(i["name"] == "OldPlan -12M" for i in c["items"])
 
 
 def test_payload_has_required_keys():
