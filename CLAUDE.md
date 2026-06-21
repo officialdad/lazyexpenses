@@ -78,6 +78,16 @@ then `cd web && npm run build` produces the static PWA in `web/build/`.
 Full refresh: `python parse.py && python insights.py && python export_data.py && python verify_parity.py && cd web && npm run build`.
 (Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
 
+The PWA is responsive across 3 tiers: <768px mobile (routed, BottomNav, 1-col),
+768-1024px tablet (routed, 2-col panels), >=1024px desktop (TopBar + unified
+Dashboard rendering all three Views in anchored sections, capped max-w-7xl).
++layout.svelte renders two CSS-toggled subtrees (lg:hidden routed / hidden
+lg:block Dashboard) — both mount at all widths, but all-time chart aggregates
+are hoisted to module scope in data.ts so the double-render adds no compute.
+Acceptance gate: build, `npm run preview -- --port 4173`, then
+`node web/audit-responsive.mjs` (checks 390/834/1440 for overflow/sub-11px/
+console errors; screenshots -> web/audit-shots/).
+
 ### Refresh loop (adding new statements)
 New statements → run the n8n `compile-cc-statements` workflow (re-exports the **full** label-`CC` history, not just new mail) → unzip into `cc-statements/`, replacing contents (keep the `<bank>_…` filename prefix; the `_N` index is meaningless) → `python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs` → check the reconciliation report stays all-VERIFIED, and that `audit.mjs` prints no ISSUES (overflow / sub-11px text — e.g. a new long card name or category could overflow a chart) (a new `REVIEW` means the bank changed its template — debug with `probe.py`) and skim `recommendations.csv` for new false-positives (a new unseen recurring merchant may need an `INSTALLMENT_MERCHANTS` / category-allowlist tweak). New months/cards surface in all dashboard views automatically.
 
