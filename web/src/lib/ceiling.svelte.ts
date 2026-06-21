@@ -12,7 +12,7 @@ let _value = $state(read());
 export const ceiling = {
   get value() { return _value; },
   set(n: number) {
-    _value = n > 0 ? n : DEFAULT;
+    _value = (n > 0 && Number.isFinite(n)) ? n : DEFAULT;
     if (typeof localStorage !== 'undefined') localStorage.setItem(KEY, String(_value));
   }
 };
