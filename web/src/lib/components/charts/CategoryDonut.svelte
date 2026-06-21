@@ -58,16 +58,15 @@
   {:else}
     <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
       <!-- SVG Donut -->
-      <div class="shrink-0 mx-auto" style="width:180px;height:180px">
-        <svg viewBox="0 0 200 200" width="180" height="180" role="img" aria-label="Category spend donut chart">
+      <div class="shrink-0 mx-auto" style="width:200px;height:200px">
+        <svg viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Category spend donut chart">
           {#each arcs as a}
             <path d={a.path} fill={a.color} stroke="var(--bg)" stroke-width="1.5">
               <title>{a.g}: {rm(a.total)}</title>
             </path>
           {/each}
-          <!-- Center labels (DOM-adjacent; these are SVG text for center positioning only) -->
-          <text x="100" y="95" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="inherit">Total</text>
-          <text x="100" y="112" text-anchor="middle" font-size="13" fill="var(--text)" font-family="inherit" font-weight="600">{rm(total)}</text>
+          <!-- Center label: single total figure at 16px (no downscale → effective 16px ≥ 11px) -->
+          <text x="100" y="108" text-anchor="middle" font-size="16" fill="var(--text)" font-family="inherit" font-weight="600">{rm(total)}</text>
         </svg>
       </div>
       <!-- Legend (DOM text — fully legible, no SVG text) -->
