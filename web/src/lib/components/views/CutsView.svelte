@@ -28,7 +28,7 @@
   <h2 class="text-[13px] font-semibold uppercase tracking-widest mt-5 mb-2 first:mt-0" style="color:var(--accent)">
     {g.title}
   </h2>
-  <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3 items-start">
+  <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 items-start">
     {#each g.items as rec (rec.merchant ?? rec.name ?? rec.title ?? rec.cat)}
       <RecCard {rec} />
     {/each}

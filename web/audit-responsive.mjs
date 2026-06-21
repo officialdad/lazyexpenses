@@ -1,0 +1,67 @@
+import { chromium } from 'playwright';
+
+const base = process.env.AUDIT_BASE || 'http://localhost:4173';
+const routes = [
+  { name: 'home', url: '/' },
+  { name: 'trends', url: '/trends' },
+  { name: 'cuts', url: '/cuts' },
+];
+const widths = [
+  { tag: 'mobile', width: 390, height: 844 },
+  { tag: 'tablet', width: 834, height: 1112 },
+  { tag: 'desktop', width: 1440, height: 900 },
+];
+
+const b = await chromium.launch();
+const issues = [];
+
+for (const vp of widths) {
+  const ctx = await b.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  page.on('console', (m) => { if (m.type() === 'error') issues.push(`[${vp.tag}] console: ${m.text()}`); });
+  page.on('pageerror', (e) => issues.push(`[${vp.tag}] pageerror: ${e.message}`));
+
+  for (const r of routes) {
+    await page.goto(base + r.url, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(400);
+
+    const ov = await page.evaluate(() => {
+      const de = document.documentElement;
+      return de.scrollWidth - de.clientWidth;
+    });
+    if (ov > 1) issues.push(`[${vp.tag}] ${r.name}: H-OVERFLOW ${ov}px`);
+
+    const wide = await page.evaluate((w) => {
+      const out = [];
+      for (const el of document.querySelectorAll('*')) {
+        const rc = el.getBoundingClientRect();
+        if (rc.width > w + 1 && rc.height > 4) out.push(`${el.tagName.toLowerCase()} w=${Math.round(rc.width)}`);
+      }
+      return out.slice(0, 6);
+    }, vp.width);
+    if (wide.length) issues.push(`[${vp.tag}] ${r.name}: WIDE ELEMENTS -> ${wide.join(' | ')}`);
+
+    const tiny = await page.evaluate(() => {
+      const out = new Set();
+      for (const el of document.querySelectorAll('*')) {
+        if (!el.children.length && el.textContent.trim()) {
+          const fs = parseFloat(getComputedStyle(el).fontSize);
+          if (fs < 11) out.add(`${Math.round(fs)}px:"${el.textContent.trim().slice(0, 18)}"`);
+        }
+      }
+      return [...out].slice(0, 6);
+    });
+    if (tiny.length) issues.push(`[${vp.tag}] ${r.name}: TINY TEXT -> ${tiny.join(' | ')}`);
+
+    await page.screenshot({ path: `audit-shots/${vp.tag}-${r.name}.png`, fullPage: true });
+  }
+  await ctx.close();
+}
+
+await b.close();
+if (issues.length) {
+  console.log('ISSUES:\n' + issues.join('\n'));
+  process.exit(1);
+} else {
+  console.log('AUDIT OK: no overflow / sub-11px text / console errors at 390/834/1440 across all routes');
+}

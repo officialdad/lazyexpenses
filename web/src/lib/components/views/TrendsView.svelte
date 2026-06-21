@@ -5,7 +5,7 @@
 </script>
 
 <h1 class="text-[13px] uppercase tracking-widest mb-3" style="color:var(--muted)">Trends</h1>
-<div class="grid gap-4 md:grid-cols-2">
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
   <MonthlyTrend />
   <CategoryDonut />
   <div class="md:col-span-2"><TopMerchants /></div>
