@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { app } from '$lib/data';
+  import { topMerchantsAll } from '$lib/data';
   import { rm } from '$lib/fmt';
-  import { topMerchants } from '$lib/trends';
 
-  const merchants = $derived(topMerchants(app.rows, 20, app.nonSpend));
-  const max = $derived(Math.max(...merchants.map(m => m.total), 1));
+  const merchants = topMerchantsAll;
+  const max = Math.max(...merchants.map(m => m.total), 1);
 
   // Clamp long merchant names
   function clamp(s: string, n = 28) {
@@ -12,7 +11,7 @@
   }
 </script>
 
-<div class="border p-3 mb-4" style="border-color:var(--divider)">
+<div class="border p-3" style="border-color:var(--divider)">
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Top 20 Merchants</h2>
   {#if merchants.length === 0}
     <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>

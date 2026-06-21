@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { app } from '$lib/data';
+  import { app, byCategoryAll } from '$lib/data';
   import { rm } from '$lib/fmt';
-  import { byCategory } from '$lib/trends';
 
-  const slices = $derived(byCategory(app.rows, null, app.nonSpend));
-  const total = $derived(slices.reduce((a, s) => a + s.total, 0));
+  const slices = byCategoryAll;
+  const total = slices.reduce((a, s) => a + s.total, 0);
 
   // Compute SVG arc paths for donut chart
   function polarToXY(cx: number, cy: number, r: number, angle: number) {
@@ -43,7 +42,7 @@
     });
   }
 
-  const arcs = $derived(buildArcs(slices, total));
+  const arcs = buildArcs(slices, total);
 
   // Clamp long names for legend
   function clamp(s: string, n = 22) {
@@ -51,7 +50,7 @@
   }
 </script>
 
-<div class="border p-3 mb-4" style="border-color:var(--divider)">
+<div class="border p-3" style="border-color:var(--divider)">
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Spend by Category</h2>
   {#if slices.length === 0}
     <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
