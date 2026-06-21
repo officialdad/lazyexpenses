@@ -37,7 +37,7 @@ def test_payload_has_required_keys():
         rows=[{"c": "maybank·3829", "m": "2026-06", "g": "F&B", "a": 12.0, "t": 0, "d": "x"}],
         insights_out={"installments": [], "recs": []},
     )
-    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "range", "nonSpend", "committed"]:
+    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "installments", "transfers", "range", "nonSpend", "committed"]:
         assert k in payload
     assert payload["months"] == ["2026-06"]
     assert payload["committed"]["monthly"] == 0.0

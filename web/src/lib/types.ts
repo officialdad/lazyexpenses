@@ -4,5 +4,5 @@ export interface Committed { monthly: number; subs: number; installments: number
 export interface AppData {
   rows: Row[]; months: string[]; cards: string[]; cats: string[]; nonSpend: string[];
   colors: Record<string, string>; catIcon: Record<string, string>; icons: Record<string, string>;
-  range: string; recs: any[]; committed: Committed;
+  range: string; recs: any[]; installments: any[]; transfers: any[]; committed: Committed;
 }

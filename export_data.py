@@ -77,6 +77,8 @@ def build_payload(rows, insights_out):
         "icons": dashboard.MDI,
         "range": f"{months[0]} → {months[-1]}" if months else "",
         "recs": insights_out.get("recs", []),
+        "installments": insights_out.get("installments", []),
+        "transfers": insights_out.get("transfers", []),
         "committed": build_committed(insights_out),
     }
 
