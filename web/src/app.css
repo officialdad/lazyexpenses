@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #000; --surface: #0a0a0a; --surface2: #111;
+  --divider: #222; --divider2: #2a2a2a;
+  --text: #f5f5f5; --muted: #888;
+  --accent: #ffb020;
+  --ok: #34d399; --over: #ef4444;
+  --c-locked: #666; --c-spent: #3b82f6; --c-free: #34d399;
+}
+html, body { background: var(--bg); color: var(--text); }
+* { border-radius: 0 !important; }                 /* hard square edges, app-wide */
+body { font-size: 16px; }
+.tnum { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
