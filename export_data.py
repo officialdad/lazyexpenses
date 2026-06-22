@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit web/src/lib/data/app.json for the Svelte PWA.
+"""Emit web/static/data/app.json for the Svelte PWA (served at /data/app.json, fetched at runtime).
 
 Thin exporter: reuses dashboard.load() + insights.compute() so all extraction,
 categorization, and leak logic stays in the frozen parse.py/insights.py. Adds only
@@ -21,7 +21,7 @@ from collections import Counter
 import dashboard
 import insights
 
-OUT = os.path.join("web", "src", "lib", "data", "app.json")
+OUT = os.path.join("web", "static", "data", "app.json")
 
 
 def build_committed(insights_out):
