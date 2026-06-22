@@ -558,7 +558,7 @@ function monthDelta(m){
   const total=monthSpend(m).reduce((s,r)=>s+val(r),0);
   const i=D.months.indexOf(m),pm=i>0?D.months[i-1]:null;
   const prev=pm?monthSpend(pm).reduce((s,r)=>s+val(r),0):null;
-  const d=prev==null?null:total-prev, pc=(prev?d/prev*100:0);
+  const d=prev==null?null:total-prev, pc=(prev?d/prev*100:null);
   return {total,prev,pm,d,pc};
 }
 function monthCashback(m){
@@ -584,7 +584,7 @@ function movers(m){
   const rises=diffs.filter(d=>d.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,3);
   const drop=diffs.filter(d=>d.delta<0).sort((a,b)=>a.delta-b.delta)[0];
   const picks=[...rises]; if(drop)picks.push(drop);
-  if(!picks.length)return `<div class="movers"><div class="lab">${svgIcon("swap-vertical")} Movers vs last month</div><div class="ln" style="color:var(--mut)">Nothing rising vs last month.</div></div>`;
+  if(!picks.length)return `<div class="movers"><div class="lab">${svgIcon("swap-vertical")} Movers vs last month</div><div class="ln" style="color:var(--mut)">No category changes vs last month.</div></div>`;
   const rows=picks.map(d=>{
     const up=d.delta>0,col=up?"var(--red)":"var(--green)";
     const md=monthCatMerchants(m,pm,d.g);
@@ -603,7 +603,8 @@ function heroBand(m){
   const {total,d,pc,pm}=monthDelta(m);
   let delta="<div class=\"delta\">No previous month to compare.</div>";
   if(d!=null){const cls=d>=0?"up":"down",arr=d>=0?"▲":"▼";
-    delta=`<div class="delta ${cls}">${arr} ${fmt(Math.abs(d))} (${pc>=0?"+":""}${pc.toFixed(0)}%) vs ${pm.slice(2)}</div>`;}
+    const pcs=pc==null?"new":`${pc>=0?"+":""}${pc.toFixed(0)}%`;
+    delta=`<div class="delta ${cls}">${arr} ${fmt(Math.abs(d))} (${pcs}) vs ${pm.slice(2)}</div>`;}
   const cb=monthCashback(m);
   document.getElementById("hero").innerHTML=
     `<div class="head"><div class="lab">${svgIcon("wallet-outline")} Spend this month · ${m}</div>`+
