@@ -1,0 +1,59 @@
+{
+  "name": "reminder-bills",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * *" }] }
+      },
+      "id": "REPLACE-UUID-1",
+      "name": "daily 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://statement-app:8000/bills",
+        "options": {}
+      },
+      "id": "REPLACE-UUID-2",
+      "name": "get bills",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// today in Asia/Kuala_Lumpur (GMT+8), no time-of-day\nconst kl = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));\nconst todayISO = `${kl.getFullYear()}-${String(kl.getMonth()+1).padStart(2,'0')}-${String(kl.getDate()).padStart(2,'0')}`;\nfunction addDaysISO(iso, days){const [y,m,d]=iso.split('-').map(Number);const dt=new Date(Date.UTC(y,m-1,d));dt.setUTCDate(dt.getUTCDate()+days);return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;}\nconst target = addDaysISO(todayISO, 3);\nconst bills = $input.first().json;  // /bills returns the bills[] array\nreturn (Array.isArray(bills)?bills:[]).filter(b => b && b.payment_due_date === target).map(b => ({ json: b }));"
+      },
+      "id": "REPLACE-UUID-3",
+      "name": "due in 3 days",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE-WITH-YOUR-CHAT-ID",
+        "text": "=💳 Pay {{ $json.bank }} RM{{ $json.current_balance }} by {{ $json.payment_due_date }}",
+        "additionalFields": {}
+      },
+      "id": "REPLACE-UUID-4",
+      "name": "telegram reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [200, 0],
+      "credentials": {
+        "telegramApi": { "id": "REPLACE-WITH-EXISTING-TELEGRAM-CRED-ID", "name": "opn8nbot" }
+      }
+    }
+  ],
+  "connections": {
+    "daily 9am": { "main": [[{ "node": "get bills", "type": "main", "index": 0 }]] },
+    "get bills": { "main": [[{ "node": "due in 3 days", "type": "main", "index": 0 }]] },
+    "due in 3 days": { "main": [[{ "node": "telegram reminder", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}
