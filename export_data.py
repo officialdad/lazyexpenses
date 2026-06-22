@@ -13,8 +13,10 @@ FIELD NAME NOTE: insights.compute() recs use:
   - p["monthly"]   for monthly charge
   - p["name"]      for display name
 """
+import csv
 import json
 import os
+from collections import Counter
 
 import dashboard
 import insights
@@ -65,7 +67,32 @@ def build_committed(insights_out):
     }
 
 
-def build_payload(rows, insights_out):
+def build_cycles(csv_path="transactions.csv"):
+    """Map each card -> its statement closing day (1-31).
+
+    Day is the mode of statement_date day-of-month per card; ties break to the
+    day of the most recent statement_date. Keyed "<bank>·<last4>" to match rows[].c.
+    """
+    dates: dict[str, list[str]] = {}
+    with open(csv_path, encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            key = f"{r['bank']}·{r['card_last4']}"
+            sd = (r.get("statement_date") or "").strip()
+            if sd:
+                dates.setdefault(key, []).append(sd)
+    cycles: dict[str, int] = {}
+    for key, ds in dates.items():
+        days = [int(d.split("-")[2]) for d in ds]
+        cnt = Counter(days)
+        top = max(cnt.values())
+        tied = {d for d, c in cnt.items() if c == top}
+        # tie-break: day of the latest statement_date among tied days
+        latest = max(d for d in ds if int(d.split("-")[2]) in tied)
+        cycles[key] = int(latest.split("-")[2])
+    return cycles
+
+
+def build_payload(rows, insights_out, cycles=None):
     """Assemble the full app.json payload from transaction rows + insights output."""
     months = sorted({r["m"] for r in rows})
     cards = sorted({r["c"] for r in rows})
@@ -86,13 +113,15 @@ def build_payload(rows, insights_out):
         "installments": insights_out.get("installments", []),
         "transfers": insights_out.get("transfers", []),
         "committed": build_committed(insights_out),
+        "cycles": cycles or {},
     }
 
 
 def main():
     rows = dashboard.load()
     insights_out = insights.compute(rows)
-    payload = build_payload(rows, insights_out)
+    cycles = build_cycles()
+    payload = build_payload(rows, insights_out, cycles)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, separators=(",", ":"))
