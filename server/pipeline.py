@@ -9,6 +9,7 @@ repo root (REPO); the bucket is `data_dir` (the PVC mount, e.g. /data):
 """
 import csv
 import hashlib
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -18,7 +19,7 @@ REPO = Path(__file__).resolve().parent.parent  # repo root / /app in the image
 SCRIPTS = ("parse.py", "insights.py", "export_data.py")
 
 
-def save_pdf(data_dir, bank: str, content: bytes) -> Path:
+def save_pdf(data_dir: "str | Path", bank: str, content: bytes) -> Path:
     sha8 = hashlib.sha256(content).hexdigest()[:8]
     pdfs = Path(data_dir) / "pdfs"
     pdfs.mkdir(parents=True, exist_ok=True)
@@ -28,7 +29,7 @@ def save_pdf(data_dir, bank: str, content: bytes) -> Path:
     return dest
 
 
-def recon_summary(data_dir) -> dict:
+def recon_summary(data_dir: "str | Path") -> dict:
     recon = Path(data_dir) / "reconciliation.csv"
     if not recon.exists():
         return {}
@@ -41,10 +42,10 @@ def recon_summary(data_dir) -> dict:
     return dict(counts)
 
 
-def run_pipeline(data_dir) -> dict:
+def run_pipeline(data_dir: "str | Path") -> dict:
     data_dir = Path(data_dir)
     env = {
-        **__import__("os").environ,
+        **os.environ,
         "STMT_SRC": str(data_dir / "pdfs"),
         "STMT_OUT": str(data_dir / "app.json"),
     }
