@@ -56,6 +56,35 @@ describe('computeHeadroom', () => {
     expect(h.status).toBe('warn');
   });
 
+  it('only counts rows in the target month (month filter)', () => {
+    const may: Row = { c: 'x', m: '2026-05', g: 'F&B', a: 5000, t: 0, d: '' };
+    const jul: Row = { c: 'x', m: '2026-07', g: 'F&B', a: 4000, t: 0, d: '' };
+    const rows = [r('F&B', 900), may, jul];
+    const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committed(0), nonSpend: NON });
+    expect(h.spent).toBe(900);                       // May + Jul charges excluded
+  });
+
+  it('status ok at exactly the warn boundary (free === 10% of ceiling)', () => {
+    const rows = [r('F&B', 2700)];
+    const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committed(0), nonSpend: NON });
+    expect(h.free).toBe(300);                         // 10% of 3000
+    expect(h.status).toBe('ok');                      // strict `<` → boundary is ok, not warn
+  });
+
+  it('status warn just below the warn boundary', () => {
+    const rows = [r('F&B', 2701)];
+    const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committed(0), nonSpend: NON });
+    expect(h.free).toBe(299);
+    expect(h.status).toBe('warn');
+  });
+
+  it('status warn (not over) when used exactly equals ceiling', () => {
+    const rows = [r('F&B', 3000)];
+    const h = computeHeadroom({ rows, month: '2026-06', ceiling: 3000, committed: committed(0), nonSpend: NON });
+    expect(h.free).toBe(0);
+    expect(h.status).toBe('warn');                    // `over` needs used > ceiling (strict)
+  });
+
   it('excludes Telco/Utilities from spent when subCats includes it (no double-count)', () => {
     // Telco sub (e.g. TIMEDOTCOM ~RM208.82) is in committed.subs AND appears as a row.
     // subCats: ['Telco/Utilities'] → skip set must exclude it from spent.

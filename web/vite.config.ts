@@ -22,12 +22,16 @@ export default defineConfig({
 				display: 'standalone',
 				start_url: '/',
 				icons: [
-					{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+					// Separate `any` from `maskable`: one "any maskable" icon is cropped by
+					// the launcher's maskable safe-zone even when used as the plain `any` icon.
+					// Keep un-cropped icons for `any` + a dedicated 512 for `maskable`.
+					{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+					{ src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
 					{
 						src: '/pwa-512x512.png',
 						sizes: '512x512',
 						type: 'image/png',
-						purpose: 'any maskable'
+						purpose: 'maskable'
 					}
 				]
 			},
