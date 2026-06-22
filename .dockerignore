@@ -14,3 +14,7 @@ cc-statements
 dashboard.html
 docs
 *.log
+
+# personal data — served from PVC at runtime, never baked
+web/static/data/app.json
+*.pdf
