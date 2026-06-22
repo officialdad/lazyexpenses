@@ -22,6 +22,10 @@ python test_insights.py               # plain-assert tests for insights.py (prin
 node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim render + view-switch without throwing (prints SMOKE OK); run AFTER dashboard.py
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
+# Hosted PWA (web/) — see "Hosted PWA build" below:
+python export_data.py                 # transactions.csv -> web/src/lib/data/app.json (feeds the Svelte PWA)
+cd web && npm run build               # build static PWA -> web/build/ (prerenders /, /trends, /cuts)
+node web/audit-responsive.mjs         # Playwright responsive audit of the BUILT+served PWA: overflow / sub-11px text / console errors + desktop scroll-spy, at 390/834/1440 across all routes; screenshots -> web/audit-shots/ (run after `npm run build` + `npm run preview -- --port 4173`)
 ```
 
 There is no build/lint/test suite — these are standalone scripts. `parse.py`'s own reconciliation report (`status=VERIFIED/REVIEW/NO_BALANCE/DUPLICATE`, printed and written to `reconciliation.csv`) is the correctness check. Target: a parser change must not lower the VERIFIED count (currently **69 unique statements all VERIFIED to the cent**, out of 73 files — 4 are dropped duplicates). Beyond per-statement reconciliation, a stronger cross-statement check is **prev→cur chain continuity** per bank (each month's `previous_balance` should equal the prior month's `current_balance`); a break flags a misdated or missing statement. The only known gap is hsbc **2025-08 missing** (statement never collected — chain steps 07→09).
@@ -76,6 +80,7 @@ Subs/creep/one-offs are ranked into `recs` by **annual RM impact** (`severity`);
 After `parse.py`: `python export_data.py` regenerates `web/src/lib/data/app.json`,
 then `cd web && npm run build` produces the static PWA in `web/build/`.
 Full refresh: `python parse.py && python insights.py && python export_data.py && python verify_parity.py && cd web && npm run build`.
+Then gate the build: `npm run preview -- --port 4173 &` and `node audit-responsive.mjs` — must print `AUDIT OK` (no overflow / sub-11px / console errors at 390/834/1440, and `#overview` is the active scroll-spy link at top on desktop).
 (Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
 
 The PWA is responsive across 3 tiers: <768px mobile (routed, BottomNav, 1-col),
