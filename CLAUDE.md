@@ -109,7 +109,7 @@ The PWA is responsive across 3 tiers: <768px mobile (routed, BottomNav, 1-col),
 Dashboard rendering all three Views in anchored sections, capped max-w-7xl).
 +layout.svelte renders two CSS-toggled subtrees (lg:hidden routed / hidden
 lg:block Dashboard) — both mount at all widths, but all-time chart aggregates
-are hoisted to module scope in data.ts so the double-render adds no compute.
+are precomputed once into `agg` in `data.svelte.ts` after the fetch so the double-render adds no compute.
 Acceptance gate: build, `npm run preview -- --port 4173`, then
 `node web/audit-responsive.mjs` (checks 390/834/1440 for overflow/sub-11px/
 console errors; screenshots -> web/audit-shots/).

@@ -37,7 +37,15 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,json}'],
-				navigateFallback: '/'
+				globIgnores: ['**/data/app.json'],
+				navigateFallback: '/',
+				runtimeCaching: [
+					{
+						urlPattern: ({ url }: { url: URL }) => url.pathname === '/data/app.json',
+						handler: 'NetworkFirst' as const,
+						options: { cacheName: 'app-data', expiration: { maxEntries: 1 } }
+					}
+				]
 			},
 			devOptions: { enabled: true, type: 'module', navigateFallback: '/' }
 		}),

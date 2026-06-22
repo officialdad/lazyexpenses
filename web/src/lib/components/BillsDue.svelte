@@ -29,6 +29,7 @@
           <span
             class="tnum text-[12px] shrink-0 w-24 text-right"
             style="color:{b.urgent ? '#f87171' : 'var(--muted)'}"
+            data-urgent={b.urgent}
           >
             {#if b.payment_due_date}
               {b.payment_due_date}{#if b.days != null} · {b.days < 0 ? 'overdue' : b.days + 'd'}{/if}

@@ -18,12 +18,14 @@ describe('BillsDue', () => {
     expect(container.querySelector('section[aria-label="Bills due"]')).toBeTruthy();
     const items = container.querySelectorAll('li');
     expect(items.length).toBe(2);
-    // sc is due in 1 day -> sorted first AND urgent (red token present)
+    // sc is due in 1 day -> sorted first AND urgent
     expect(items[0].textContent).toContain('SC');
-    // Check for the red color (Svelte/browser converts #f87171 to rgb(248, 113, 113))
-    expect(items[0].querySelector('[style*="rgb(248, 113, 113)"]')).toBeTruthy();
-    // cimb is due in 3 days -> not urgent (no red token)
-    expect(items[1].querySelector('[style*="rgb(248, 113, 113)"]')).toBeFalsy();
+    // Check urgent state via data-urgent attribute (stable, not dependent on computed color)
+    expect(items[0].querySelector('[data-urgent="true"]')).toBeTruthy();
+    // The soonest (urgent) row should show its day suffix
+    expect(items[0].querySelector('[data-urgent="true"]')!.textContent).toContain('1d');
+    // cimb is due in 3 days -> not urgent
+    expect(items[1].querySelector('[data-urgent="false"]')).toBeTruthy();
     getByText(/CIMB/);
   });
 
