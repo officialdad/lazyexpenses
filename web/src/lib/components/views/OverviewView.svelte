@@ -3,6 +3,7 @@
   import HeadroomHero from '$lib/components/HeadroomHero.svelte';
   import KpiChips from '$lib/components/KpiChips.svelte';
   import CardPick from '$lib/components/CardPick.svelte';
+  import BillsDue from '$lib/components/BillsDue.svelte';
 
   let { month = latestMonth() }: { month?: string } = $props();
 </script>
@@ -21,3 +22,4 @@
 </div>
 
 <CardPick />
+<BillsDue />
