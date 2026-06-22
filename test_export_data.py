@@ -4,7 +4,21 @@ NOTE: insights.py uses "type" (not "kind") to distinguish rec types,
 and "rmMonthly" (not "monthly") for per-sub price.
 The fixture below reflects the REAL insights.compute() field names.
 """
+import csv
+import os
+import tempfile
 import export_data
+from export_data import build_bills
+
+
+def _write_recon(path, rows):
+    cols = ['file', 'bank', 'smonth', 'sdate', 'due', 'n', 'prev', 'debit',
+            'credit', 'expected', 'cur', 'diff', 'status']
+    with open(path, 'w', newline='', encoding='utf-8-sig') as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow({c: r.get(c, '') for c in cols})
 
 
 def test_build_committed_sums_subs_and_installments():
@@ -40,7 +54,7 @@ def test_payload_has_required_keys():
         rows=[{"c": "maybank·3829", "m": "2026-06", "g": "F&B", "a": 12.0, "t": 0, "d": "x"}],
         insights_out={"installments": [], "recs": []},
     )
-    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "installments", "transfers", "range", "nonSpend", "committed", "cycles"]:
+    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "installments", "transfers", "range", "nonSpend", "committed", "cycles", "bills"]:
         assert k in payload
     assert payload["months"] == ["2026-06"]
     assert payload["committed"]["monthly"] == 0.0
@@ -84,12 +98,44 @@ def test_payload_includes_cycles():
     assert payload["cycles"] == {"maybank·3829": 28}
 
 
+def test_build_bills_picks_newest_non_duplicate_per_bank():
+    rows = [
+        {'bank': 'cimb', 'smonth': '2026-04', 'cur': '2092.13', 'due': '2026-05-11', 'status': 'VERIFIED'},
+        {'bank': 'cimb', 'smonth': '2026-03', 'cur': '1500.00', 'due': '2026-04-11', 'status': 'VERIFIED'},
+        {'bank': 'cimb', 'smonth': '2026-04', 'cur': '2092.13', 'due': '2026-05-11', 'status': 'DUPLICATE'},
+        {'bank': 'sc',   'smonth': '2026-06', 'cur': '880.50',  'due': '2026-07-09', 'status': 'VERIFIED'},
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'reconciliation.csv')
+        _write_recon(p, rows)
+        bills = build_bills(p)
+
+    by = {b['bank']: b for b in bills}
+    assert set(by) == {'cimb', 'sc'}, by
+    assert by['cimb']['statement_month'] == '2026-04'
+    assert by['cimb']['current_balance'] == 2092.13
+    assert by['cimb']['payment_due_date'] == '2026-05-11'
+    assert by['cimb']['minimum_payment'] is None
+    assert by['sc']['payment_due_date'] == '2026-07-09'
+
+
+def test_build_bills_handles_null_due():
+    rows = [{'bank': 'hsbc', 'smonth': '2026-04', 'cur': '100.00', 'due': '', 'status': 'VERIFIED'}]
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'reconciliation.csv')
+        _write_recon(p, rows)
+        bills = build_bills(p)
+    assert bills[0]['payment_due_date'] is None
+
+
 if __name__ == "__main__":
     test_build_committed_sums_subs_and_installments()
     test_payload_has_required_keys()
-    import tempfile, pathlib
+    import pathlib
     with tempfile.TemporaryDirectory() as d:
         test_build_cycles_modes_the_statement_day(pathlib.Path(d))
         test_build_cycles_tie_breaks_to_latest(pathlib.Path(d))
     test_payload_includes_cycles()
+    test_build_bills_picks_newest_non_duplicate_per_bank()
+    test_build_bills_handles_null_due()
     print("OK")

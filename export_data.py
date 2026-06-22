@@ -92,7 +92,33 @@ def build_cycles(csv_path="transactions.csv"):
     return cycles
 
 
-def build_payload(rows, insights_out, cycles=None):
+def build_bills(csv_path="reconciliation.csv"):
+    """Newest non-duplicate statement per bank -> bill {bank, statement_month,
+    current_balance, payment_due_date, minimum_payment}. Bill identity is the
+    bank (multi-card banks issue one statement with one due date + summed balance)."""
+    newest = {}
+    with open(csv_path, encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            if r.get("status") in ("DUPLICATE", "ERROR"):
+                continue
+            bank = r["bank"]
+            sm = r["smonth"]
+            if bank not in newest or sm > newest[bank]["smonth"]:
+                newest[bank] = r
+    bills = []
+    for bank, r in sorted(newest.items()):
+        cur = r.get("cur")
+        bills.append({
+            "bank": bank,
+            "statement_month": r["smonth"],
+            "current_balance": float(cur) if cur not in (None, "") else None,
+            "payment_due_date": r["due"] or None,
+            "minimum_payment": None,   # not extracted yet (Plan 1 scope)
+        })
+    return bills
+
+
+def build_payload(rows, insights_out, cycles=None, bills=None):
     """Assemble the full app.json payload from transaction rows + insights output."""
     months = sorted({r["m"] for r in rows})
     cards = sorted({r["c"] for r in rows})
@@ -114,6 +140,7 @@ def build_payload(rows, insights_out, cycles=None):
         "transfers": insights_out.get("transfers", []),
         "committed": build_committed(insights_out),
         "cycles": cycles or {},
+        "bills": bills or [],
     }
 
 
@@ -121,7 +148,8 @@ def main():
     rows = dashboard.load()
     insights_out = insights.compute(rows)
     cycles = build_cycles()
-    payload = build_payload(rows, insights_out, cycles)
+    bills = build_bills()
+    payload = build_payload(rows, insights_out, cycles, bills)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, separators=(",", ":"))
