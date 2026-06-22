@@ -23,7 +23,7 @@ node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim rend
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
 # Hosted PWA (web/) — see "Hosted PWA build" below:
-python export_data.py                 # transactions.csv -> web/src/lib/data/app.json (feeds the Svelte PWA)
+python export_data.py                 # transactions.csv -> web/src/lib/data/app.json (feeds the Svelte PWA); also emits a `cycles` map (per-card statement closing-day) consumed by the Overview "Use next" card picker (`cardpick.ts` + `CardPick.svelte`)
 cd web && npm run build               # build static PWA -> web/build/ (prerenders /, /trends, /cuts)
 node web/audit-responsive.mjs         # Playwright responsive audit of the BUILT+served PWA: overflow / sub-11px text / console errors + desktop scroll-spy, at 390/834/1440 across all routes; screenshots -> web/audit-shots/ (run after `npm run build` + `npm run preview -- --port 4173`)
 ```
@@ -92,6 +92,13 @@ are hoisted to module scope in data.ts so the double-render adds no compute.
 Acceptance gate: build, `npm run preview -- --port 4173`, then
 `node web/audit-responsive.mjs` (checks 390/834/1440 for overflow/sub-11px/
 console errors; screenshots -> web/audit-shots/).
+
+The Overview view also renders a "Use next" card picker (`CardPick.svelte` →
+`cardpick.ts`): ranks cards by a 50/50 blend of interest-free float runway
+(days until each card's statement closing-day, from `app.json` `cycles`) and
+inverse trailing-3-month net-spend share, filtering cards dormant >6 months.
+"Today" is resolved in Asia/Kuala_Lumpur (GMT+8) client-side; the ranking
+logic is pure/tested in `cardpick.test.ts`.
 
 ### Refresh loop (adding new statements)
 New statements → run the n8n `compile-cc-statements` workflow (re-exports the **full** label-`CC` history, not just new mail) → unzip into `cc-statements/`, replacing contents (keep the `<bank>_…` filename prefix; the `_N` index is meaningless) → `python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs` → check the reconciliation report stays all-VERIFIED, and that `audit.mjs` prints no ISSUES (overflow / sub-11px text — e.g. a new long card name or category could overflow a chart) (a new `REVIEW` means the bank changed its template — debug with `probe.py`) and skim `recommendations.csv` for new false-positives (a new unseen recurring merchant may need an `INSTALLMENT_MERCHANTS` / category-allowlist tweak). New months/cards surface in all dashboard views automatically.
