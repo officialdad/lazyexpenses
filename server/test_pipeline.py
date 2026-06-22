@@ -45,3 +45,35 @@ def test_src_respects_env():
     assert parse.SRC == "/tmp/pdfs"
     del os.environ["STMT_SRC"]
     importlib.reload(parse)
+
+
+def test_save_pdf_is_content_hashed_and_idempotent():
+    from server import pipeline
+    with tempfile.TemporaryDirectory() as d:
+        p1 = pipeline.save_pdf(d, "cimb", b"%PDF-FAKE-1")
+        p2 = pipeline.save_pdf(d, "cimb", b"%PDF-FAKE-1")  # same bytes -> same path, no dup
+        assert p1 == p2
+        assert p1.parent.name == "pdfs"
+        assert p1.name.startswith("cimb_") and p1.name.endswith(".pdf")
+        assert len(list(p1.parent.glob("*.pdf"))) == 1
+        p3 = pipeline.save_pdf(d, "cimb", b"%PDF-FAKE-2")  # different bytes -> new file
+        assert p3 != p1
+        assert len(list(p1.parent.glob("*.pdf"))) == 2
+
+
+def test_recon_summary_counts_status_column():
+    from server import pipeline
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "reconciliation.csv"), "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.DictWriter(fh, fieldnames=["file", "status"])
+            w.writeheader()
+            w.writerow({"file": "a.pdf", "status": "VERIFIED"})
+            w.writerow({"file": "b.pdf", "status": "VERIFIED"})
+            w.writerow({"file": "c.pdf", "status": "REVIEW"})
+        assert pipeline.recon_summary(d) == {"VERIFIED": 2, "REVIEW": 1}
+
+
+def test_recon_summary_missing_file_is_empty():
+    from server import pipeline
+    with tempfile.TemporaryDirectory() as d:
+        assert pipeline.recon_summary(d) == {}
