@@ -1,6 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 
@@ -44,6 +44,7 @@ export default defineConfig({
 		svelteTesting()
 	],
 	test: {
-		environment: 'jsdom'
+		environment: 'jsdom',
+		setupFiles: ['./src/test-setup.ts']
 	}
 });

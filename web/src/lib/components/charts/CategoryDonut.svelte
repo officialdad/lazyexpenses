@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { app, byCategoryAll } from '$lib/data';
+  import { app, agg } from '$lib/data';
   import { rm } from '$lib/fmt';
 
-  const slices = byCategoryAll;
+  const slices = agg.byCategory;
   const total = slices.reduce((a, s) => a + s.total, 0);
 
   // Compute SVG arc paths for donut chart

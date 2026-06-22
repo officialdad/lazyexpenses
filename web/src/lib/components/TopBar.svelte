@@ -58,7 +58,7 @@
       {/each}
     </nav>
     <span class="ml-auto text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
-      {latestMonth} · {app.range}
+      {latestMonth()} · {app.range}
     </span>
   </div>
 </header>

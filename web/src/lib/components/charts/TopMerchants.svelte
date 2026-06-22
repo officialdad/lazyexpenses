@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { topMerchantsAll } from '$lib/data';
+  import { agg } from '$lib/data';
   import { rm } from '$lib/fmt';
 
-  const merchants = topMerchantsAll;
+  const merchants = agg.topMerchants;
   const max = Math.max(...merchants.map(m => m.total), 1);
 
   // Clamp long merchant names

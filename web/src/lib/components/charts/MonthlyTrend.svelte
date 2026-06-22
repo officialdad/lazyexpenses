@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { monthlyAll } from '$lib/data';
+  import { agg } from '$lib/data';
   import { rm, kRM } from '$lib/fmt';
 
-  const series = monthlyAll;
+  const series = agg.monthly;
   const max = Math.max(...series.map((s) => s.total), 1);
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

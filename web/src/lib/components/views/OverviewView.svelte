@@ -4,7 +4,7 @@
   import KpiChips from '$lib/components/KpiChips.svelte';
   import CardPick from '$lib/components/CardPick.svelte';
 
-  let { month = latestMonth }: { month?: string } = $props();
+  let { month = latestMonth() }: { month?: string } = $props();
 </script>
 
 <header
