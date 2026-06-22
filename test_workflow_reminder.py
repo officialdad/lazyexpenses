@@ -14,6 +14,8 @@ def test_reminder_workflow_shape():
     code = next(n for n in wf["nodes"] if n["name"] == "due in 3 days")
     assert "payment_due_date" in code["parameters"]["jsCode"]
     assert "Asia/Kuala_Lumpur" in code["parameters"]["jsCode"]
+    cron_expr = schedule["parameters"]["rule"]["interval"][0]["expression"]
+    assert cron_expr == "0 9 * * *", f"unexpected cron: {cron_expr!r}"
     conns = wf["connections"]
     assert conns["get bills"]["main"][0][0]["node"] == "due in 3 days"
     assert conns["due in 3 days"]["main"][0][0]["node"] == "telegram reminder"

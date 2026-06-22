@@ -17,7 +17,9 @@ assert.strictEqual(hit[0].bank, 'cimb');
 // boundary: 2 days out (07-04) excluded, 4 days out (07-06) excluded
 assert.strictEqual(billsDueIn(bills, '2026-07-02', 2).length, 1); // maybank only
 assert.strictEqual(billsDueIn(bills, '2026-07-02', 2)[0].bank, 'maybank');
-assert.strictEqual(billsDueIn(bills, '2026-07-02', 4)[0].bank, 'sc');
+const four = billsDueIn(bills, '2026-07-02', 4);
+assert.strictEqual(four.length, 1);
+assert.strictEqual(four[0].bank, 'sc');
 
 // null due dates never match
 assert.ok(billsDueIn(bills, '2026-07-02', 3).every((b) => b.payment_due_date));

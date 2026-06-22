@@ -25,7 +25,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// today in Asia/Kuala_Lumpur (GMT+8), no time-of-day\nconst kl = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));\nconst todayISO = `${kl.getFullYear()}-${String(kl.getMonth()+1).padStart(2,'0')}-${String(kl.getDate()).padStart(2,'0')}`;\nfunction addDaysISO(iso, days){const [y,m,d]=iso.split('-').map(Number);const dt=new Date(Date.UTC(y,m-1,d));dt.setUTCDate(dt.getUTCDate()+days);return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;}\nconst target = addDaysISO(todayISO, 3);\nconst bills = $input.first().json;  // /bills returns the bills[] array\nreturn (Array.isArray(bills)?bills:[]).filter(b => b && b.payment_due_date === target).map(b => ({ json: b }));"
+        "jsCode": "// today in Asia/Kuala_Lumpur (GMT+8) — en-CA locale yields YYYY-MM-DD directly\nconst todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nfunction addDaysISO(iso, days){const [y,m,d]=iso.split('-').map(Number);const dt=new Date(Date.UTC(y,m-1,d));dt.setUTCDate(dt.getUTCDate()+days);return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;}\nconst target = addDaysISO(todayISO, 3); // 3-day window — keep in sync with n8n-reminder-filter.mjs\nconst bills = $input.first().json;  // /bills returns the bills[] array\nreturn (Array.isArray(bills)?bills:[]).filter(b => b && b.payment_due_date === target).map(b => ({ json: b }));"
       },
       "id": "REPLACE-UUID-3",
       "name": "due in 3 days",
