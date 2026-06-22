@@ -10,3 +10,5 @@ __pycache__/
 # raw bank statements & generated artifacts — never commit
 cc-statements/
 audit-shots/
+# generated pipeline CSVs (reproducible from parse.py / insights.py)
+/*.csv

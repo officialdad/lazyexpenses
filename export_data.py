@@ -112,7 +112,7 @@ def build_bills(csv_path="reconciliation.csv"):
             "bank": bank,
             "statement_month": r["smonth"],
             "current_balance": float(cur) if cur not in (None, "") else None,
-            "payment_due_date": r["due"] or None,
+            "payment_due_date": r.get("due") or None,
             "minimum_payment": None,   # not extracted yet (Plan 1 scope)
         })
     return bills
