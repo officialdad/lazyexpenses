@@ -16,8 +16,9 @@ The handoff between halves is manual: the n8n `compile-cc-statements` workflow z
 Approved plan to **automate** the manual handoff above and **retire Gemini/Google Tasks**: everything runs in-cluster (k3s, LAN-only). n8n keeps the Gmail trigger + Stirling unlock, then POSTs the unlocked PDF to a single `statement-app` FastAPI pod that serves the PWA + re-runs `parse.py→insights.py→export_data.py` over an accumulating PVC and writes `app.json` (the PWA fetches it at **runtime**, no rebuild). Payment reminders move to the existing **Telegram bot** via a daily n8n cron (fires 3 days before due), sourced from a new deterministic `due_date` in `parse.py`.
 
 - **Spec (approved):** `docs/superpowers/specs/2026-06-22-automated-refresh-pipeline-design.md` (supersedes backlog "Spec 2").
-- **Plans (3, do one at a time):** Plan 1 `docs/superpowers/plans/2026-06-22-deterministic-bills.md` is **ready**; Plans 2 (PWA bills + runtime-fetch) and 3 (runner + k8s + n8n cutover) not yet written.
-- **Execute** Plan 1 via the `superpowers:subagent-driven-development` skill. As of 2026-06-22 nothing is committed — spec/plan/backlog edits sit on `main`, uncommitted.
+- **Plans (3, do one at a time):** Plan 1 `docs/superpowers/plans/2026-06-22-deterministic-bills.md` is **DONE — merged to `main`** (commits 37312d1..ed2c188; `due_date()`+`due` column+`build_bills()`→`bills[]` in app.json+parity guards; real-data gate held 69 VERIFIED, 6 banks ISO due dates). Plans 2 (PWA bills + runtime-fetch) and 3 (runner + k8s + n8n cutover) not yet written.
+- **Next:** write + execute **Plan 2** via the `superpowers:subagent-driven-development` skill.
+- **Plan 2/3 handoff:** `bills[]` keys on **bank** not card (spec `card` dropped); `minimum_payment` is a null placeholder; `build_bills` newest-per-bank uses string-compare on `smonth` — add a `\d{4}-\d{2}` guard before relying on it (an `UNKNOWN`-smonth row would mis-sort, impossible on current data).
 - Details + locked decisions: memory `automated-refresh-pipeline.md`.
 
 ## Commands
