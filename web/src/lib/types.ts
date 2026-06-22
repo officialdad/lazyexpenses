@@ -5,4 +5,5 @@ export interface AppData {
   rows: Row[]; months: string[]; cards: string[]; cats: string[]; nonSpend: string[];
   colors: Record<string, string>; catIcon: Record<string, string>; icons: Record<string, string>;
   range: string; recs: any[]; installments: any[]; transfers: any[]; committed: Committed;
+  cycles: Record<string, number>;
 }
