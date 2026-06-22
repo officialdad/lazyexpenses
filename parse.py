@@ -366,6 +366,7 @@ def parse_statement(path):
         status = 'REVIEW'
 
     return dict(file=os.path.basename(path), bank=bank, smonth=smonth, sdate=sdate,
+                due=due_date(bank, text),
                 prev=prev, cur=cur, debit=round(debit, 2), credit=round(credit, 2),
                 expected=None if expected is None else round(expected, 2),
                 diff=None if diff is None else round(diff, 2),
@@ -496,7 +497,7 @@ def main():
 
     # reconciliation.csv
     with open('reconciliation.csv', 'w', newline='', encoding='utf-8-sig') as fh:
-        w = csv.DictWriter(fh, fieldnames=['file', 'bank', 'smonth', 'sdate', 'n', 'prev', 'debit',
+        w = csv.DictWriter(fh, fieldnames=['file', 'bank', 'smonth', 'sdate', 'due', 'n', 'prev', 'debit',
                                            'credit', 'expected', 'cur', 'diff', 'status'])
         w.writeheader()
         for r in recon:

@@ -28,7 +28,18 @@ def test_due_date_null_when_absent():
     assert due_date("unknownbank", "Payment Due Date 01 Jan 2026") is None
 
 
+def test_recon_row_has_due():
+    import glob
+    from parse import parse_statement
+    sc = sorted(glob.glob("cc-statements/sc_*.pdf"))
+    assert sc, "no sc statements present to test against"
+    meta, _ = parse_statement(sc[0])
+    assert "due" in meta, "recon row missing 'due' key"
+    assert meta["due"] is None or meta["due"][:4].isdigit(), f"due not ISO: {meta['due']!r}"
+
+
 if __name__ == "__main__":
     test_due_date_per_bank()
     test_due_date_null_when_absent()
+    test_recon_row_has_due()
     print("OK")
