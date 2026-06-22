@@ -12,6 +12,9 @@ const widths = [
   { tag: 'desktop', width: 1440, height: 900 },
 ];
 
+const waitReady = (page) =>
+  page.waitForFunction(() => !document.querySelector('[data-loading]'), { timeout: 8000 });
+
 const b = await chromium.launch();
 const issues = [];
 
@@ -21,6 +24,7 @@ async function checkDesktopScrollSpy(b) {
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   await page.goto(base + '/', { waitUntil: 'networkidle' });
+  await waitReady(page);
   await page.waitForTimeout(600); // allow IntersectionObserver + scroll listener to fire
   const result = await page.evaluate(() => {
     const links = Array.from(document.querySelectorAll('header nav a[href^="#"]'));
@@ -49,6 +53,7 @@ for (const vp of widths) {
 
   for (const r of routes) {
     await page.goto(base + r.url, { waitUntil: 'networkidle' });
+    await waitReady(page);
     await page.waitForTimeout(400);
 
     const ov = await page.evaluate(() => {

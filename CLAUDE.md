@@ -33,7 +33,7 @@ node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim rend
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
 # Hosted PWA (web/) — see "Hosted PWA build" below:
-python export_data.py                 # transactions.csv -> web/src/lib/data/app.json (feeds the Svelte PWA); also emits a `cycles` map (per-card statement closing-day) consumed by the Overview "Use next" card picker (`cardpick.ts` + `CardPick.svelte`), and a `bills[]` array (newest statement per bank: current_balance + deterministic `payment_due_date` from parse.py) for the bills-due reminder (Plan 2/3)
+python export_data.py                 # transactions.csv -> web/static/data/app.json (served at /data/app.json, fetched by the PWA at runtime); also emits a `cycles` map (per-card statement closing-day) consumed by the Overview "Use next" card picker (`cardpick.ts` + `CardPick.svelte`), and a `bills[]` array (newest statement per bank: current_balance + deterministic `payment_due_date` from parse.py) for the bills-due reminder (Plan 2/3)
 cd web && npm run build               # build static PWA -> web/build/ (prerenders /, /trends, /cuts)
 node web/audit-responsive.mjs         # Playwright responsive audit of the BUILT+served PWA: overflow / sub-11px text / console errors + desktop scroll-spy, at 390/834/1440 across all routes; screenshots -> web/audit-shots/ (run after `npm run build` + `npm run preview -- --port 4173`)
 ```
@@ -93,6 +93,16 @@ then `cd web && npm run build` produces the static PWA in `web/build/`.
 Full refresh: `python parse.py && python insights.py && python export_data.py && python verify_parity.py && cd web && npm run build`.
 Then gate the build: `npm run preview -- --port 4173 &` and `node audit-responsive.mjs` — must print `AUDIT OK` (no overflow / sub-11px / console errors at 390/834/1440, and `#overview` is the active scroll-spy link at top on desktop).
 (Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
+
+The PWA fetches its data at **runtime**: `data.svelte.ts` (a runed store, re-exported
+through the `data.ts` barrel so `import { app } from '$lib/data'` is unchanged)
+`fetch('/data/app.json')` on mount and fills `app` in place; `+layout.svelte` gates all
+views behind a loading skeleton (`[data-loading]`) / error / ready state, and the all-time
+aggregates are precomputed once into `agg` after the fetch. `export_data.py` writes
+`web/static/data/app.json` (served at `/data/app.json` locally; in prod the runner serves
+it from the PVC) — so a data refresh needs **no rebuild**. The Overview view also renders a
+**bills-due panel** (`BillsDue.svelte` + pure `bills.ts`): `app.bills[]` sorted by due date,
+red when `< 3` days out (KL-time today via `todayMYT()`).
 
 The PWA is responsive across 3 tiers: <768px mobile (routed, BottomNav, 1-col),
 768-1024px tablet (routed, 2-col panels), >=1024px desktop (TopBar + unified
