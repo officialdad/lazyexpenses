@@ -68,7 +68,7 @@ def test_ingest_saves_pdf_and_runs_pipeline(monkeypatch):
         assert body["bank"] == "cimb"
         assert body["recon"]["VERIFIED"] == 69
         assert body["warning"] is False
-        assert calls["ran"].endswith(d) or "ran" in calls
+        assert str(calls["ran"]) == str(d)
         # PDF landed in the bucket
         pdfs = os.listdir(os.path.join(d, "pdfs"))
         assert len(pdfs) == 1 and pdfs[0].startswith("cimb_")

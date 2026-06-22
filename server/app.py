@@ -54,8 +54,8 @@ def create_app() -> FastAPI:
         content = await file.read()
         data_dir = _data_dir()
         async with lock:
-            pipeline.save_pdf(data_dir, bank, content)
             try:
+                pipeline.save_pdf(data_dir, bank, content)
                 counts = await asyncio.to_thread(pipeline.run_pipeline, data_dir)
             except Exception as e:  # old app.json kept (atomic write); surface failure
                 raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
