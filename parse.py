@@ -131,6 +131,56 @@ def stmt_month(bank, text):
     return "UNKNOWN", "UNKNOWN"
 
 
+# ---- payment due date ----
+def _iso_due(d, mon, y):
+    """(day, month-name-or-code, year) -> 'YYYY-MM-DD' or None. Year may be 2- or 4-digit."""
+    mon = mon[:3].upper()
+    if mon not in MONTHS:
+        return None
+    yy = int(y) + (2000 if int(y) < 100 else 0)
+    return f"{yy:04d}-{MONTHS[mon]:02d}-{int(d):02d}"
+
+
+def due_date(bank, text):
+    """Per-bank payment due date as ISO 'YYYY-MM-DD', or None if not confidently found.
+    Formats per bank are documented in docs/superpowers/plans/2026-06-22-deterministic-bills.md."""
+    t = text.replace('\r', ' ')
+
+    if bank == 'sc':
+        m = re.search(r'Payment\s*Due\s*Date[^0-9]{0,30}(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})', t, re.I)
+        return _iso_due(*m.groups()) if m else None
+
+    if bank == 'hsbc':
+        m = re.search(r'Payment\s*Due\s*Date\s*(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})', t, re.I)
+        return _iso_due(*m.groups()) if m else None
+
+    if bank == 'rhb':
+        m = re.search(r'Payment\s*Due\s*Date\s*(\d{2})/(\d{2})/(\d{4})', t, re.I)
+        if m:
+            d, mo, y = m.groups()
+            return f"{y}-{mo}-{d}"
+        return None
+
+    if bank == 'alliance':
+        m = re.search(r'(?:Tarikh\s*Bayaran\s*Perlu\s*Dibuat|Payment\s*Due\s*Date)[^0-9]{0,30}'
+                      r'(\d{2})/(\d{2})/(\d{2})', t, re.I)
+        if m:
+            d, mo, y = m.groups()
+            return f"20{y}-{mo}-{d}"
+        return None
+
+    if bank in ('maybank', 'cimb'):
+        # statement date then due date: the first two adjacent `dd Mon yy/yyyy` tokens
+        # near the top of the statement; the due date is the SECOND. (Transaction rows
+        # for these banks use dd/mm dates, so they don't collide with this dd-Mon form.)
+        ms = re.findall(r'(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})\b', t)
+        if len(ms) >= 2:
+            return _iso_due(*ms[1])
+        return None
+
+    return None
+
+
 def num(s):
     return float(s.replace(',', '').replace('CR', '').strip())
 
