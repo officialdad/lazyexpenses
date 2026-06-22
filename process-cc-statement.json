@@ -3,30 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "task": "MTM0NTQ1MTEyNDY5ODEwNTY3NTQ6MDow",
-        "title": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Title', \"`pay bank_name`\", 'string') }}",
-        "additionalFields": {
-          "dueDate": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Due_Date', \"`<due_date>T00:00:00.000Z`\", 'string') }}",
-          "notes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Notes', `account_name\naccount_no\namount`, 'string') }}"
-        }
-      },
-      "type": "n8n-nodes-base.googleTasksTool",
-      "typeVersion": 1,
-      "position": [
-        560,
-        336
-      ],
-      "id": "3788511f-09fc-4f50-b080-3efe52d6b9a9",
-      "name": "Google Tasks",
-      "credentials": {
-        "googleTasksOAuth2Api": {
-          "id": "sjB44Wom222Gg6u3",
-          "name": "google-tasks-creds-ariff"
-        }
-      }
-    },
-    {
-      "parameters": {
         "mode": "runOnceForEachItem",
         "jsCode": "const item = $input.item;\n// Use optional chaining to prevent errors if html is missing\nconst html = item.json.html || item.json.text || \"\";\nconst banks = [\"cimb\", \"maybank\", \"alliance\", \"sc\", \"hsbc\", \"rhb\"];\nconst regex = new RegExp(`\\\\b(${banks.join(\"|\")})\\\\b`, \"i\");\nconst match = html.match(regex);\n\nlet bankName = null;\nif (match) {\n  bankName = match[1].toLowerCase();\n}\n\n// Set the value back to the JSON\nitem.json.bankName = bankName;\n\n// Handle Binary Attachments\nif (item.binary) {\n  let firstPdf = null;\n  \n  for (const key of Object.keys(item.binary)) {\n    const attachment = item.binary[key];\n    if (attachment.mimeType === 'application/pdf') {\n      firstPdf = attachment;\n      break;\n    }\n  }\n  \n  if (firstPdf) {\n    // Overwrite binary to only include the first PDF\n    item.binary = { data: firstPdf }; \n  }\n}\n\nreturn item;\n"
       },
@@ -94,85 +70,33 @@
     },
     {
       "parameters": {
-        "operation": "pdf",
-        "binaryPropertyName": "file_0",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.extractFromFile",
-      "typeVersion": 1,
-      "position": [
-        96,
-        64
-      ],
-      "id": "5f30ab73-c191-43b0-8aa6-ad538ec4d355",
-      "name": "extract text"
-    },
-    {
-      "parameters": {
-        "text": "={{ $json.text }}",
-        "schemaType": "fromJson",
-        "jsonSchemaExample": "[{\n    \"bank_name\":\"alliance\",\n    \"account_name\":\"virtual\",\n    \"statement_date\": \"2025-05-16\",\n    \"payment_due_date\": \"2025-06-05\",\n    \"account_no\": \"1\",\n    \"statement_amount\": \"100\",\n    \"minimum_payment_amount\": \"10\"\n},\n{\n    \"bank_name\":\"alliance\",\n    \"account_name\":\"visa\",\n    \"statement_date\": \"2025-05-16\",\n    \"payment_due_date\": \"2025-06-05\",\n    \"account_no\": \"2\",\n    \"statement_amount\": \"1000\",\n    \"minimum_payment_amount\": \"100\"\n}]",
-        "options": {
-          "systemPromptTemplate": "=This statement contains raw exported text file showing\n- account number of the credit card\n- account name for the credit card or card type\n- statement amount or balance amount or outstanding amount or outstanding balance, never use minimum amount and always make sure amount is not empty, if amount is equals to 0, then omit the whole row for the credit card, \n- statement due date or payment due date. Ensure the dates would be in YYYY-MM-DD."
-        }
-      },
-      "id": "f8ed29e3-76a1-4e74-8634-fe192f08ed2c",
-      "name": "extract info with AI (cc statement)",
-      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
-      "position": [
-        240,
-        64
-      ],
-      "typeVersion": 1
-    },
-    {
-      "parameters": {
         "method": "POST",
-        "url": "https://pdf.opariffazman.com/api/v1/general/split-pages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "http://statement-app:8000/ingest",
         "sendBody": true,
         "contentType": "multipart-form-data",
         "bodyParameters": {
           "parameters": [
             {
               "parameterType": "formBinaryData",
-              "name": "fileInput",
-              "inputDataFieldName": "data"
+              "name": "file",
+              "inputDataFieldName": "=data"
             },
             {
-              "name": "pageNumbers",
-              "value": "1"
+              "name": "bank",
+              "value": "={{ $('get bank').item.json.bankName }}"
             }
           ]
         },
         "options": {}
       },
-      "id": "9bbe78d1-2f56-4614-9b41-5a3753d3127c",
-      "name": "split pages",
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "post to statement-app",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        -224,
-        64
-      ],
       "typeVersion": 4.2,
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "wWP2trG8rMNF7wt7",
-          "name": "stirling-pdf-header-auth"
-        }
-      }
-    },
-    {
-      "parameters": {},
-      "type": "n8n-nodes-base.compression",
-      "typeVersion": 1.1,
       "position": [
-        -64,
+        96,
         64
-      ],
-      "id": "afbbd000-cedf-44fe-95e1-379c3135f38a",
-      "name": "decompress"
+      ]
     },
     {
       "parameters": {
@@ -195,77 +119,6 @@
           "name": "gmail-creds-ariff"
         }
       }
-    },
-    {
-      "parameters": {
-        "chatId": "***REMOVED***",
-        "text": "={{ $('AI Agent').item.json.output }}",
-        "additionalFields": {
-          "appendAttribution": false,
-          "parse_mode": "HTML"
-        }
-      },
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        1232,
-        64
-      ],
-      "id": "aac28531-98a3-4ca1-8bcb-90b42a189aec",
-      "name": "send message to op",
-      "webhookId": "188c24aa-56e3-4563-99ae-02a5e6348b79",
-      "credentials": {
-        "telegramApi": {
-          "id": "BzOqQYtm6k0wVPTV",
-          "name": "opn8nbot"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "modelName": "models/gemini-3.1-flash-lite",
-        "options": {
-          "safetySettings": {
-            "values": [
-              {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE"
-              }
-            ]
-          }
-        }
-      },
-      "id": "17288b3b-990c-4aa4-87e3-443385773675",
-      "name": "gemini-flash-latest",
-      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
-      "position": [
-        112,
-        320
-      ],
-      "typeVersion": 1,
-      "credentials": {
-        "googlePalmApi": {
-          "id": "F704ATb1UHr3GAGq",
-          "name": "gemini-api-ariff"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "={{ $json.output[0] }}",
-        "options": {
-          "systemMessage": "=Use google task tools to create a reminder with the following fields & set the due date 3 days before {{ $json.output[0].payment_due_date }}:\n\nTitle: Pay {{ $json.output[0].bank_name }}\n\nDetails: \n```\nAccount Name: {{ $json.output[0].account_name }}\nAccount Number: {{ $json.output[0].account_no }}\nStatement Amount: {{ $json.output[0].statement_amount }}\n```\n"
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        560,
-        64
-      ],
-      "id": "ddea97f6-6887-47fd-a808-83444fda9c00",
-      "name": "AI Agent"
     },
     {
       "parameters": {
@@ -389,12 +242,12 @@
     ]
   },
   "connections": {
-    "Google Tasks": {
-      "ai_tool": [
+    "email received": {
+      "main": [
         [
           {
-            "node": "AI Agent",
-            "type": "ai_tool",
+            "node": "get bank",
+            "type": "main",
             "index": 0
           }
         ]
@@ -426,100 +279,18 @@
       "main": [
         [
           {
-            "node": "split pages",
+            "node": "post to statement-app",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "extract text": {
-      "main": [
-        [
-          {
-            "node": "extract info with AI (cc statement)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "extract info with AI (cc statement)": {
-      "main": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "split pages": {
-      "main": [
-        [
-          {
-            "node": "decompress",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "decompress": {
-      "main": [
-        [
-          {
-            "node": "extract text",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "mark email read": {
-      "main": [
-        [
-          {
-            "node": "send message to op",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "gemini-flash-latest": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "extract info with AI (cc statement)",
-            "type": "ai_languageModel",
-            "index": 0
-          },
-          {
-            "node": "AI Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Agent": {
+    "post to statement-app": {
       "main": [
         [
           {
             "node": "mark email read",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "email received": {
-      "main": [
-        [
-          {
-            "node": "get bank",
             "type": "main",
             "index": 0
           }
