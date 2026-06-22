@@ -11,6 +11,15 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
+## Active work — Automated refresh pipeline (2026-06-22, in progress)
+
+Approved plan to **automate** the manual handoff above and **retire Gemini/Google Tasks**: everything runs in-cluster (k3s, LAN-only). n8n keeps the Gmail trigger + Stirling unlock, then POSTs the unlocked PDF to a single `statement-app` FastAPI pod that serves the PWA + re-runs `parse.py→insights.py→export_data.py` over an accumulating PVC and writes `app.json` (the PWA fetches it at **runtime**, no rebuild). Payment reminders move to the existing **Telegram bot** via a daily n8n cron (fires 3 days before due), sourced from a new deterministic `due_date` in `parse.py`.
+
+- **Spec (approved):** `docs/superpowers/specs/2026-06-22-automated-refresh-pipeline-design.md` (supersedes backlog "Spec 2").
+- **Plans (3, do one at a time):** Plan 1 `docs/superpowers/plans/2026-06-22-deterministic-bills.md` is **ready**; Plans 2 (PWA bills + runtime-fetch) and 3 (runner + k8s + n8n cutover) not yet written.
+- **Execute** Plan 1 via the `superpowers:subagent-driven-development` skill. As of 2026-06-22 nothing is committed — spec/plan/backlog edits sit on `main`, uncommitted.
+- Details + locked decisions: memory `automated-refresh-pipeline.md`.
+
 ## Commands
 
 ```bash
