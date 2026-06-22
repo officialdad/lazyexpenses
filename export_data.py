@@ -16,12 +16,13 @@ FIELD NAME NOTE: insights.compute() recs use:
 import csv
 import json
 import os
+import re
 from collections import Counter
 
 import dashboard
 import insights
 
-OUT = os.path.join("web", "static", "data", "app.json")
+OUT = os.environ.get("STMT_OUT", os.path.join("web", "static", "data", "app.json"))
 
 
 def build_committed(insights_out):
@@ -101,8 +102,13 @@ def build_bills(csv_path="reconciliation.csv"):
         for r in csv.DictReader(fh):
             if r.get("status") in ("DUPLICATE", "ERROR"):
                 continue
+            sm = r.get("smonth") or ""
+            # Guard: only YYYY-MM smonths participate in the newest-per-bank
+            # string-compare. An UNKNOWN-smonth NO_BALANCE row would otherwise
+            # sort above "2026-NN" and win with a null balance.
+            if not re.fullmatch(r"\d{4}-\d{2}", sm):
+                continue
             bank = r["bank"]
-            sm = r["smonth"]
             if bank not in newest or sm > newest[bank]["smonth"]:
                 newest[bank] = r
     bills = []
@@ -150,9 +156,11 @@ def main():
     cycles = build_cycles()
     bills = build_bills()
     payload = build_payload(rows, insights_out, cycles, bills)
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as fh:
+    os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
+    tmp = OUT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, separators=(",", ":"))
+    os.replace(tmp, OUT)  # atomic on POSIX; last-good app.json survives a crash
     print(
         f"wrote {OUT}: {len(rows)} txns, "
         f"committed RM{payload['committed']['monthly']}/mo "

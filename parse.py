@@ -6,7 +6,7 @@ No LLM. pdfplumber word-geometry + per-bank rules.
 import pdfplumber, re, csv, glob, os, sys
 from collections import defaultdict
 
-SRC = "cc-statements"
+SRC = os.environ.get("STMT_SRC", "cc-statements")
 AMT_RE = re.compile(r'^(-?\d{1,3}(?:,\d{3})*\.\d{2})(CR)?$')
 CARDNUM_DASH = re.compile(r'\b(\d{4}-\d{4}-\d{4}-\d{4})\b')
 CARDNUM_SPACE = re.compile(r'\b(\d{4} \d{4} \d{4} \d{4})\b')
