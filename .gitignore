@@ -18,3 +18,11 @@ dashboard.html
 web/static/data/app.json
 # internal planning docs (real spend figures) — keep local only
 docs/superpowers/
+
+# n8n workflows + tests — kept local for now (live instance holds the configured copies)
+*-cc-statement*.json
+reminder-bills.json
+n8n-reminder-filter.mjs
+test_reminder_filter.mjs
+test_workflow_ingest.py
+test_workflow_reminder.py

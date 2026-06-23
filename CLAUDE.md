@@ -131,6 +131,8 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The fu
 
 ## n8n workflows
 
+> **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
+
 - `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
 
