@@ -55,6 +55,25 @@ The manual loop is short: unlock the PDFs, drop them in a folder, run two script
 
 This half is wired to my own setup, so the workflow files stay out of the repo. The parser and the web app are the parts meant to travel.
 
+## Run it as a service (Docker)
+
+The dashboard above is a file you open. If you would rather run the web app as a real service, the same one the n8n flow posts statements to, there is a Dockerfile that builds it. The image bundles the PWA and a small FastAPI server.
+
+```bash
+docker build -t lazyexpenses .
+docker run --rm -p 8000:8000 -v "$PWD/data:/data" lazyexpenses
+```
+
+The server keeps its data in `/data`, which you mount as a volume so your statements live outside the image. That volume starts empty, so there is no `app.json` to serve until you put one there. You have two ways to fill it:
+
+- Copy in an `app.json` you already built with `python export_data.py` (it writes to `web/static/data/app.json`).
+- Or post an unlocked PDF to the ingest endpoint and let the server build it for you:
+  ```bash
+  curl -F "file=@cc-statements/maybank_x.pdf" -F "bank=maybank" http://localhost:8000/ingest
+  ```
+
+Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
+
 ## How it works, briefly
 
 - Rows come from word coordinates, not plain text. Some banks print the amount column out of line with `pdftotext`, so the parser groups words by their vertical position to rebuild the real rows.
