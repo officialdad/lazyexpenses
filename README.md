@@ -1,6 +1,6 @@
 # lazyexpenses
 
-Got a wallet full of credit cards? lazyexpenses turns the password-locked statement PDFs your banks email you into a spending dashboard you run yourself. It reads every transaction and checks each statement against its own printed balance, so the numbers are trustworthy. Your data never leaves your machine. No bank logins, no LLM.
+Got a wallet full of credit cards? lazyexpenses turns the password-locked statement PDFs your banks email you into a spending dashboard you run yourself. It reads every transaction and checks each statement against its own printed balance, so the numbers are trustworthy. Your data never leaves your machine. No bank logins to hand over.
 
 It handles six Malaysian banks today: Maybank, CIMB, Standard Chartered, Alliance, HSBC, and RHB. Banking elsewhere? Add a parser, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -15,8 +15,6 @@ It handles six Malaysian banks today: Maybank, CIMB, Standard Chartered, Allianc
 ## How accurate is it
 
 Every statement gets checked the boring way: previous balance, plus what you spent, minus what you paid, should land on the new balance. On my own statements that is 69 of them, every one matching to within two cents. If a bank quietly changes its layout and a statement stops adding up, you get a flag instead of a wrong number you never notice.
-
-Nothing is guessed. It is `pdfplumber` reading the position of every word on the page, plus a set of hand-written rules per bank. Run it twice on the same PDF and you get the same answer.
 
 ## Quick start
 
@@ -37,10 +35,6 @@ python insights.py        # writes recommendations.csv (the leaks)
 python export_data.py     # builds the data file the web app reads
 cd web && npm run build   # builds the PWA into web/build/
 ```
-
-## Supported banks
-
-Maybank, CIMB, Standard Chartered, Alliance, HSBC, RHB. Those are the cards I hold, so those are the parsers that exist. Adding another bank is a contained job: dump the PDF's rows with `probe.py`, write the extraction rules, and confirm the statement balances to the cent. [CONTRIBUTING.md](CONTRIBUTING.md) walks through it step by step.
 
 ## The automatic version (optional)
 
@@ -71,15 +65,6 @@ The server keeps its data in `/data`, which you mount as a volume so your statem
   ```
 
 Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
-
-## How it works, briefly
-
-- Rows come from word coordinates, not plain text. Some banks print the amount column out of line with `pdftotext`, so the parser groups words by their vertical position to rebuild the real rows.
-- Each bank has its own small parser. Most follow `date date description amount`. Alliance prints the date on the line above the amount, so it gets handled separately. Banks that put several cards on one statement attribute each row to the card section it sits under.
-- Categories come from a keyword map, so a kopitiam lands in F&B and a Shell station lands in Vehicle.
-- Refunds count as negative spend, so a reversed booking subtracts from its category instead of hiding in plain sight.
-
-The genuinely fiddly bits, like CIMB's Islamic installment accounting and the credit-balance sign flips, are documented in the code right where they happen.
 
 ## Status
 
