@@ -12,3 +12,9 @@ cc-statements/
 audit-shots/
 # generated pipeline CSVs (reproducible from parse.py / insights.py)
 /*.csv
+
+# personal financial data — embedded transactions/balances (never commit)
+dashboard.html
+web/static/data/app.json
+# internal planning docs (real spend figures) — keep local only
+docs/superpowers/

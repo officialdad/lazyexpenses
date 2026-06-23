@@ -63,6 +63,6 @@ A balance printed with a trailing `CR` is a credit (negative) balance. CIMB and 
 ⚠️ Installment plans recur monthly across statements — the `Installments/BT` category is inflated by repetition and should not be read as monthly consumption.
 
 ## Per-bank PDF password (for re-downloading/unlocking)
-maybank `***REMOVED***` · cimb `***REMOVED***` · sc `***REMOVED***` · alliance `***REMOVED***` · hsbc `***REMOVED***` · rhb `***REMOVED***`
+Each bank derives its default PDF password from the cardholder's DOB/IC. **Not committed** — set per-bank on the n8n instance via env vars `CC_PW_<BANK>` (`CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`, `CC_PW_HSBC`, `CC_PW_RHB`).
 
 `probe.py <pdf>` dumps reconstructed rows — handy when adding a new bank/template.

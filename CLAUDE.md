@@ -134,6 +134,6 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The fu
 - `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
 
-Both share the per-bank password map (also in `parse.py` docstring / README): maybank `***REMOVED***`, cimb `***REMOVED***`, sc `***REMOVED***`, alliance `***REMOVED***`, hsbc `***REMOVED***`, rhb `***REMOVED***`. Bank detection keys off the bank name appearing in the email text/PDF.
+Both share a per-bank PDF password map (each bank derives its default from cardholder DOB/IC). **Passwords are NOT committed** — the workflow Code node reads them from n8n env vars `CC_PW_<BANK>` (`CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`, `CC_PW_HSBC`, `CC_PW_RHB`); set them on the n8n instance. Bank detection keys off the bank name appearing in the email text/PDF.
 
 When editing a workflow JSON, credential references (`credentials.*.id`) point at the live n8n instance — preserve them on import.

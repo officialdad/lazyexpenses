@@ -19,7 +19,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Replace \"country\" with whatever field you want to check\nconst inputFieldName = \"bankName\";\nconst outputFieldName = \"password\";\n\n// Now write our result depending on the input field value\nswitch ($input.item.json[inputFieldName]) {\n  case 'maybank':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'cimb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'sc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'alliance':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break\n  case 'hsbc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'rhb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;    \n  default:\n    $input.item.json.error = 'Could not validate bankName';\n}\n\nreturn $input.item;"
+        "jsCode": "// Replace \"country\" with whatever field you want to check\nconst inputFieldName = \"bankName\";\nconst outputFieldName = \"password\";\n\n// Now write our result depending on the input field value\nswitch ($input.item.json[inputFieldName]) {\n  case 'maybank':\n    $input.item.json[outputFieldName] = $env.CC_PW_MAYBANK;\n    break;\n  case 'cimb':\n    $input.item.json[outputFieldName] = $env.CC_PW_CIMB;\n    break;\n  case 'sc':\n    $input.item.json[outputFieldName] = $env.CC_PW_SC;\n    break;\n  case 'alliance':\n    $input.item.json[outputFieldName] = $env.CC_PW_ALLIANCE;\n    break\n  case 'hsbc':\n    $input.item.json[outputFieldName] = $env.CC_PW_HSBC;\n    break;\n  case 'rhb':\n    $input.item.json[outputFieldName] = $env.CC_PW_RHB;\n    break;    \n  default:\n    $input.item.json.error = 'Could not validate bankName';\n}\n\nreturn $input.item;"
       },
       "id": "d9724479-39f3-4d30-b0e3-f2fcad7472d6",
       "name": "set pass",
@@ -156,91 +156,6 @@
       }
     }
   ],
-  "pinData": {
-    "email received": [
-      {
-        "json": {
-          "id": "19eda6e2675ddfb9",
-          "threadId": "19eda6e2675ddfb9",
-          "labelIds": [
-            "Label_5147692669189973304",
-            "UNREAD",
-            "IMPORTANT",
-            "STARRED",
-            "CATEGORY_UPDATES",
-            "INBOX"
-          ],
-          "sizeEstimate": 573198,
-          "headers": {
-            "delivered-to": "Delivered-To: ***REMOVED***",
-            "received": "Received: from mail-10697.protonmail.ch (mail-10697.protonmail.ch. [79.135.106.97])\r\n        by mx.google.com with ESMTPS id 2adb3069b0e04-5ad2e1afbdfsi6108725e87.106.2026.06.18.04.11.52\r\n        for <***REMOVED***>\r\n        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);\r\n        Thu, 18 Jun 2026 04:11:52 -0700 (PDT)",
-            "x-received": "X-Received: by 2002:a05:6512:1281:b0:5aa:62d2:56bb with SMTP id 2adb3069b0e04-5ad47ef47dbmr952017e87.8.1781781112783;\r\n        Thu, 18 Jun 2026 04:11:52 -0700 (PDT)",
-            "arc-seal": "ARC-Seal: i=1; a=rsa-sha256; t=1781781112; cv=none;\r\n        d=google.com; s=arc-20240605;\r\n        b=PZfzjVBWTqRmUR6JIhBMBv67opdNX8jmujgEzhrz0CcDydGAsgjdoxFxsW2ZmJ8vrA\r\n         n4ymjV4ByZaI8gbayXXqY1gQjhMs598g98cq7U+Arv6L+IwsUklMQHz649I/PUX4hG2O\r\n         S1gjuoLr/38u9jncLI7SY9xe3QGJ/81FZ8dxw8GxrbxihCmaespZK1vLKQn0tn4xvOfQ\r\n         p6ytaS2ai4BrZZZVBU+68qj3IYa+NMR83fAidfVsZkmpYdpuMIM/wQbpheZzbMYByVQA\r\n         GBJ8ub2SrDjSCu5H85UpRZwXFEvpggdWRZchvPVM9RRY7zk76XJ3B2ZVmNMvVFNr7LlO\r\n         eJhw==",
-            "arc-message-signature": "ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;\r\n        h=mime-version:feedback-id:references:in-reply-to:message-id:subject\r\n         :from:to:date:dkim-signature;\r\n        bh=bNAVEktZfvsi7CQPsEZ4eA5rAeBc6kYfWMx774atm4c=;\r\n        fh=Tl+h2os0m1sCYCbWU8/lagyve629uTmo9LSg/GoO6Mg=;\r\n        b=TnAWNEVCMFaf1U1rVsYMQOqzGaHOrvmavSPeB5rbOaZpYh3olw46cQh0Jif80HJnwU\r\n         O5a/LIfqMTdJ6citnknRtogaPte8TdpwX0sfA55dDsjxhfoODQb8iU4h+qDpUoYs7jT1\r\n         fBPMyNP7EEUc6s8u8lb6/0letq6qxBpAd0u57LZ3XjVaHEWiBsKH8qQI7dO7R1w4AoQJ\r\n         Q2zF/D3AyG4Dr66HQmcC+H7c5ZcPBq9Y7txm4zRyboI01SdDdWWrUjkuXM5pu4ff8MFk\r\n         XpZ3xKXj/a6Yz3xIX6/55ilAKKo0Plzoyvrq80yPjO7jInwbIbAIeGNp58hVQMD4jU+J\r\n         Lw0Q==;\r\n        dara=google.com",
-            "arc-authentication-results": "ARC-Authentication-Results: i=1; mx.google.com;\r\n       dkim=pass header.i=@proton.me header.s=protonmail header.b=CI8jZTTJ;\r\n       spf=pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) smtp.mailfrom=***REMOVED***;\r\n       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=proton.me",
-            "return-path": "Return-Path: <***REMOVED***>",
-            "received-spf": "Received-SPF: pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) client-ip=79.135.106.97;",
-            "authentication-results": "Authentication-Results: mx.google.com;\r\n       dkim=pass header.i=@proton.me header.s=protonmail header.b=CI8jZTTJ;\r\n       spf=pass (google.com: domain of ***REMOVED*** designates 79.135.106.97 as permitted sender) smtp.mailfrom=***REMOVED***;\r\n       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=proton.me",
-            "dkim-signature": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=proton.me;\r\n\ts=protonmail; t=1781781109; x=1782040309;\r\n\tbh=bNAVEktZfvsi7CQPsEZ4eA5rAeBc6kYfWMx774atm4c=;\r\n\th=Date:To:From:Subject:Message-ID:In-Reply-To:References:\r\n\t Feedback-ID:From:To:Cc:Date:Subject:Reply-To:Feedback-ID:\r\n\t Message-ID:BIMI-Selector;\r\n\tb=CI8jZTTJg420EPIbH4zytpgO4y2CLob4UcL3TCXiLueuYQwi/cCkaXaHSAW5+4L1K\r\n\t UQdQOdiRnw3xfYhiVV7G+/pX1aiuvmdi6Uz1tuTKTwvmyRgC11NeYaFE4dZ+nT8hbQ\r\n\t fLLxIQdi6fhQsZ9yUdQF6HadqgGoht8D1maxC+foeOJHJ8n4lNjD9Lkry/TgviUobE\r\n\t 2nfog8hN/JqB6+ceff9WouL4b0h3j+58M8FQAoz4BW84ablJe7UIerKgCBCZqXKfQj\r\n\t 3tILtzbVzg5kTKgQlQlzRElJZKhcVHjJPWIN7Ll6OmHN1d0kxpEkQAM0oFffS2ZjL3\r\n\t hr+AXWn8J3pTQ==",
-            "date": "Date: Thu, 18 Jun 2026 11:11:46 +0000",
-            "to": "To: ***REMOVED***",
-            "from": "From: ariff azman <***REMOVED***>",
-            "subject": "Subject: Fw: Alliance Bank Credit Card",
-            "message-id": "Message-ID: <PO_L4chz7nFbtDH90LpCrcAHECCrhDpMZdSYWhMR1THbV-rJpjG7NBz3_dGFDz5Y12i4UfwF16cyqSyiV2Aewnh8vrf7aZdOtExlnlMfqPk=@proton.me>",
-            "in-reply-to": "In-Reply-To: <0001|@|18KoJDzHhc>",
-            "references": "References: <0001|@|18KoJDzHhc>",
-            "feedback-id": "Feedback-ID: 75401366:user:proton",
-            "x-pm-message-id": "X-Pm-Message-ID: e26c0f4c595e1d543c2caa6f1c7c6eef6260cb92",
-            "mime-version": "MIME-Version: 1.0",
-            "content-type": "Content-Type: multipart/mixed;\r\n boundary=\"b1=_xZ72zzuSoWnrPgVN1oVwy74EkYEU3OAuezaWXZfPxqw\""
-          },
-          "html": "<html><head></head><body><br><br><br><div class=\"protonmail_signature_block-user\"><div style=\"font-size: 14px; color: #000\"><font face=\"Menlo, Consolas, Courier New, monospace\">ariff azman</font></div></div><br><br>Sent from <a target=\"_blank\" href=\"https://proton.me/mail/home\" rel=\"noreferrer\">Proton Mail</a> for Android.<div class=\"protonmail_quote\"><br><br>-------- Original Message --------<br>On Thursday, 06/18/26 at 18:14 AllianceBank &lt;e-statement@alliancebank.e-statement.com.my&gt; wrote:<br><blockquote class=\"protonmail_quote\">\n    <table id=\"main\" class=\"outer\" align=\"center\">\n        <tbody><tr>\n            <td>\n               Dear Customer,\n               <br><br>\n               We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.\n               <br><br>\n               For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:\n            </td>\n        </tr>\n        <tr>\n            <td>\n                <ol class=\"list\">\n                    <li>The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).</li>\n                    <li>Special character \"#\".</li>\n                    <li>The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)</li>\n                </ol>\n            </td>\n        </tr>\n        <tr>\n            <td>\n               Example: W#5768 (IC No) or W#429R (Passport No).\n               <br><br>\n               To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.\n               <br><br>\n               You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer.\n               To avoid future emails like this being automatically sent to the junk folder,\n               please add e-statement@alliancebank.e-statement.com.my to your Address Book and/or the \"Approved Sender\" list.\n            </td>\n        </tr>\n        <tr>\n            <td class=\"middleline\" style=\"height: 1px\"> </td>\n        </tr>\n        <tr>\n            <td>\n                <b>NOTICE</b>\n                <br><br>\n\n                This is a PRIVATE electronic message transmission intended only for the use of the person to whom\n                it is expressively addressed and may contain information that is confidential and legally privileged.\n                If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to,\n                review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited.\n                <b>If you have received this message in error, please disregard and delete all its contents immediately.</b>\n                <br><br>\n\n                This is an <b>auto-generated</b> email. <b>Please do not reply to this message.</b>\n                For more information or assistance, please contact our <b>Customer Service</b> at 03-5516 9988.\n            </td>\n        </tr>\n      </tbody></table>\n<img src=\"http://tracking2.e-statement.com.my/MTAwMQ0KKzAwMDErKysxOEtvSkR6SGhjKw0KKzAwMDErKysxOEtvSkR6SGhjKw0KMzliMDAwMDAwMDY0NTBjDQpBUklGRi5BWk1BTkBQUk9UT04uTUU%3d.gif\" alt=\"\" width=\"0\" height=\"0\">\n\n<p><img src=\"http://www.google-analytics.com/collect?v=1&amp;tid=UA-78233423-2&amp;cid=AlliancCC&amp;t=event&amp;ec=email&amp;ea=open&amp;el=June 2026&amp;cs=Alliance_309041&amp;cm=email&amp;cn=AllianceCC_13675873\" alt=\"\"></p>\n\n\n</blockquote></div></body></html>",
-          "text": "ariff azman\n\nSent from [Proton Mail](https://proton.me/mail/home) for Android.\n\n-------- Original Message --------\nOn Thursday, 06/18/26 at 18:14 AllianceBank <e-statement@alliancebank.e-statement.com.my> wrote:\n\n> Dear Customer,\n>\n> We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.\n>\n> For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:\n>\n> - The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).\n> - Special character \"#\".\n> - The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)\n>\n> Example: W#5768 (IC No) or W#429R (Passport No).\n>\n> To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.\n>\n> You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer. To avoid future emails like this being automatically sent to the junk folder, please add e-statement@alliancebank.e-statement.com.my to your Address Book and/or the \"Approved Sender\" list.\n>\n> NOTICE\n>\n> This is a PRIVATE electronic message transmission intended only for the use of the person to whom it is expressively addressed and may contain information that is confidential and legally privileged. If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to, review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited. If you have received this message in error, please disregard and delete all its contents immediately.\n>\n> This is an auto-generated email. Please do not reply to this message. For more information or assistance, please contact our Customer Service at 03-5516 9988.",
-          "textAsHtml": "<p>ariff azman</p><p>Sent from [Proton Mail](<a href=\"https://proton.me/mail/home\">https://proton.me/mail/home</a>) for Android.</p><p>-------- Original Message --------<br/>On Thursday, 06/18/26 at 18:14 AllianceBank &lt;<a href=\"mailto:e-statement@alliancebank.e-statement.com.my\">e-statement@alliancebank.e-statement.com.my</a>&gt; wrote:</p><p>&gt; Dear Customer,<br/>&gt;<br/>&gt; We are pleased to enclose your Alliance Bank Credit Card E-Statement for the month of June 2026 for your viewing.<br/>&gt;<br/>&gt; For security purposes, the PDF attachment is password protected. To access, please key in your default password in the following format:<br/>&gt;<br/>&gt; - The last character of your name as per Identity Card or Passport in capital letter (example W for Tan Ah Kow).<br/>&gt; - Special character &quot;#&quot;.<br/>&gt; - The last 4 digits of your Identity Card (example 5768 for 601117115768) or last 4 character of your Passport Number (example 429R for W1163429R)<br/>&gt;<br/>&gt; Example: W#5768 (IC No) or W#429R (Passport No).<br/>&gt;<br/>&gt; To view PDF, you will need Adobe Acrobat Reader (version 7 or above), which can be easily downloaded for free at the Adobe website.<br/>&gt;<br/>&gt; You have received this email because you are an Alliance Bank or Alliance Islamic Bank customer. To avoid future emails like this being automatically sent to the junk folder, please add <a href=\"mailto:e-statement@alliancebank.e-statement.com.my\">e-statement@alliancebank.e-statement.com.my</a> to your Address Book and/or the &quot;Approved Sender&quot; list.<br/>&gt;<br/>&gt; NOTICE<br/>&gt;<br/>&gt; This is a PRIVATE electronic message transmission intended only for the use of the person to whom it is expressively addressed and may contain information that is confidential and legally privileged. If you are not the intended recipient, you are hereby notified that any use, reliance on, reference to, review, disclosure or copying the message and the information it contains for any purpose is strictly prohibited. If you have received this message in error, please disregard and delete all its contents immediately.<br/>&gt;<br/>&gt; This is an auto-generated email. Please do not reply to this message. For more information or assistance, please contact our Customer Service at 03-5516 9988.</p>",
-          "subject": "Fw: Alliance Bank Credit Card",
-          "references": "<0001|@|18KoJDzHhc>",
-          "date": "2026-06-18T11:11:46.000Z",
-          "to": {
-            "value": [
-              {
-                "address": "***REMOVED***",
-                "name": ""
-              }
-            ],
-            "html": "<span class=\"mp_address_group\"><a href=\"mailto:***REMOVED***\" class=\"mp_address_email\">***REMOVED***</a></span>",
-            "text": "***REMOVED***"
-          },
-          "from": {
-            "value": [
-              {
-                "address": "***REMOVED***",
-                "name": "ariff azman"
-              }
-            ],
-            "html": "<span class=\"mp_address_group\"><span class=\"mp_address_name\">ariff azman</span> &lt;<a href=\"mailto:***REMOVED***\" class=\"mp_address_email\">***REMOVED***</a>&gt;</span>",
-            "text": "\"ariff azman\" <***REMOVED***>"
-          },
-          "messageId": "<PO_L4chz7nFbtDH90LpCrcAHECCrhDpMZdSYWhMR1THbV-rJpjG7NBz3_dGFDz5Y12i4UfwF16cyqSyiV2Aewnh8vrf7aZdOtExlnlMfqPk=@proton.me>",
-          "inReplyTo": "<0001|@|18KoJDzHhc>"
-        },
-        "binary": {
-          "attachment_0": {
-            "mimeType": "application/pdf",
-            "fileType": "pdf",
-            "fileExtension": "pdf",
-            "data": "filesystem-v2",
-            "fileName": "June_Credit_Card_Statement.pdf",
-            "id": "filesystem-v2:workflows/qmyixyXa043I59m3/executions/temp/binary_data/f1377c21-3979-416f-877b-bedaa97b6cc3",
-            "fileSize": "410 kB",
-            "bytes": 409653
-          }
-        },
-        "pairedItem": {
-          "item": 0
-        }
-      }
-    ]
-  },
   "connections": {
     "email received": {
       "main": [

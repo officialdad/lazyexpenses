@@ -60,7 +60,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Map bankName -> default PDF password\nconst inputFieldName = \"bankName\";\nconst outputFieldName = \"password\";\n\nswitch ($input.item.json[inputFieldName]) {\n  case 'maybank':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'cimb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'sc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'alliance':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'hsbc':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  case 'rhb':\n    $input.item.json[outputFieldName] = '***REMOVED***';\n    break;\n  default:\n    $input.item.json.error = 'Could not validate bankName';\n}\n\nreturn $input.item;"
+        "jsCode": "// Map bankName -> default PDF password\nconst inputFieldName = \"bankName\";\nconst outputFieldName = \"password\";\n\nswitch ($input.item.json[inputFieldName]) {\n  case 'maybank':\n    $input.item.json[outputFieldName] = $env.CC_PW_MAYBANK;\n    break;\n  case 'cimb':\n    $input.item.json[outputFieldName] = $env.CC_PW_CIMB;\n    break;\n  case 'sc':\n    $input.item.json[outputFieldName] = $env.CC_PW_SC;\n    break;\n  case 'alliance':\n    $input.item.json[outputFieldName] = $env.CC_PW_ALLIANCE;\n    break;\n  case 'hsbc':\n    $input.item.json[outputFieldName] = $env.CC_PW_HSBC;\n    break;\n  case 'rhb':\n    $input.item.json[outputFieldName] = $env.CC_PW_RHB;\n    break;\n  default:\n    $input.item.json.error = 'Could not validate bankName';\n}\n\nreturn $input.item;"
       },
       "id": "a1b2c3d4-0004-4000-8000-000000000004",
       "name": "set pass",
@@ -144,7 +144,7 @@
     {
       "parameters": {
         "operation": "sendDocument",
-        "chatId": "***REMOVED***",
+        "chatId": "REPLACE-WITH-YOUR-CHAT-ID",
         "binaryData": true,
         "binaryPropertyName": "data",
         "additionalFields": {
