@@ -1,17 +1,15 @@
 # lazyexpenses
 
-If you carry more than a couple of credit cards, you know the problem. Six statement PDFs a month, six different layouts, each one locked behind a password, and nowhere that tells you where the money actually went. The budgeting apps that fix this want your bank logins. This one doesn't.
+Got a wallet full of credit cards? lazyexpenses turns the password-locked statement PDFs your banks email you into a spending dashboard you run yourself. It reads every transaction and checks each statement against its own printed balance, so the numbers are trustworthy. Your data never leaves your machine. No bank logins, no LLM.
 
-lazyexpenses reads the statement PDFs your bank already emails you, pulls out every transaction, and builds a spending dashboard you open on your own machine. No login sharing and no LLM. Your data never leaves your computer. And because every number is checked against the statement's own balance, you can actually trust it.
-
-Today it understands six Malaysian banks: Maybank, CIMB, Standard Chartered, Alliance, HSBC, and RHB. Bank somewhere else? You can add a parser. See [CONTRIBUTING.md](CONTRIBUTING.md).
+It handles six Malaysian banks today: Maybank, CIMB, Standard Chartered, Alliance, HSBC, and RHB. Banking elsewhere? Add a parser, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What it does for you
 
 - A spending dashboard you run yourself. One self-contained HTML file, or an installable web app. Every card and every month, broken down by category.
 - A leak finder. It surfaces subscriptions you forgot you were paying for, categories that are quietly creeping up, and big one-off spends, ranked by what each one costs you per year.
 - A debt tracker. Installment plans and balance transfers, with how many months are left on each.
-- Bill reminders. A Telegram message three days before a payment is due, so you stop feeding the banks late fees.
+- A heads-up on bills. The web app lists your upcoming statement balances and turns a bill red when it is due within three days.
 - A "use next" card pick. It points you at the card with the longest interest-free runway that you haven't been leaning on.
 
 ## How accurate is it
@@ -51,7 +49,7 @@ The manual loop is short: unlock the PDFs, drop them in a folder, run two script
 1. A Gmail trigger picks up mail tagged `CC`.
 2. Stirling-PDF unlocks the attachment using the per-bank password, which lives in n8n environment variables and never in the repo.
 3. The unlocked PDF is posted to a small FastAPI service that re-runs the parser and rebuilds the dashboard data on a stored volume.
-4. A daily job looks for bills due in three days and sends the Telegram reminder.
+4. A daily job reads those due dates and sends a Telegram reminder three days out. This reminder is part of the n8n workflow, which is not in the repo.
 
 This half is wired to my own setup, so the workflow files stay out of the repo. The parser and the web app are the parts meant to travel.
 
@@ -85,7 +83,7 @@ The genuinely fiddly bits, like CIMB's Islamic installment accounting and the cr
 
 ## Status
 
-Working, and in daily use on my own statements. The parser, the dashboard, the leak finder, the bill reminder, and the card picker are all done. Hosting the web app properly and shipping a sample dataset for a public demo are still on the list.
+Working, and in daily use on my own statements. The parser, the dashboard, the leak finder, the bills-due panel, and the card picker are all done. Hosting the web app properly and shipping a sample dataset for a public demo are still on the list.
 
 ## License
 
