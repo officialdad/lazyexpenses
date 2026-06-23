@@ -70,4 +70,4 @@ Working, and in daily use on my own statements. The parser, the dashboard, the l
 
 ## License
 
-No license file yet, which means default copyright applies. If you want to reuse a piece of this, open an issue and ask. I'm friendly about it.
+MIT. See [LICENSE](LICENSE). Do what you like with it.
