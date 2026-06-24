@@ -1,9 +1,14 @@
 <script lang="ts">
   import { app, agg } from '$lib/data';
-  import { rm } from '$lib/fmt';
+  import { rm, monthLabel } from '$lib/fmt';
+  import { byCategory } from '$lib/trends';
+  import Icon from '$lib/components/Icon.svelte';
 
-  const slices = agg.byCategory;
-  const total = slices.reduce((a, s) => a + s.total, 0);
+  // null month → all-time (precomputed agg); a month → re-scope to that month.
+  let { month = null }: { month?: string | null } = $props();
+
+  const slices = $derived(month ? byCategory(app.rows, month, app.nonSpend) : agg.byCategory);
+  const total = $derived(slices.reduce((a, s) => a + s.total, 0));
 
   // Compute SVG arc paths for donut chart
   function polarToXY(cx: number, cy: number, r: number, angle: number) {
@@ -42,7 +47,7 @@
     });
   }
 
-  const arcs = buildArcs(slices, total);
+  const arcs = $derived(buildArcs(slices, total));
 
   // Clamp long names for legend
   function clamp(s: string, n = 22) {
@@ -51,7 +56,9 @@
 </script>
 
 <div class="border p-3" style="border-color:var(--divider)">
-  <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Spend by Category</h2>
+  <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">
+    Spend by Category{#if month} · {monthLabel(month)}{/if}
+  </h2>
   {#if slices.length === 0}
     <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
   {:else}
@@ -59,7 +66,7 @@
       <!-- SVG Donut -->
       <div class="shrink-0 mx-auto" style="width:200px;height:200px">
         <svg viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Category spend donut chart">
-          {#each arcs as a}
+          {#each arcs as a (a.g)}
             <path d={a.path} fill={a.color} stroke="var(--bg)" stroke-width="1.5">
               <title>{a.g}: {rm(a.total)}</title>
             </path>
@@ -68,11 +75,13 @@
           <text x="100" y="108" text-anchor="middle" font-size="16" fill="var(--text)" font-family="inherit" font-weight="600">{rm(total)}</text>
         </svg>
       </div>
-      <!-- Legend (DOM text — fully legible, no SVG text) -->
+      <!-- Legend (DOM text — fully legible, no SVG text); category icon tinted to the slice colour -->
       <ul class="flex-1 space-y-1.5 min-w-0">
-        {#each arcs as a}
+        {#each arcs as a (a.g)}
           <li class="flex items-center gap-2 text-xs min-w-0">
-            <span class="inline-block shrink-0 w-2.5 h-2.5" style="background:{a.color}"></span>
+            <span class="shrink-0 inline-flex" style="color:{a.color}">
+              <Icon name={app.catIcon[a.g] ?? 'shape-outline'} size={14} />
+            </span>
             <span class="truncate" title={a.g}>{clamp(a.g)}</span>
             <span class="ml-auto tabular-nums shrink-0 pl-2" style="color:var(--muted)">{rm(a.total)}</span>
           </li>

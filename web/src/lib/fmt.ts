@@ -14,3 +14,9 @@ export function kRM(n: number): string {
   const s = k >= 100 ? Math.round(k).toString() : k.toFixed(1).replace(/\.0$/, '');
   return sign + s + 'k';
 }
+
+// Month formatting for 'YYYY-MM' keys — shared by the trend bars, donut, and merchants.
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+export const moName = (m: string) => MONTHS[parseInt(m.split('-')[1], 10) - 1] ?? m;
+export const yr2 = (m: string) => "'" + (m.split('-')[0]?.slice(2) ?? '');
+export const monthLabel = (m: string) => `${moName(m)} ${yr2(m)}`;
