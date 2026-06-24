@@ -12,7 +12,7 @@
   const rows = $derived(sortBills(bills, today, paid.keys));
 </script>
 
-<div class="border p-3" style="border-color:var(--divider)">
+<section aria-label="Bills due" class="border p-3" style="border-color:var(--divider)">
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Bills due</h2>
   {#if !rows.length}
     <p class="text-xs" style="color:var(--muted)">No bills yet.</p>
@@ -68,7 +68,7 @@
       {/each}
     </ul>
   {/if}
-</div>
+</section>
 
 <style>
   .paidbtn:focus-visible {

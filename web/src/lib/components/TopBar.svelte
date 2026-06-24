@@ -1,5 +1,7 @@
 <script lang="ts">
   import { app, latestMonth } from '$lib/data';
+  import { search, MAGNIFY } from '$lib/search.svelte';
+  import SyncStatus from '$lib/components/SyncStatus.svelte';
 
   const sections = [
     { id: 'overview', label: 'Overview' },
@@ -57,8 +59,24 @@
         >{s.label}</a>
       {/each}
     </nav>
-    <span class="ml-auto text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
+    <button type="button" onclick={() => (search.open = true)} aria-label="Search transactions"
+      class="searchbtn ml-auto" style="color:var(--muted)">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d={MAGNIFY} /></svg>
+    </button>
+    <span class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
       {latestMonth()} · {app.range}
     </span>
+    <SyncStatus />
   </div>
 </header>
+
+<style>
+  .searchbtn {
+    display: inline-flex;
+    padding: 0.25rem;
+  }
+  .searchbtn:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+</style>

@@ -16,7 +16,11 @@ const EMPTY: AppData = {
 // fetch, so every `import { app } from '$lib/data'` consumer keeps working unchanged.
 export const app: AppData = $state({ ...EMPTY });
 
-export const meta = $state<{ status: LoadStatus; error: string }>({ status: 'loading', error: '' });
+export const meta = $state<{ status: LoadStatus; error: string; lastSynced: number }>({
+  status: 'loading',
+  error: '',
+  lastSynced: 0
+});
 
 // All-time aggregates, computed ONCE after fetch (the desktop+mobile dual subtree renders
 // each chart twice but reads these same arrays — no recompute).
@@ -45,6 +49,7 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
     agg.monthly = monthlySeries(app.rows, app.months, app.nonSpend);
     agg.byCategory = byCategory(app.rows, null, app.nonSpend);
     agg.topMerchants = topMerchants(app.rows, 20, app.nonSpend);
+    meta.lastSynced = Date.now();
     meta.status = 'ready';
   } catch (e) {
     meta.error = e instanceof Error ? e.message : String(e);
