@@ -6,6 +6,20 @@
 		<meta name="text-scale" content="scale" />
 		<link rel="icon" href="/favicon.png" type="image/png" />
 		<link rel="apple-touch-icon" href="/pwa-192x192.png" />
+		<link rel="manifest" href="/manifest.webmanifest" />
+		<!-- ponytail: register the SW by hand. @vite-pwa/sveltekit generates sw.js +
+		     manifest.webmanifest but its auto-inject doesn't land in the static build
+		     output (Vite 8 + SvelteKit), so nothing referenced them → no manifest, no
+		     SW → Chrome offered only a "Add to Home screen" shortcut, never Install,
+		     and the offline cache never populated. sw.js does skipWaiting+clientsClaim
+		     so registerType:'autoUpdate' still applies on reload. -->
+		<script>
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', () =>
+					navigator.serviceWorker.register('/sw.js', { scope: '/' })
+				);
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
