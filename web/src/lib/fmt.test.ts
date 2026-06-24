@@ -7,6 +7,13 @@ describe('fmt', () => {
     expect(rm(860)).toBe('RM860');
     expect(rm(-140)).toBe('-RM140');
   });
+  it('formats exact cents when asked; default stays rounded', () => {
+    expect(rm(1234.5, true)).toBe('RM1,234.50');
+    expect(rm(2431.2, true)).toBe('RM2,431.20');
+    expect(rm(-140.05, true)).toBe('-RM140.05');
+    expect(rm(860, true)).toBe('RM860.00');
+    expect(rm(1234.56)).toBe('RM1,235'); // default path unchanged
+  });
   it('formats percent', () => {
     expect(pct(0.713)).toBe('71%');
   });

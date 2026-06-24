@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { meta, loadAppData } from '$lib/data';
+  import { paid } from '$lib/paid.svelte';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import Dashboard from '$lib/components/Dashboard.svelte';
@@ -9,7 +10,7 @@
 
   // Runtime fetch — client-only (onMount never runs during prerender, so the static
   // shell ships the skeleton; data hydrates here).
-  onMount(() => { loadAppData(); });
+  onMount(() => { loadAppData(); paid.load(); });
 </script>
 <svelte:head><meta name="theme-color" content="#000000" /></svelte:head>
 

@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +48,30 @@ def create_app() -> FastAPI:
             return JSONResponse([])
         data = json.loads(p.read_text(encoding="utf-8"))
         return JSONResponse(data.get("bills", []))
+
+    @app.get("/data/paid.json")
+    def data_paid_json():
+        # Cross-device paid-bill state, kept OUT of app.json (pipeline regenerates that).
+        # Served from the PVC; [] when nothing's been marked yet.
+        p = _data_dir() / "paid.json"
+        if not p.exists():
+            return JSONResponse([])
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+    @app.post("/api/paid")
+    async def set_paid(body: dict = Body(...)):
+        k = body.get("key")
+        if not isinstance(k, str) or not k:
+            raise HTTPException(status_code=400, detail="missing key")
+        is_paid = bool(body.get("paid"))
+        p = _data_dir() / "paid.json"
+        async with lock:  # reuse the pipeline lock — serializes the atomic rewrite
+            keys = set(json.loads(p.read_text(encoding="utf-8"))) if p.exists() else set()
+            keys.add(k) if is_paid else keys.discard(k)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(sorted(keys)), encoding="utf-8")
+            os.replace(tmp, p)  # atomic on POSIX
+        return JSONResponse(sorted(keys))
 
     @app.post("/ingest")
     async def ingest(file: UploadFile, bank: str = Form(...)):

@@ -43,4 +43,14 @@ describe('sortBills', () => {
     const out = sortBills([bill('x', null)], '2026-06-22');
     expect(out[0].urgent).toBe(false);
   });
+  it('sinks paid bills to the bottom regardless of due date, and flags them', () => {
+    const bills = [bill('cimb', '2026-06-25'), bill('sc', '2026-06-23'), bill('hsbc', '2026-06-24')];
+    const out = sortBills(bills, '2026-06-22', new Set(['sc|2026-06'])); // sc soonest-due but paid
+    expect(out.map((b) => b.bank)).toEqual(['hsbc', 'cimb', 'sc']); // unpaid by days, paid last
+    expect(out.find((b) => b.bank === 'sc')!.paid).toBe(true);
+    expect(out.find((b) => b.bank === 'cimb')!.paid).toBe(false);
+  });
+  it('defaults paid=false when no paidKeys passed (back-compat)', () => {
+    expect(sortBills([bill('a', '2026-06-25')], '2026-06-22')[0].paid).toBe(false);
+  });
 });

@@ -92,3 +92,28 @@ def test_ingest_500_on_pipeline_failure(monkeypatch):
         monkeypatch.setattr(appmod.pipeline, "run_pipeline", boom)
         r = c.post("/ingest", data={"bank": "rhb"}, files={"file": ("s.pdf", b"%PDF-Y", "application/pdf")})
         assert r.status_code == 500
+
+
+def test_paid_empty_when_no_file():
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.get("/data/paid.json").json() == []
+
+
+def test_paid_post_adds_and_removes_persisting_to_pvc():
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        r = c.post("/api/paid", json={"key": "cimb|2026-06", "paid": True})
+        assert r.status_code == 200
+        assert r.json() == ["cimb|2026-06"]
+        # survives independently of app.json (read back from the PVC)
+        assert c.get("/data/paid.json").json() == ["cimb|2026-06"]
+        # toggling off removes it
+        c.post("/api/paid", json={"key": "cimb|2026-06", "paid": False})
+        assert c.get("/data/paid.json").json() == []
+
+
+def test_paid_post_rejects_missing_key():
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.post("/api/paid", json={"paid": True}).status_code == 400

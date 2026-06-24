@@ -37,13 +37,20 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,json}'],
-				globIgnores: ['**/data/app.json'],
+				globIgnores: ['**/data/app.json', '**/data/paid.json'],
 				navigateFallback: '/',
 				runtimeCaching: [
 					{
 						urlPattern: ({ url }: { url: URL }) => url.pathname === '/data/app.json',
 						handler: 'NetworkFirst' as const,
 						options: { cacheName: 'app-data', expiration: { maxEntries: 1 } }
+					},
+					{
+						// Cross-device paid-bill state — same NetworkFirst rule as app.json, else an
+						// installed PWA caches the empty [] and never sees server updates.
+						urlPattern: ({ url }: { url: URL }) => url.pathname === '/data/paid.json',
+						handler: 'NetworkFirst' as const,
+						options: { cacheName: 'paid-data', expiration: { maxEntries: 1 } }
 					}
 				]
 			},
