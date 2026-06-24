@@ -96,6 +96,8 @@ Full refresh: `python parse.py && python insights.py && python export_data.py &&
 Then gate the build: `npm run preview -- --port 4173 &` and `node audit-responsive.mjs` — must print `AUDIT OK` (no overflow / sub-11px / console errors at 390/834/1440, and `#overview` is the active scroll-spy link at top on desktop).
 (Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
 
+**PWA install/SW registration is wired by hand in `src/app.html`** (a `<link rel="manifest">` + a one-line `navigator.serviceWorker.register('/sw.js')`). `@vite-pwa/sveltekit` *generates* `sw.js`/`manifest.webmanifest`/`registerSW.js` fine, but its auto-inject **silently no-ops** on this Vite 8 + SvelteKit build — nothing referenced them, so there was no manifest link and no SW → Chrome/Firefox offered only an "Add to Home screen" shortcut (never **Install**) and the Workbox offline cache never populated. Don't remove those `app.html` lines expecting the plugin to re-inject. Verify after a dep bump: `grep -oE 'rel="manifest"|serviceWorker.register' build/index.html` must hit (the served file is the adapter-static **fallback** `index.html`, which is built from `app.html`). Install needs HTTPS *or* localhost (secure context); a plain-HTTP LAN IP downgrades to a non-installable shortcut even with all of the above correct.
+
 The PWA fetches its data at **runtime**: `data.svelte.ts` (a runed store, re-exported
 through the `data.ts` barrel so `import { app } from '$lib/data'` is unchanged)
 `fetch('/data/app.json')` on mount and fills `app` in place; `+layout.svelte` gates all
