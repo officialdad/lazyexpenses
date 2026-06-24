@@ -48,6 +48,7 @@ def run_pipeline(data_dir: "str | Path") -> dict:
         **os.environ,
         "STMT_SRC": str(data_dir / "pdfs"),
         "STMT_OUT": str(data_dir / "app.json"),
+        "STMT_CACHE": str(data_dir / "cache"),  # per-PDF parse memo, persists on the PVC
     }
     for script in SCRIPTS:
         subprocess.run(

@@ -6,12 +6,16 @@ web/build/
 web/.env*
 *.pyc
 __pycache__/
+.venv/
+venv/
 
 # raw bank statements & generated artifacts — never commit
 cc-statements/
 audit-shots/
 # generated pipeline CSVs (reproducible from parse.py / insights.py)
 /*.csv
+# per-PDF parse cache (reproducible; keyed by content hash)
+cache/
 
 # personal financial data — embedded transactions/balances (never commit)
 dashboard.html

@@ -3,10 +3,14 @@
 Reads cc-statements/*.pdf -> transactions.csv, reconciliation.csv, summaries.
 No LLM. pdfplumber word-geometry + per-bank rules.
 """
-import pdfplumber, re, csv, glob, os, sys
+import pdfplumber, re, csv, glob, os, sys, hashlib, json
 from collections import defaultdict
 
 SRC = os.environ.get("STMT_SRC", "cc-statements")
+CACHE = os.environ.get("STMT_CACHE", "cache")
+# Busts the whole cache whenever parse.py changes, so a parser-rule edit never
+# serves stale rows (silently-wrong financial data). Hash of this file's bytes.
+PARSE_VER = hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:12]
 AMT_RE = re.compile(r'^(-?\d{1,3}(?:,\d{3})*\.\d{2})(CR)?$')
 CARDNUM_DASH = re.compile(r'\b(\d{4}-\d{4}-\d{4}-\d{4})\b')
 CARDNUM_SPACE = re.compile(r'\b(\d{4} \d{4} \d{4} \d{4})\b')
@@ -452,6 +456,29 @@ def categorize(desc):
 
 
 # ============================ main ============================
+def cached_parse(f):
+    # ponytail: per-file memo of parse_statement (pure given file bytes), keyed
+    # by content sha256 -> reparse only on miss. Makes ingest O(1) in corpus size.
+    h = hashlib.sha256(open(f, 'rb').read()).hexdigest()
+    cf = os.path.join(CACHE, h + '.json')
+    try:
+        with open(cf) as fh:
+            c = json.load(fh)
+        if c['ver'] == PARSE_VER:
+            # re-derive 'file' from the current path: same content can arrive under
+            # a different filename, and source_file/dedup must reflect this run.
+            return dict(c['meta'], file=os.path.basename(f)), c['txns']
+    except (OSError, ValueError, KeyError):
+        pass                                  # missing/corrupt/old -> reparse
+    meta, txns = parse_statement(f)
+    os.makedirs(CACHE, exist_ok=True)
+    tmp = cf + '.tmp'
+    with open(tmp, 'w') as fh:
+        json.dump({'ver': PARSE_VER, 'meta': meta, 'txns': txns}, fh)
+    os.replace(tmp, cf)                       # atomic: no torn JSON on crash
+    return meta, txns
+
+
 def main():
     files = sorted(glob.glob(os.path.join(SRC, '*.pdf')))
     tx_rows = []
@@ -459,7 +486,7 @@ def main():
     seen_fp = {}                              # statement fingerprint -> first file that had it
     for f in files:
         try:
-            meta, txns = parse_statement(f)
+            meta, txns = cached_parse(f)
         except Exception as e:
             recon.append(dict(file=os.path.basename(f), bank='?', smonth='ERR', sdate=str(e),
                               prev=None, cur=None, debit=0, credit=0, expected=None, diff=None,
