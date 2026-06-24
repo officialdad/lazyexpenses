@@ -1,6 +1,8 @@
-export function rm(n: number): string {
+export function rm(n: number, cents = false): string {
   const neg = n < 0;
-  const s = Math.round(Math.abs(n)).toLocaleString('en-US');
+  const s = cents
+    ? Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.round(Math.abs(n)).toLocaleString('en-US');
   return (neg ? '-RM' : 'RM') + s;
 }
 export function pct(n: number): string {

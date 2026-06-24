@@ -21,5 +21,7 @@
   <KpiChips {month} />
 </div>
 
-<CardPick />
-<BillsDue />
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2 mt-6 lg:items-start">
+  <CardPick />
+  <BillsDue />
+</div>
