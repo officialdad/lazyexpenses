@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { agg } from '$lib/data';
-  import { rm } from '$lib/fmt';
+  import { app, agg } from '$lib/data';
+  import { rm, monthLabel } from '$lib/fmt';
+  import { topMerchants } from '$lib/trends';
 
-  const merchants = agg.topMerchants;
-  const max = Math.max(...merchants.map(m => m.total), 1);
+  // null month → all-time (precomputed agg); a month → re-scope to that month.
+  let { month = null }: { month?: string | null } = $props();
+
+  const merchants = $derived(
+    month ? topMerchants(app.rows.filter((r) => r.m === month), 20, app.nonSpend) : agg.topMerchants
+  );
+  const max = $derived(Math.max(...merchants.map((m) => m.total), 1));
 
   // Clamp long merchant names
   function clamp(s: string, n = 28) {
@@ -12,12 +18,14 @@
 </script>
 
 <div class="border p-3" style="border-color:var(--divider)">
-  <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Top 20 Merchants</h2>
+  <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">
+    {#if month}Top Merchants · {monthLabel(month)}{:else}Top 20 Merchants{/if}
+  </h2>
   {#if merchants.length === 0}
     <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
   {:else}
     <div class="space-y-1.5">
-      {#each merchants as m, i}
+      {#each merchants as m, i (m.d)}
         {@const barPct = max > 0 ? (m.total / max) * 100 : 0}
         <div class="flex items-center gap-2 text-xs">
           <!-- Rank -->

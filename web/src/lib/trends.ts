@@ -21,6 +21,16 @@ export function byCategory(rows: Row[], month: string | null, nonSpend: string[]
     .filter((x) => x.total > 0).sort((a, b) => b.total - a.total);
 }
 
+/** Δ of `month`'s total vs the immediately-preceding entry in `series`.
+ *  null if month is first/unknown or the prior total is 0 (no meaningful %). */
+export function monthDelta(series: { month: string; total: number }[], month: string) {
+  const i = series.findIndex((s) => s.month === month);
+  if (i <= 0) return null;
+  const cur = series[i].total, prev = series[i - 1].total;
+  if (prev === 0) return null;
+  return { abs: round2(cur - prev), pct: (cur - prev) / prev };
+}
+
 export function topMerchants(rows: Row[], n: number, nonSpend: string[]) {
   const skip = new Set(nonSpend);
   const acc = new Map<string, number>();
