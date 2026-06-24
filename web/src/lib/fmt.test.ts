@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rm, pct, kRM } from './fmt';
+import { rm, pct, kRM, ago } from './fmt';
 
 describe('fmt', () => {
   it('formats ringgit with separators, no decimals', () => {
@@ -36,5 +36,19 @@ describe('kRM compact', () => {
   });
   it('keeps the sign', () => {
     expect(kRM(-6606)).toBe('-6.6k');
+  });
+});
+
+describe('ago relative time', () => {
+  const t = 1_000_000_000_000;
+  it('handles the never/just-now edges', () => {
+    expect(ago(0, t)).toBe('never');
+    expect(ago(t, t)).toBe('just now');
+    expect(ago(t - 30_000, t)).toBe('just now');
+  });
+  it('renders minutes, hours, and days', () => {
+    expect(ago(t - 5 * 60_000, t)).toBe('5m ago');
+    expect(ago(t - 3 * 3_600_000, t)).toBe('3h ago');
+    expect(ago(t - 2 * 86_400_000, t)).toBe('2d ago');
   });
 });

@@ -17,7 +17,7 @@
   const bankOf = (c: string) => c.split('·')[0];
 </script>
 
-<div class="border p-3" style="border-color:var(--divider)">
+<section aria-label="Which card to use next" class="border p-3" style="border-color:var(--divider)">
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Use next</h2>
 
   {#if !today}
@@ -45,4 +45,4 @@
       {/each}
     </ul>
   {/if}
-</div>
+</section>

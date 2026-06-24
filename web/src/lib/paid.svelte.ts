@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity';
+import { toast } from './toast.svelte';
 
 // Server-backed (cross-device) paid-bill state. Persisted in paid.json on the PVC,
 // kept OUT of app.json (the pipeline regenerates app.json and would clobber it).
@@ -46,6 +47,7 @@ export const paid = {
       });
       if (!res.ok) throw new Error(`paid HTTP ${res.status}`);
     } catch {
+      toast('Couldn’t save — check your connection', 'error');
       if (want) _keys.delete(k);
       else _keys.add(k); // revert
     }
