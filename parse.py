@@ -84,14 +84,13 @@ def clean_desc(tokens):
             continue
         skip_ref = False
         cleaned.append(t)
-    # strip trailing country codes / installment ratio tokens
+    # strip trailing country codes / bare ":NNN" ref tokens, but KEEP the ":NN/MM"
+    # installment ratio — insights.py reads it for exact plan progress/term.
     while cleaned and (cleaned[-1].upper() in COUNTRY
-                       or re.match(r'^:?\d{2,3}/\d{2,3}$', cleaned[-1])
-                       or re.match(r'^[:]\d+', cleaned[-1])):
+                       or re.match(r'^:\d+$', cleaned[-1])):
         cleaned.pop()
     desc = ' '.join(cleaned)
     desc = re.sub(r'\s+Txn\s+Ref:.*$', '', desc, flags=re.I)
-    desc = re.sub(r'\s+:\s*\d{2,3}/\d{2,3}\b', '', desc)
     return desc.strip()
 
 

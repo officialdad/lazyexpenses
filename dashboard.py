@@ -6,8 +6,16 @@ file with the data embedded inline and all charts hand-rolled in SVG + vanilla J
 No external libraries, no network -> opens offline in any browser. Re-run after
 parse.py to refresh.
 """
-import csv, json, os, html
+import csv, json, os, html, re
 import insights
+
+# The ":NN/MM" installment ratio is kept in transactions.csv so insights.py can read
+# exact plan progress, but it changes every month — strip it (and any dangling colon)
+# from descriptions before they reach the merchant charts/tables, or a single plan
+# fragments into one sliver per month. Applied only at payload-assembly, after compute().
+_INST_RATIO = re.compile(r"\s*:\s*(?:\d{1,3}/\d{2,3})?\s*$")
+def display_rows(rows):
+    return [{**r, "d": _INST_RATIO.sub("", r["d"]).rstrip()} for r in rows]
 
 SRC = "transactions.csv"
 OUT = "dashboard.html"
@@ -101,7 +109,7 @@ def build():
     cats = [c for c in COLORS if any(r["g"] == c for r in rows)]
     recs = insights.compute(rows)
     payload = {
-        "rows": rows, "months": months, "cards": cards, "cats": cats,
+        "rows": display_rows(rows), "months": months, "cards": cards, "cats": cats,
         "nonSpend": NON_SPEND, "colors": COLORS,
         "catIcon": CAT_ICON, "icons": MDI,
         "range": f"{months[0]} → {months[-1]}" if months else "",

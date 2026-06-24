@@ -251,6 +251,41 @@ def t_akmal_not_sub():
     assert any("GOOGLE WHATSAPP" in n for n in names), names
     assert any("TIMEDOTCOM" in n for n in names), names
 
+def t_installment_colon_ratio_progress():
+    # maybank/cimb print ":NN/MM" on the line; parse.py now keeps it so insights reads
+    # EXACT progress even for a plan that started before the collected statement window.
+    months = ["2025-06","2025-07","2025-08","2025-09","2025-10","2025-11",
+              "2025-12","2026-01","2026-02","2026-03","2026-04","2026-05"]
+    seqs   = ["012","013","014","015","016","017","018","019","020","021","022","023"]
+    rows = [_row("maybank·5161", m, "Installments/BT", 277.08, 0, f"DCR -EZBELI-E36 :{s}/036")
+            for m, s in zip(months, seqs)]
+    # unit: validated counter -> (term, progress); E36 suffix still gives the term too
+    assert I._counter([r["d"] for r in rows]) == (36, 23)
+    assert I._term_from([r["d"] for r in rows]) == 36
+    out = I.find_installments(rows)
+    ez = next(p for p in out["plans"] if "EZBELI" in p["name"])
+    # 12 statements collected (seen=12) but progress=23 -> remaining is EXACT, not est
+    assert ez["term"] == 36 and ez["progressN"] == 23
+    assert ez["remaining"] == 13 and ez["est"] is False
+    assert ez["endMonth"] == "2027-06"
+    assert abs(ez["remainBal"] - 13 * 277.08) < 1e-2
+
+def t_installment_counter_guard():
+    # sane current/total series -> trusted
+    assert I._counter(["OK-12M :01/12", "OK-12M :02/12", "OK-12M :03/12"]) == (12, 3)
+    assert I._counter(["PULLMAN 05 OF 12", "PULLMAN 06 OF 12"]) == (12, 6)
+    # reversed 'total/current' -> denominator varies month to month -> REJECTED
+    rev = [f"WEIRD-24M :036/{13+i:03d}" for i in range(4)]   # :036/013, :036/014, ...
+    assert I._counter(rev) is None
+    # current exceeds total (garbage) -> REJECTED
+    assert I._counter(["PLAN-12M :40/12"]) is None
+    # a rejected counter must fall back to the seen-count ESTIMATE, never a wrong number
+    months = ["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06"]
+    rows = [_row("x·1", m, "Installments/BT", 100.0, 0, f"WEIRD-24M :036/{13+i:03d}")
+            for i, m in enumerate(months)]
+    p = I.find_installments(rows)["plans"][0]
+    assert p["term"] == 24 and p["est"] is True and p["progressN"] is None
+
 if __name__ == "__main__":
     t_norm_merchant()
     t_find_subs()
@@ -267,4 +302,6 @@ if __name__ == "__main__":
     t_installment_split()
     t_installments_classify_and_track()
     t_akmal_not_sub()
+    t_installment_colon_ratio_progress()
+    t_installment_counter_guard()
     print("OK")
