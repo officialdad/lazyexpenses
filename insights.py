@@ -23,7 +23,7 @@ def _ev_cat(evidence):
     gs = [e["g"] for e in evidence if isinstance(e, dict) and "g" in e]
     return Counter(gs).most_common(1)[0][0] if gs else ""
 
-_TRAIL = re.compile(r"^(?:\d+|(?=.*\d)[\dA-Z*#/.\-]{3,})$")  # pure digits OR token containing a digit + digits/uppercase/punct, 3+ chars
+_TRAIL = re.compile(r"^(?:\d+|(?=.*\d)[\dA-Z*#/.:\-]{3,})$")  # pure digits OR token containing a digit + digits/uppercase/punct/colon, 3+ chars (colon strips the monthly ":NN/MM" installment ratio so it doesn't break merchant recurrence grouping)
 
 
 def norm_merchant(desc):
@@ -173,20 +173,34 @@ def _disp(key):
     return s.strip() or key
 
 def _term_from(descs):
+    # Plan term from the name suffix ('-NNM' / 'E36'); fallback used only when the bank
+    # doesn't print a trustworthy per-installment counter (see _counter).
     for d in descs:
         u = d.upper()
-        m = re.search(r"-(\d+)\s*M(?:TH)?\b", u) or re.search(r"\bE(\d+)\b", u) or re.search(r"\bOF\s+(\d+)\b", u)
+        m = re.search(r"-(\d+)\s*M(?:TH)?\b", u) or re.search(r"\bE(\d+)\b", u)
         if m:
             return int(m.group(1))
     return None
 
-def _progress_from(descs):
-    best = None
+def _counter(descs):
+    """(term, progress) from the bank's printed installment counter — ':NN/MM'
+    (maybank/cimb/rhb) or 'NN OF MM' (alliance) — or None when the counters aren't a
+    trustworthy current/total series. Guard: the total (denominator) must be CONSTANT
+    across the plan's months and the current (numerator) must not exceed it. This
+    rejects reversed 'total/current' layouts, stray colon-dates, and other unseen
+    formats — those fall back to the seen-count estimate, never a confident wrong
+    number. Progress is the max current seen (memo rows post 0, harmlessly dominated)."""
+    pairs = []
     for d in descs:
-        m = re.search(r"\b(\d+)\s+OF\s+(\d+)\b", d.upper())
-        if m:
-            best = max(best or 0, int(m.group(1)))
-    return best
+        u = d.upper()
+        pairs += [(int(a), int(b)) for a, b in re.findall(r":\s*(\d{1,3})/(\d{2,3})\b", u)]
+        pairs += [(int(a), int(b)) for a, b in re.findall(r"\b(\d+)\s+OF\s+(\d+)\b", u)]
+    totals = {b for _, b in pairs}
+    if len(totals) != 1:                 # no counter, or term not constant -> distrust
+        return None
+    term = totals.pop()
+    prog = max(a for a, _ in pairs)
+    return (term, prog) if prog <= term else None
 
 def _add_months(ym, n):
     y, mo = map(int, ym.split("-"))
@@ -222,14 +236,13 @@ def find_installments(rows):
         if not s:
             continue
         charge, last, monthly, seen, gap = s
-        term = _term_from([r["d"] for r in grp])
-        prog = _progress_from([r["d"] for r in grp])
-        if prog is not None and term is not None:
+        cnt = _counter([r["d"] for r in grp])
+        if cnt:                                          # exact from the bank's counter
+            term, prog = cnt
             remaining, est = max(0, term - prog), False
-        elif term is not None:
-            remaining, est = max(0, term - seen), True
-        else:
-            remaining, est = None, False
+        else:                                            # estimate from payments seen
+            term, prog = _term_from([r["d"] for r in grp]), None
+            remaining, est = (max(0, term - seen), True) if term is not None else (None, False)
         end_month = _add_months(last, remaining) if remaining is not None else None
         remain_bal = round(monthly * remaining, 2) if remaining is not None else None
         plans.append({"type": "installment", "name": _disp(key), "cat": "Installments/BT",

@@ -132,7 +132,9 @@ def build_payload(rows, insights_out, cycles=None, bills=None):
     cats = [c for c in dashboard.COLORS if any(r["g"] == c for r in rows)]
     # dashboard.NON_SPEND is a list; pass it through as-is
     return {
-        "rows": rows,
+        # strip the monthly ":NN/MM" installment ratio for display (insights already
+        # consumed it for exact progress) — keeps merchant charts/tables from fragmenting
+        "rows": dashboard.display_rows(rows),
         "months": months,
         "cards": cards,
         "cats": cats,
