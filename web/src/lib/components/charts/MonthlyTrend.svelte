@@ -2,6 +2,7 @@
   import { agg } from '$lib/data';
   import { rm, pct, kRM, moName, yr2, monthLabel } from '$lib/fmt';
   import { monthDelta } from '$lib/trends';
+  import { inview } from '$lib/inview';
 
   // Selected month is owned by the parent (TrendsView) so the donut + merchants re-scope to it.
   let { selected = $bindable<string | null>(null) }: { selected?: string | null } = $props();
@@ -22,7 +23,7 @@
   });
 </script>
 
-<div class="border p-3" style="border-color:var(--divider)">
+<div class="border p-3" style="border-color:var(--divider)" use:inview>
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Monthly Spend</h2>
   {#if series.length === 0}
     <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
@@ -43,8 +44,8 @@
             {kRM(s.total)}
           </span>
           <div
-            class="w-full"
-            style="height:{Math.max(h, 2)}px; background:var(--accent); min-width:8px; opacity:{selected && !sel ? 0.4 : 1}"
+            class="w-full grow-y"
+            style="height:{Math.max(h, 2)}px; background:var(--accent); min-width:8px; opacity:{selected && !sel ? 0.4 : 1}; animation-delay:{i * 45}ms"
             title="{monthLabel(s.month)}: {rm(s.total)}"
           ></div>
           <span class="text-[12px] mt-1 leading-tight" style="color:{sel ? 'var(--accent)' : 'var(--muted)'}; font-weight:{sel ? 600 : 400}">{moName(s.month)}</span>
