@@ -106,6 +106,33 @@ def create_app() -> FastAPI:
             os.replace(tmp, p)  # atomic on POSIX
         return JSONResponse(sorted(keys))
 
+    @app.get("/data/waivers.json")
+    def data_waivers_json():
+        # Cross-device annual-fee waiver status (key -> "requested"/"waived"), kept OUT of
+        # app.json. Served from the PVC; {} when nothing's been tracked yet.
+        p = _data_dir() / "waivers.json"
+        if not p.exists():
+            return JSONResponse({})
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+    @app.post("/api/waivers")
+    async def set_waiver(body: dict = Body(...)):
+        k = body.get("key")
+        if not isinstance(k, str) or not k:
+            raise HTTPException(status_code=400, detail="missing key")
+        status = body.get("status")  # "requested"/"waived"; None clears (back to default)
+        p = _data_dir() / "waivers.json"
+        async with lock:  # reuse the pipeline lock — serializes the atomic rewrite
+            m = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            if status:
+                m[k] = status
+            else:
+                m.pop(k, None)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(m, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, p)  # atomic on POSIX
+        return JSONResponse(m)
+
     @app.post("/ingest")
     async def ingest(file: UploadFile, bank: str = Form(...)):
         content = await file.read()
