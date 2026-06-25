@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyFee, feesByCard, waiverKey } from './fees';
+import { classifyFee, feesByCard, waiverKey, accountKey } from './fees';
 import type { Row } from './types';
 
 const row = (c: string, m: string, d: string, a: number, t: 0 | 1 = 0): Row => ({
@@ -12,9 +12,11 @@ const row = (c: string, m: string, d: string, a: number, t: 0 | 1 = 0): Row => (
 });
 
 describe('classifyFee', () => {
-  it('annual (case-insensitive)', () => {
+  it('annual (case-insensitive) + waiver/rebate lines', () => {
     expect(classifyFee('ANNUAL FEE')).toBe('annual');
     expect(classifyFee('Annual Fee')).toBe('annual');
+    expect(classifyFee('ANNUAL FEE WAIVER')).toBe('annual');
+    expect(classifyFee('FEE REBATE')).toBe('annual');
   });
   it('late', () => {
     expect(classifyFee('LATE PAYMENT CHARGE')).toBe('late');
@@ -33,6 +35,16 @@ describe('classifyFee', () => {
   });
 });
 
+describe('accountKey', () => {
+  it('merges Alliance physical + virtual into one account', () => {
+    expect(accountKey('alliance·4963')).toBe('alliance');
+    expect(accountKey('alliance·8272')).toBe('alliance');
+  });
+  it('keeps non-merge banks per-card', () => {
+    expect(accountKey('sc·3829')).toBe('sc·3829');
+  });
+});
+
 describe('feesByCard', () => {
   it('surfaces an actionable annual fee with a stable key', () => {
     const res = feesByCard([row('sc·3829', '2026-02', 'ANNUAL FEE', 250)], ['sc·3829']);
@@ -40,47 +52,54 @@ describe('feesByCard', () => {
       amount: 250,
       month: '2026-02',
       key: waiverKey('sc·3829', '2026-02'),
-      reversed: false
+      waived: false
     });
     expect(res[0].late).toBe(0);
     expect(res[0].interest).toBe(0);
   });
 
-  it('marks annual reversed when a credit offsets it', () => {
+  it('marks annual waived when a credit reverses it', () => {
     const res = feesByCard(
-      [row('a·1', '2026-02', 'ANNUAL FEE', 148), row('a·1', '2026-03', 'ANNUAL FEE REVERSAL', 148, 1)],
-      ['a·1']
+      [row('x·1', '2026-02', 'ANNUAL FEE', 148), row('x·1', '2026-03', 'ANNUAL FEE REVERSAL', 148, 1)],
+      ['x·1']
     );
-    expect(res[0].annual?.reversed).toBe(true);
-    expect(res[0].annual?.month).toBe('2026-02'); // marker stays on the debit
+    expect(res[0].annual?.waived).toBe(true);
+    expect(res[0].annual?.month).toBe('2026-02'); // marker stays on the charge
   });
 
-  it('sums late + interest, ignores SST, clamps clean to 0', () => {
-    const res = feesByCard(
-      [
-        row('a·1', '2026-01', 'LATE PAYMENT CHARGE', 10),
-        row('a·1', '2026-02', 'FINANCE CHARGE', 5.5),
-        row('a·1', '2026-02', 'SERVICE TAX', 25)
-      ],
-      ['a·1']
-    );
-    expect(res[0].late).toBe(10);
-    expect(res[0].interest).toBe(5.5);
+  it('marks waived from a lone waiver line (charge outside the window)', () => {
+    const res = feesByCard([row('x·1', '2026-02', 'ANNUAL FEE WAIVER', 0, 1)], ['x·1']);
+    expect(res[0].annual?.waived).toBe(true);
+  });
+
+  it('null annual when no fee on record (=> "none on record", not "no fee")', () => {
+    const res = feesByCard([row('x·1', '2026-02', 'SERVICE TAX', 25)], ['x·1']);
     expect(res[0].annual).toBeNull();
   });
 
-  it('keeps the latest annual occurrence across years', () => {
+  it('merges Alliance cards: one entry, amounts pooled, rep = the charge card', () => {
     const res = feesByCard(
-      [row('a·1', '2025-02', 'ANNUAL FEE', 148), row('a·1', '2026-02', 'ANNUAL FEE', 148)],
-      ['a·1']
+      [
+        row('alliance·4963', '2026-02', 'ANNUAL FEE', 148),
+        row('alliance·8272', '2026-05', 'CC SERVICE TAX', 25), // ignored
+        row('alliance·8272', '2026-05', 'LATE PAYMENT CHARGE', 10)
+      ],
+      ['alliance·4963', 'alliance·8272']
     );
-    expect(res[0].annual?.month).toBe('2026-02');
-    expect(res[0].annual?.reversed).toBe(false);
+    expect(res).toHaveLength(1); // collapsed
+    expect(res[0].card).toBe('alliance·4963'); // representative = physical (charge card)
+    expect(res[0].annual?.amount).toBe(148);
+    expect(res[0].late).toBe(10); // pooled from the virtual card
+    expect(res[0].annual?.key).toBe(waiverKey('alliance·4963', '2026-02'));
   });
 
-  it('clean card shows zeros and a null annual', () => {
-    const res = feesByCard([], ['a·1']);
-    expect(res[0]).toEqual({ card: 'a·1', annual: null, late: 0, interest: 0 });
+  it('sums late + interest, clamps clean to 0', () => {
+    const res = feesByCard(
+      [row('x·1', '2026-01', 'LATE PAYMENT CHARGE', 10), row('x·1', '2026-02', 'FINANCE CHARGE', 5.5)],
+      ['x·1']
+    );
+    expect(res[0].late).toBe(10);
+    expect(res[0].interest).toBe(5.5);
   });
 
   it('sorts actionable annual fees first', () => {
