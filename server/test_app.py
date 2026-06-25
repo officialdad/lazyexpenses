@@ -52,6 +52,27 @@ def test_spa_served_at_root():
         assert "spa" in r.text
 
 
+def test_prerendered_route_and_spa_fallback():
+    # Extensionless prerendered routes (/trends) must resolve to <route>.html, and any
+    # unknown path must fall back to the SPA shell — without this the Workbox precache
+    # install 404s on /trends|/cuts and the PWA never goes offline (and /trends 404s online).
+    with tempfile.TemporaryDirectory() as d:
+        web = os.path.join(d, "web_build")
+        c, _ = _client(d, web=web)
+        with open(os.path.join(web, "trends.html"), "w", encoding="utf-8") as fh:
+            fh.write("<!doctype html><title>trends</title>")
+        # /trends -> trends.html (was 404 in prod)
+        r = c.get("/trends")
+        assert r.status_code == 200 and "trends" in r.text
+        # exact .html still works
+        assert c.get("/trends.html").status_code == 200
+        # unknown route -> SPA shell index.html, not a 404
+        r = c.get("/totally-unknown-route")
+        assert r.status_code == 200 and "spa" in r.text
+        # API routes are matched before the static mount and are unaffected
+        assert c.get("/healthz").json() == {"ok": True}
+
+
 def test_ingest_saves_pdf_and_runs_pipeline(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, appmod = _client(d)

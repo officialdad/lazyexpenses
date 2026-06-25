@@ -14,8 +14,41 @@ from pathlib import Path
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from server import pipeline
+
+
+class SPAStaticFiles(StaticFiles):
+    """try_files: exact file -> "<path>.html" (prerendered route) -> SPA shell index.html.
+
+    StaticFiles(html=True) only maps "/" -> index.html and serves *exact* files, so the
+    extensionless prerendered routes (/trends, /cuts) 404. That 404 is fatal twice: a direct
+    /trends load 404s online, AND the Workbox SW precaches those routes — one 404 during
+    `install` rejects the whole precache, so the service worker never activates and the PWA
+    has no offline. Resolving routes the way `vite preview` / a static host does fixes both.
+    """
+
+    async def get_response(self, path, scope):
+        # Starlette may raise HTTPException(404) (html=True, no 404.html) OR return a 404
+        # response depending on version — handle both.
+        # StaticFiles raises starlette's HTTPException (fastapi's is a subclass), so catch
+        # the base; some versions return a 404 response instead, so check status too.
+        try:
+            res = await super().get_response(path, scope)
+            if res.status_code != 404:
+                return res
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        for cand in (f"{path}.html", "index.html"):
+            try:
+                alt = await super().get_response(cand, scope)
+                if alt.status_code == 200:
+                    return alt
+            except StarletteHTTPException:
+                continue
+        raise HTTPException(status_code=404)
 
 
 def _data_dir() -> Path:
@@ -88,7 +121,7 @@ def create_app() -> FastAPI:
     # SPA catch-all LAST — shadows the explicit routes above if mounted first.
     web = _web_dir()
     if web.exists():
-        app.mount("/", StaticFiles(directory=str(web), html=True), name="spa")
+        app.mount("/", SPAStaticFiles(directory=str(web), html=True), name="spa")
     return app
 
 
