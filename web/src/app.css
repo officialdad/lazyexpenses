@@ -12,4 +12,28 @@ html, body { background: var(--bg); color: var(--text); }
 * { border-radius: 0 !important; }                 /* hard square edges, app-wide */
 body { font-size: 16px; }
 .tnum { font-variant-numeric: tabular-nums; }
+
+/* Chart entrance animations. Gated two ways: (1) they only RUN once the chart scrolls into
+   view — the `inview` action adds `.in-view` to each chart card, flipping play-state from
+   paused→running; (2) the whole thing lives under prefers-reduced-motion:no-preference, so a
+   reduced-motion user just gets the final state (no paused/collapsed elements, no mask).
+   Staggered per-item via inline animation-delay. */
+@keyframes grow-y { from { transform: scaleY(0); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
+@property --sweep { syntax: '<angle>'; inherits: false; initial-value: 360deg; }
+@keyframes donut-sweep { from { --sweep: 0deg; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* paused + fill:both freezes each element on its `from` frame (collapsed) until in view */
+  .grow-y { animation: grow-y .7875s ease both; transform-origin: bottom; animation-play-state: paused; }
+  .grow-x { animation: grow-x .7875s ease both; transform-origin: left;   animation-play-state: paused; }
+  /* Donut: progressive clockwise reveal — a conic mask sweeps 0deg→360deg to "draw" the ring. */
+  .donut-sweep {
+    animation: donut-sweep 1.125s ease both; animation-play-state: paused;
+    -webkit-mask: conic-gradient(#000 var(--sweep), #0000 0);
+            mask: conic-gradient(#000 var(--sweep), #0000 0);
+  }
+  .in-view .grow-y, .in-view .grow-x, .in-view .donut-sweep { animation-play-state: running; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

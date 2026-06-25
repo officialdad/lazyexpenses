@@ -5,11 +5,13 @@
 
   // Clicking a bar in MonthlyTrend sets this; the donut + merchants re-scope to it (null = all months).
   let selectedMonth = $state<string | null>(null);
+  // Clicking a donut slice / legend sets this; the merchants list re-scopes to that category (null = all).
+  let selectedCategory = $state<string | null>(null);
 </script>
 
 <h1 class="text-[13px] uppercase tracking-widest mb-3" style="color:var(--muted)">Trends</h1>
 <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
   <MonthlyTrend bind:selected={selectedMonth} />
-  <CategoryDonut month={selectedMonth} />
-  <div class="md:col-span-2"><TopMerchants month={selectedMonth} /></div>
+  <CategoryDonut month={selectedMonth} bind:selected={selectedCategory} />
+  <div class="md:col-span-2"><TopMerchants month={selectedMonth} category={selectedCategory} /></div>
 </div>
