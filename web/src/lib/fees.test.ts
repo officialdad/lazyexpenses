@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyFee, feesByCard, waiverKey, accountKey } from './fees';
+import { classifyFee, feesByCard, waiverKey } from './fees';
 import type { Row } from './types';
 
 const row = (c: string, m: string, d: string, a: number, t: 0 | 1 = 0): Row => ({
@@ -35,16 +35,6 @@ describe('classifyFee', () => {
   });
 });
 
-describe('accountKey', () => {
-  it('merges Alliance physical + virtual into one account', () => {
-    expect(accountKey('alliance·4963')).toBe('alliance');
-    expect(accountKey('alliance·8272')).toBe('alliance');
-  });
-  it('keeps non-merge banks per-card', () => {
-    expect(accountKey('sc·3829')).toBe('sc·3829');
-  });
-});
-
 describe('feesByCard', () => {
   it('surfaces an actionable annual fee with a stable key', () => {
     const res = feesByCard([row('sc·3829', '2026-02', 'ANNUAL FEE', 250)], ['sc·3829']);
@@ -77,20 +67,13 @@ describe('feesByCard', () => {
     expect(res[0].annual).toBeNull();
   });
 
-  it('merges Alliance cards: one entry, amounts pooled, rep = the charge card', () => {
+  it('keeps every card separate (one entry per card)', () => {
     const res = feesByCard(
-      [
-        row('alliance·4963', '2026-02', 'ANNUAL FEE', 148),
-        row('alliance·8272', '2026-05', 'CC SERVICE TAX', 25), // ignored
-        row('alliance·8272', '2026-05', 'LATE PAYMENT CHARGE', 10)
-      ],
+      [row('alliance·4963', '2026-02', 'ANNUAL FEE', 148)],
       ['alliance·4963', 'alliance·8272']
     );
-    expect(res).toHaveLength(1); // collapsed
-    expect(res[0].card).toBe('alliance·4963'); // representative = physical (charge card)
-    expect(res[0].annual?.amount).toBe(148);
-    expect(res[0].late).toBe(10); // pooled from the virtual card
-    expect(res[0].annual?.key).toBe(waiverKey('alliance·4963', '2026-02'));
+    expect(res).toHaveLength(2);
+    expect(res.map((r) => r.card).sort()).toEqual(['alliance·4963', 'alliance·8272']);
   });
 
   it('sums late + interest, clamps clean to 0', () => {
