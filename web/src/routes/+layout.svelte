@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { meta, loadAppData } from '$lib/data';
   import { paid } from '$lib/paid.svelte';
+  import { waivers } from '$lib/waivers.svelte';
   import { net, initNet } from '$lib/net.svelte';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -15,7 +16,7 @@
 
   // Runtime fetch — client-only (onMount never runs during prerender, so the static
   // shell ships the skeleton; data hydrates here).
-  onMount(() => { initNet(); loadAppData(); paid.load(); });
+  onMount(() => { initNet(); loadAppData(); paid.load(); waivers.load(); });
 </script>
 <svelte:head><meta name="theme-color" content="#000000" /></svelte:head>
 

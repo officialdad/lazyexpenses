@@ -5,6 +5,7 @@ const routes = [
   { name: 'home', url: '/' },
   { name: 'trends', url: '/trends' },
   { name: 'cuts', url: '/cuts' },
+  { name: 'fees', url: '/fees' },
 ];
 const widths = [
   { tag: 'mobile', width: 390, height: 844 },

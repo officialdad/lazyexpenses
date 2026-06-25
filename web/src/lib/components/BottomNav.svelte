@@ -5,7 +5,8 @@
   const tabs = [
     { href: '/', label: 'Home', icon: 'wallet-outline' },
     { href: '/trends', label: 'Trends', icon: 'chart-line' },
-    { href: '/cuts', label: 'Cuts', icon: 'content-cut' }
+    { href: '/cuts', label: 'Cuts', icon: 'content-cut' },
+    { href: '/fees', label: 'Fees', icon: 'receipt-text-outline' }
   ];
   const path = $derived(page.url.pathname);
 </script>

@@ -7,6 +7,7 @@
     { id: 'overview', label: 'Overview' },
     { id: 'trends', label: 'Trends' },
     { id: 'cuts', label: 'Cuts' },
+    { id: 'fees', label: 'Fees' },
   ];
 
   let active = $state('overview');
