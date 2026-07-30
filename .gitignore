@@ -20,6 +20,9 @@ cache/
 # personal financial data — embedded transactions/balances (never commit)
 dashboard.html
 web/static/data/app.json
+# same payload written at the repo root by an older export path — the line above
+# is path-anchored and does NOT match it
+/app.json
 # internal planning docs (real spend figures) — keep local only
 docs/superpowers/
 
