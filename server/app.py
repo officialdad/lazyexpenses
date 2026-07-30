@@ -18,6 +18,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from server import pipeline
 
+# Reconciliation statuses that are NOT a problem. VERIFIED is the goal; DUPLICATE is
+# routine (the mail history re-exports the same statement under several filenames,
+# which is why parse.py fingerprint-dedups). Everything else — REVIEW, NO_BALANCE,
+# ERROR — means a statement did not reconcile and the caller should know.
+RECON_OK = {"VERIFIED", "DUPLICATE"}
+
 
 class SPAStaticFiles(StaticFiles):
     """try_files: exact file -> "<path>.html" (prerendered route) -> SPA shell index.html.
@@ -143,7 +149,10 @@ def create_app() -> FastAPI:
                 counts = await asyncio.to_thread(pipeline.run_pipeline, data_dir)
             except Exception as e:  # old app.json kept (atomic write); surface failure
                 raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
-        return {"bank": bank, "recon": counts, "warning": counts.get("REVIEW", 0) > 0}
+        # `problems` tells the caller WHICH statuses are bad; `warning` stays a plain
+        # bool for backwards compatibility with the existing n8n flow.
+        problems = {k: v for k, v in counts.items() if k not in RECON_OK and v}
+        return {"bank": bank, "recon": counts, "problems": problems, "warning": bool(problems)}
 
     # SPA catch-all LAST — shadows the explicit routes above if mounted first.
     web = _web_dir()
