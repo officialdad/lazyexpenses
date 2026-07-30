@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'   # matches the runtime stage of the Dockerfile
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      # Pinned runtime deps, so CI tests the versions the image actually ships.
+      # pytest and httpx are test-only: starlette's TestClient needs httpx, and it
+      # is deliberately not a runtime dependency.
+      - run: pip install -r server/requirements.txt pytest httpx
+
+      # The same four commands the README tells contributors to run. All pass with
+      # an empty cc-statements/ — they work off fixtures, not the real corpus.
+      - run: python test_parse_cache.py
+      - run: python test_insights.py
+      - run: python test_export_data.py
+      - run: python -m pytest -q server/
+
+  # Not here yet, and deliberately so — a permanently red job teaches everyone to
+  # ignore CI:
+  #   test_parse.py / verify_parity.py  need parsed statements on disk
+  #   web/ (svelte-check + vitest)      need web/static/data/app.json, which is
+  #                                     gitignored; without it svelte-check reports
+  #                                     2 errors out of 368 files and every vitest
+  #                                     file fails to import
+  # All four are unblocked by the synthetic demo dataset (#16), which is what finally
+  # puts parse.py itself under CI.
