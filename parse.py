@@ -34,9 +34,17 @@ def rows_of(page, ytol=3.0):
     return out
 
 
+def pw_for(path):
+    """Bank PDF password from env CC_PW_<BANK>, keyed like parse_statement's bank.
+    None when unset. pdfplumber ignores a password on an unencrypted PDF, so the
+    same call path handles locked and already-unlocked files."""
+    bank = os.path.basename(path).split('_')[0].upper()
+    return os.environ.get("CC_PW_" + bank) or None
+
+
 def all_rows(path, ytol=3.0):
     res = []
-    with pdfplumber.open(path) as pdf:
+    with pdfplumber.open(path, password=pw_for(path)) as pdf:
         for pno, page in enumerate(pdf.pages, 1):
             for y, toks in rows_of(page, ytol):
                 res.append((pno, y, toks))
@@ -45,7 +53,7 @@ def all_rows(path, ytol=3.0):
 
 def full_text(path):
     out = []
-    with pdfplumber.open(path) as pdf:
+    with pdfplumber.open(path, password=pw_for(path)) as pdf:
         for page in pdf.pages:
             out.append(page.extract_text() or "")
     return "\n".join(out)
