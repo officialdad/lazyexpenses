@@ -21,13 +21,15 @@ Every statement gets checked the boring way: previous balance, plus what you spe
 
 ## What you need
 
-Python 3, `pdfplumber`, and your statement PDFs **already unlocked**.
+Python 3, `pdfplumber`, and your statement PDFs.
 
-That last part matters. The parser does not take a password today, so an encrypted PDF fails to parse — and banks email these locked. Unlock them first with any PDF tool; [qpdf](https://qpdf.sourceforge.io/) is a one-liner:
+Banks email these locked, so the parser takes the password itself — set one environment variable per bank and drop the file in as it arrived. Nothing is decrypted to disk; the PDF stays exactly as the bank sent it.
 
 ```bash
-qpdf --password='your-bank-password' --decrypt statement.pdf cc-statements/maybank_2026-06.pdf
+export CC_PW_MAYBANK='your-bank-password'   # also CC_PW_CIMB, CC_PW_SC, CC_PW_ALLIANCE, CC_PW_HSBC, CC_PW_RHB
 ```
+
+Only set the banks you have. An already-unlocked PDF parses whether or not the variable is set, so there is nothing to undo if you decrypted your statements previously.
 
 Name each file `<bank>_anything.pdf` and drop it in `cc-statements/`. Everything before the first underscore is the bank key (`maybank`, `cimb`, `sc`, `alliance`, `hsbc`, `rhb`), and that is how the parser picks which rules to apply. The rest of the name is ignored.
 
@@ -122,7 +124,7 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 
 Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, and the card picker are all done.
 
-Still on the list: teaching the parser to open password-protected PDFs directly so Stirling-PDF is not needed, replacing the n8n mail fetch with a small script in this repo, hosting the web app properly, and shipping a sample dataset so there is something to look at without your own statements.
+Still on the list: replacing the n8n mail fetch with a small script in this repo, hosting the web app properly, and shipping a sample dataset so there is something to look at without your own statements.
 
 ## License
 

@@ -1,8 +1,9 @@
 import sys, pdfplumber
+from parse import pw_for
 
 def rows(pdf_path, ytol=3):
     out = []
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(pdf_path, password=pw_for(pdf_path)) as pdf:
         for pno, page in enumerate(pdf.pages, 1):
             words = page.extract_words(keep_blank_chars=False, use_text_flow=False)
             words.sort(key=lambda w: (round(w["top"]), w["x0"]))
