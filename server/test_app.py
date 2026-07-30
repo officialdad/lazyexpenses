@@ -95,12 +95,35 @@ def test_ingest_saves_pdf_and_runs_pipeline(monkeypatch):
         assert len(pdfs) == 1 and pdfs[0].startswith("cimb_")
 
 
-def test_ingest_warns_on_review(monkeypatch):
+def _ingest(monkeypatch, counts):
     with tempfile.TemporaryDirectory() as d:
         c, appmod = _client(d)
-        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: {"VERIFIED": 68, "REVIEW": 1})
-        r = c.post("/ingest", data={"bank": "sc"}, files={"file": ("s.pdf", b"%PDF-X", "application/pdf")})
-        assert r.json()["warning"] is True
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: counts)
+        return c.post("/ingest", data={"bank": "sc"},
+                      files={"file": ("s.pdf", b"%PDF-X", "application/pdf")}).json()
+
+
+def test_ingest_warns_on_review(monkeypatch):
+    assert _ingest(monkeypatch, {"VERIFIED": 68, "REVIEW": 1})["warning"] is True
+
+
+def test_ingest_warns_on_error(monkeypatch):
+    # a locked or corrupt PDF: parse blew up, nothing reconciled. Must not read as clean.
+    body = _ingest(monkeypatch, {"ERROR": 1, "NO_BALANCE": 1})
+    assert body["warning"] is True
+    assert body["problems"] == {"ERROR": 1, "NO_BALANCE": 1}
+
+
+def test_ingest_warns_on_no_balance(monkeypatch):
+    assert _ingest(monkeypatch, {"VERIFIED": 68, "NO_BALANCE": 1})["warning"] is True
+
+
+def test_ingest_duplicates_alone_do_not_warn(monkeypatch):
+    # the mail history re-exports the same statement under several filenames; dedup
+    # marking those DUPLICATE is the system working, not a problem to flag.
+    body = _ingest(monkeypatch, {"VERIFIED": 69, "DUPLICATE": 4})
+    assert body["warning"] is False
+    assert body["problems"] == {}
 
 
 def test_ingest_500_on_pipeline_failure(monkeypatch):
