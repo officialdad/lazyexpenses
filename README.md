@@ -2,7 +2,24 @@
 
 Got a wallet full of credit cards? lazyexpenses turns the statement PDFs your banks email you into a spending dashboard you run yourself. It reads every transaction and checks each statement against its own printed balance, so the numbers are trustworthy. Your data never leaves your machine. No bank logins to hand over.
 
-It handles six Malaysian banks today: Maybank, CIMB, Standard Chartered, Alliance, HSBC, and RHB. Banking elsewhere? Add a parser, see [CONTRIBUTING.md](CONTRIBUTING.md).
+## Which banks
+
+Six Malaysian banks. The parsing rules are written against these banks' Malaysian statement layouts, and the bank key is the part of the filename before the first underscore.
+
+| Bank | Filename key | Cards per statement |
+|---|---|---|
+| Maybank | `maybank` | one |
+| CIMB | `cimb` | several |
+| Standard Chartered | `sc` | one |
+| Alliance Bank | `alliance` | several |
+| HSBC | `hsbc` | one |
+| RHB | `rhb` | several |
+
+"Several" means the statement covers more than one card and the parser attributes each transaction to the right one by tracking card-number headers as it reads.
+
+**Everything else is unsupported.** Not by accident — each of these six needed its own rules, because Maybank prints its address between a balance label and the balance, HSBC runs the words together as `YourPreviousStatementBalance`, Alliance dates a transaction on the line above it and labels it in Malay, and CIMB-i marks installments with a `:NN/MM` ratio. A statement from another bank will not match any of that. Amounts are RM throughout and nothing is converted.
+
+Banking somewhere else? A new bank is a new branch in one dispatch function — [CONTRIBUTING.md](CONTRIBUTING.md) walks through adding one, and the table above is where it gets a row.
 
 ## What it does for you
 

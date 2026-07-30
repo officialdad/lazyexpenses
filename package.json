@@ -1,18 +1,13 @@
 {
-  "name": "n8n",
+  "name": "lazyexpenses",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "private": true,
+  "description": "Tooling for the generated dashboard.html — Playwright visual audit and DOM smoke test. The app itself is Python; the web PWA has its own package.json in web/.",
+  "license": "MIT",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "audit": "node audit.mjs",
+    "smoke": "node smoke_dashboard.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "playwright": "^1.61.0"
   }
