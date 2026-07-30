@@ -48,6 +48,19 @@ qpdf --password='your-bank-password' --decrypt statement.pdf cc-statements/mayba
 
 Name each file `<bank>_anything.pdf` and drop it in `cc-statements/`. Everything before the first underscore is the bank key (`maybank`, `cimb`, `sc`, `alliance`, `hsbc`, `rhb`), and that is how the parser picks which rules to apply. The rest of the name is ignored.
 
+## Just want a look first
+
+You do not need any statements to try it. This generates an obviously-fake dataset — invented merchants, `000N` card numbers, a year of months — and everything downstream runs on it exactly as it would on real data:
+
+```bash
+python make_demo_data.py    # writes synthetic transactions.csv + reconciliation.csv
+python insights.py && python export_data.py && python dashboard.py
+```
+
+Open `dashboard.html`, or run the web app as below. The demo is shaped to trip every detector, so the Cuts view actually has something in it: live subscriptions, a cancelled one, a subscription that stepped up in price, an installment plan, a balance transfer, a creeping category, a big one-off, a refund, and cashback. Nothing it writes is committable — the generated CSVs, `dashboard.html` and `app.json` are all gitignored, real data or fake.
+
+It generates CSVs, not PDFs, so it exercises everything from `insights.py` onward. `parse.py` itself still needs real statements.
+
 ## Quick start
 
 ```bash
