@@ -40,15 +40,35 @@ Every statement gets checked the boring way: previous balance, plus what you spe
 
 Python 3, `pdfplumber`, and your statement PDFs.
 
-Banks email these locked, so the parser takes the password itself — set one environment variable per bank and drop the file in as it arrived. Nothing is decrypted to disk; the PDF stays exactly as the bank sent it.
+Name each file `<bank>_anything.pdf` and drop it in `cc-statements/`. Everything before the first underscore is the bank key (`maybank`, `cimb`, `sc`, `alliance`, `hsbc`, `rhb`), and that is how the parser picks which rules to apply. The rest of the name is ignored.
+
+### Statement passwords
+
+Banks email these locked. The parser opens them itself, so drop each file in exactly as it arrived — nothing is decrypted to disk, and the stored PDF stays byte-for-byte what the bank sent.
+
+The password comes from an environment variable named after the bank key, so the same filename prefix that picks the parsing rules also picks the password:
 
 ```bash
-export CC_PW_MAYBANK='your-bank-password'   # also CC_PW_CIMB, CC_PW_SC, CC_PW_ALLIANCE, CC_PW_HSBC, CC_PW_RHB
+export CC_PW_MAYBANK='your-maybank-password'
+# cc-statements/maybank_2026-06.pdf  ->  $CC_PW_MAYBANK
+# cc-statements/sc_whatever.pdf      ->  $CC_PW_SC
 ```
 
-Only set the banks you have. An already-unlocked PDF parses whether or not the variable is set, so there is nothing to undo if you decrypted your statements previously.
+Six names in total: `CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`, `CC_PW_HSBC`, `CC_PW_RHB`. Set only the banks you have. Leaving one unset is fine, and an already-unlocked PDF parses whether or not its variable is set — so there is nothing to undo if you decrypted your statements previously.
 
-Name each file `<bank>_anything.pdf` and drop it in `cc-statements/`. Everything before the first underscore is the bank key (`maybank`, `cimb`, `sc`, `alliance`, `hsbc`, `rhb`), and that is how the parser picks which rules to apply. The rest of the name is ignored.
+**One password per bank, not per card.** What is encrypted is the PDF, and a PDF is one statement. CIMB, RHB and Alliance put every card on a single statement behind a single password; cards are told apart afterwards, from the card-number headers inside the text. So one variable covers every card that bank issues you.
+
+Each bank derives your password from something like your IC or date of birth — check the covering email. Passwords live in environment variables and nowhere else: never in a file in this repo, never in a filename, never in a log line.
+
+Running the server in Docker? Pass them through to the container, which forwards them to the parser:
+
+```bash
+docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
+  -e CC_PW_MAYBANK -e CC_PW_CIMB -e CC_PW_SC \
+  ghcr.io/officialdad/lazyexpenses/app:latest
+```
+
+Bare `-e NAME` forwards the value from your shell, so it does not end up in your shell history or in `docker inspect`.
 
 ## Just want a look first
 
@@ -110,11 +130,19 @@ docker run --rm -p 8000:8000 -v "$PWD/data:/data" lazyexpenses
 The server keeps everything in `/data`, mounted as a volume so your statements live outside the image. That volume starts empty, so there is nothing to serve until you put some data there. Two ways to fill it:
 
 - Copy in an `app.json` you already built with `python export_data.py` (it writes to `web/static/data/app.json`).
-- Or post an unlocked PDF and let the server build it for you:
+- Or post a PDF — locked or not — and let the server build it for you:
   ```bash
   curl -F "file=@cc-statements/maybank_x.pdf" -F "bank=maybank" http://localhost:8000/ingest
   ```
-  It saves the PDF, re-runs the pipeline over everything accumulated so far, and replies with the reconciliation tally, for example `{"bank":"maybank","recon":{"VERIFIED":12},"warning":false}`. Read that tally — a locked or unparseable PDF still returns HTTP 200 and simply shows up as an `ERROR` count.
+  It saves the PDF, re-runs the pipeline over everything accumulated so far, and replies with the reconciliation tally:
+
+  ```json
+  {"bank":"maybank","recon":{"VERIFIED":12},"problems":{},"warning":false}
+  ```
+
+  `warning` is true whenever a statement did not reconcile — `REVIEW`, `NO_BALANCE` or `ERROR` — and `problems` says which. `DUPLICATE` does not warn; the same statement legitimately arrives under several filenames and gets deduplicated. The HTTP status stays 200 either way: the upload itself succeeded, so retrying it would fail identically. Read the body, not the status code.
+
+  A locked PDF whose `CC_PW_<BANK>` is not set on the server lands in `ERROR`, and you will see it.
 
 Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
 
@@ -124,27 +152,40 @@ Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (up
 
 Everything above is manual: unlock, drop in a folder, run a script or post it. That loop is short enough that automating it is genuinely optional.
 
-I do automate my own copy, but **that half is not in this repo**. It is an n8n instance wired to my Gmail and a self-hosted Stirling-PDF: it watches for statement mail, unlocks the attachment with a per-bank password held in n8n environment variables, posts the result to `/ingest`, and sends a Telegram reminder three days before a bill is due. Those workflow files stay local because they are full of credentials and references to my own instance, and they would not import cleanly anywhere else.
+I do automate my own copy, but **that half is not in this repo**. It is an n8n instance wired to my Gmail: it watches for statement mail, posts the attachment to `/ingest`, and sends a Telegram reminder three days before a bill is due. Those workflow files stay local because they are full of credentials and references to my own instance, and they would not import cleanly anywhere else.
 
-So treat n8n and Stirling-PDF as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing that stack with a small script in this repo is next on the list.
+It used to run a self-hosted Stirling-PDF alongside it purely to strip statement passwords. That is gone — the parser opens locked PDFs itself now, so the whole decrypt step disappeared.
+
+So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
 
 ## Tests
 
 No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
 
 ```bash
-python test_parse_cache.py    # the per-PDF parse cache
-python test_insights.py       # leak detection
-python test_export_data.py    # the web app's data file
+python test_parse_cache.py       # the per-PDF parse cache
+python test_insights.py          # leak detection
+python test_export_data.py       # the web app's data file
+python test_parse_password.py    # opening password-protected PDFs
 ```
+
+These four are what CI runs on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 The server tests use pytest, and also pass with no statements (the end-to-end one skips itself when there is no sample PDF):
 
 ```bash
+pip install pytest httpx    # httpx is what starlette's TestClient imports
 python -m pytest server/
 ```
 
-Two more need your own parsed statements on disk, because they check the real corpus rather than fixtures — `python test_parse.py` (due-date extraction) and `python verify_parity.py` (both dashboards agreeing). Run those after `parse.py`.
+The web app's own suite needs an `app.json` to exist, which `make_demo_data.py` is enough to produce:
+
+```bash
+python make_demo_data.py && python insights.py && python export_data.py
+cd web && npm ci && npm run check && npm test
+```
+
+Two more need your own parsed statements on disk, because they check the real corpus rather than fixtures — `python test_parse.py` (due-date extraction, which wants at least one `cc-statements/sc_*.pdf`) and `python verify_parity.py` (both dashboards agreeing; the demo data satisfies this one too). Run those after `parse.py`.
 
 The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
 
