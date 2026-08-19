@@ -96,10 +96,14 @@ Set it up once:
 2. **Generate an app password** at
    [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). You get
    a 16-character string, shown once. That is what goes in `.env`.
-3. **Check IMAP is on** — Gmail settings → *Forwarding and POP/IMAP* → *Enable IMAP*.
-4. **Label your statement mail.** Make a Gmail filter that applies a label — `CC` is the
+3. **Label your statement mail.** Make a Gmail filter that applies a label — `CC` is the
    default — to mail from your banks. The script only ever looks in that one mailbox, and
    only at unread messages in it.
+
+There is no IMAP switch to find. Google no longer offers one: *Settings → Forwarding and
+POP/IMAP* now shows only behaviour options under *IMAP access* — auto-expunge, folder size
+limits — and the defaults are all fine. If your account is old enough to still show an
+*Enable IMAP* radio, pick it.
 
 Then try it before trusting it:
 
