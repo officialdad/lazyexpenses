@@ -81,7 +81,18 @@ python insights.py && python export_data.py && python dashboard.py
 
 Open `dashboard.html`, or run the web app as below. The demo is shaped to trip every detector, so the Cuts view actually has something in it: live subscriptions, a cancelled one, a subscription that stepped up in price, an installment plan, a balance transfer, a creeping category, a big one-off, a refund, and cashback. Nothing it writes is committable — the generated CSVs, `dashboard.html` and `app.json` are all gitignored, real data or fake.
 
-It generates CSVs, not PDFs, so it exercises everything from `insights.py` onward. `parse.py` itself still needs real statements.
+That generates CSVs, so it exercises everything from `insights.py` onward. To run the
+parser too, generate statement PDFs instead and let `parse.py` produce the CSVs itself:
+
+```bash
+python make_demo_data.py --pdfs   # writes fake statement PDFs into cc-statements/
+python parse.py                   # every one should reconcile VERIFIED
+```
+
+Same data, one layer lower. The PDFs are built to each bank's real layout — Alliance
+dates a transaction on the line above it, HSBC runs its labels together, CIMB spreads
+several cards across one statement — so the parser has to do the same work it does on
+a real statement. Nothing about them is real except the shape.
 
 ## Quick start
 
@@ -169,7 +180,19 @@ python test_export_data.py       # the web app's data file
 python test_parse_password.py    # opening password-protected PDFs
 ```
 
-These four are what CI runs on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All four run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+
+`parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
+
+```bash
+python make_demo_data.py --pdfs   # fake statements, one per bank per month
+python test_demo_pdfs.py          # the parser has to read them all back to the cent
+python parse.py                   # and the reconciliation report has to stay clean
+```
+
+`test_demo_pdfs.py` is a round trip: the generator decides what each statement says, prints it at real coordinates, and the parser re-derives the figures from the words on the page. They only agree if every row parsed, every balance label was found, and each bank's quirks were handled. That covers per-bank balance extraction, multi-card attribution, the credit-balance sign flips, installment memo exclusion, the Standard Chartered layout that once filed three statements in the wrong month, and the duplicate fingerprint.
+
+With those statements on disk the server's end-to-end test stops skipping itself, and posts one through `/ingest` to `app.json`.
 
 The server tests use pytest, and also pass with no statements (the end-to-end one skips itself when there is no sample PDF):
 
@@ -185,7 +208,7 @@ python make_demo_data.py && python insights.py && python export_data.py
 cd web && npm ci && npm run check && npm test
 ```
 
-Two more need your own parsed statements on disk, because they check the real corpus rather than fixtures — `python test_parse.py` (due-date extraction, which wants at least one `cc-statements/sc_*.pdf`) and `python verify_parity.py` (both dashboards agreeing; the demo data satisfies this one too). Run those after `parse.py`.
+`python verify_parity.py` (both dashboards agreeing) runs after `parse.py` on either kind of demo data.
 
 The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
 
@@ -195,7 +218,7 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 
 Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, and the card picker are all done.
 
-Still on the list: replacing the n8n mail fetch with a small script in this repo, hosting the web app properly, and shipping a sample dataset so there is something to look at without your own statements.
+Still on the list: replacing the n8n mail fetch with a small script in this repo, and hosting the web app properly.
 
 ## License
 
