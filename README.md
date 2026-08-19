@@ -163,11 +163,13 @@ Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (up
 
 Everything above is manual: unlock, drop in a folder, run a script or post it. That loop is short enough that automating it is genuinely optional.
 
-I do automate my own copy, but **that half is not in this repo**. It is an n8n instance wired to my Gmail: it watches for statement mail, posts the attachment to `/ingest`, and sends a Telegram reminder three days before a bill is due. Those workflow files stay local because they are full of credentials and references to my own instance, and they would not import cleanly anywhere else.
+I do automate my own copy, and most of it is now in this repo. Reminders are built into the server (below). What is left outside is one n8n workflow wired to my Gmail: it watches for statement mail and posts the attachment to `/ingest`. That workflow file stays local because it is full of credentials and references to my own instance, and it would not import cleanly anywhere else.
 
 It used to run a self-hosted Stirling-PDF alongside it purely to strip statement passwords. That is gone — the parser opens locked PDFs itself now, so the whole decrypt step disappeared.
 
 So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
+
+It used to do more. Unlocking moved into the parser, and the bill reminders moved into the server, which is what the rest of this section is about.
 
 ### Bill reminders
 
@@ -278,9 +280,9 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 
 ## Status
 
-Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, and the card picker are all done.
+Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, the card picker and the Telegram bill reminders are all done, and my own copy runs as a container behind HTTPS.
 
-Still on the list: replacing the n8n mail fetch with a small script in this repo, and hosting the web app properly.
+Still on the list: replacing the n8n mail fetch with a small script in this repo, and a proper deployment guide (`compose.yaml` and an `.env.example`) so hosting it does not mean reading a Dockerfile.
 
 ## License
 
