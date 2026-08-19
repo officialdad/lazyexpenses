@@ -171,8 +171,8 @@ host's timezone is, so a UTC machine does not fire a day early.
 ## Putting it on your network
 
 > **There is no login.** Anyone who can reach the port sees every transaction, every
-> balance and every card. That is fine on your own machine, fine on a LAN you trust, fine
-> on a tailnet. It is **not** fine on the open internet — do not port-forward this, and do
+> balance and every card. That is fine on your own machine, and fine on a private network
+> you control. It is **not** fine on the open internet — do not port-forward this, and do
 > not put it behind a plain reverse proxy on a public domain without adding
 > authentication of your own.
 
@@ -184,24 +184,14 @@ everything looks almost right, which is what makes it confusing.
 **On the machine it runs on, there is nothing to do.** `http://localhost:8000` already
 counts as a secure context, so the app installs and caches offline as-is.
 
-**From your phone or another machine, you need a real certificate.** The least-effort
-answer is [Tailscale](https://tailscale.com), because it hands you a genuine
-publicly-trusted certificate and a stable hostname without opening a single port:
+**From your phone or another machine, you need HTTPS with a certificate that device
+already trusts.** Any reverse proxy in front of port 8000 does it, and whichever one you
+already run is the right one — this repo does not ship a proxy or prefer a vendor. A
+private-network mesh with its own certificates is the least fiddly route, because a
+self-signed certificate means installing your own CA on every device that should trust it.
 
-```bash
-tailscale up
-tailscale serve --bg 8000    # prints the https:// address it is now serving on
-```
-
-Then open that `https://…ts.net` address on any device signed into the same tailnet, and
-the install prompt appears. Nothing is exposed to the internet; the tailnet is the
-boundary.
-
-Two alternatives, if you already run one of them: **Caddy** in front of the container with
-`tls internal` gives HTTPS on a LAN, at the cost of installing its local CA on every
-device that should trust it — which is the fiddly part. A **Cloudflare Tunnel** gives a
-public HTTPS hostname with no port-forwarding, but re-read the security note above first:
-that hostname is on the internet, and this app has no login.
+Whatever you put in front, the security note above still applies. A tunnel that gives you
+a public hostname also gives it to everyone else.
 
 ## Without Docker
 

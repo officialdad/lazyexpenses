@@ -64,8 +64,9 @@ troubleshooting), **CONTRIBUTING.md** = adding a bank + the test suite (moved ou
 Verified locally: `docker build` → `docker compose up -d` → `/healthz` 200, `curl -F` ingest of a
 synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker compose restart`,
 `fetch` container reaches `http://app:8000/healthz` by service name and exits cleanly with no
-`GMAIL_*`. **Not verified: the Tailscale Serve secure-context path** — documented, not run (this
-box has tailscale installed but stopped). `localhost` is the tested secure context.
+`GMAIL_*`. On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
+`localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
+because untested instructions for someone else's product are exactly what #15 said not to write.
 
 **Also open:** #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
 picks the wrong password and persists in the filename; worth doing before `fetch_mail` runs
