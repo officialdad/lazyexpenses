@@ -157,7 +157,7 @@ The server keeps everything in `/data`, mounted as a volume so your statements l
 
 Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
 
-Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (upcoming balances as JSON, handy for wiring your own reminder), and small `/api/paid` and `/api/waivers` endpoints backing the cross-device mark-paid and fee-waiver state.
+Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (upcoming balances as JSON), and small `/api/paid` and `/api/waivers` endpoints backing the cross-device mark-paid and fee-waiver state.
 
 ## Automating it
 
@@ -169,6 +169,43 @@ It used to run a self-hosted Stirling-PDF alongside it purely to strip statement
 
 So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
 
+### Bill reminders
+
+The reminder half no longer needs n8n, and it needs nothing extra to deploy either: **the server sends them itself**. Set two variables and it starts reminding, unset them and it does not:
+
+```bash
+docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
+  -e TELEGRAM_BOT_TOKEN='123456:ABC...' \
+  -e TELEGRAM_CHAT_ID='987654321' \
+  ghcr.io/officialdad/lazyexpenses/app:latest
+```
+
+The token comes from [@BotFather](https://t.me/BotFather); the chat id is your own chat with that bot. From then on, once a day after 09:00 local, any bill due within three days produces one Telegram message.
+
+It sends **at most one message per bill**, so restarts and extra checks are free: the bills it has already mentioned go in `/data/reminded.json`, next to `paid.json`. A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
+
+| Variable | Default | |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | reminders are off unless both are set |
+| `TELEGRAM_CHAT_ID` | — | |
+| `REMIND_DAYS` | `3` | how far ahead to look |
+| `REMIND_HOUR` | `9` | earliest local hour to send |
+| `REMIND_STATE` | `/data/reminded.json` | on the data volume |
+
+"Today" is resolved in Asia/Kuala_Lumpur regardless of the container's timezone, so a UTC host does not fire a day early.
+
+Not running the container? The same code is a standalone script — it reads `/bills` over HTTP instead of the volume, so point it at your server and run it from cron:
+
+```bash
+python remind_bills.py --dry-run   # prints the message, sends nothing
+```
+
+```
+0 9 * * *  python remind_bills.py
+```
+
+with `BILLS_URL` / `PAID_URL` (default `http://localhost:8000/...`) pointing at it.
+
 ## Tests
 
 No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
@@ -178,9 +215,10 @@ python test_parse_cache.py       # the per-PDF parse cache
 python test_insights.py          # leak detection
 python test_export_data.py       # the web app's data file
 python test_parse_password.py    # opening password-protected PDFs
+python test_remind_bills.py      # which bills a reminder run picks
 ```
 
-All four run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All five run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 

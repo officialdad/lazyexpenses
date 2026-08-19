@@ -29,6 +29,7 @@ jobs:
       - run: python test_insights.py
       - run: python test_export_data.py
       - run: python test_parse_password.py
+      - run: python test_remind_bills.py
       - run: python -m pytest -q server/
 
   # parse.py is the most fragile code here and cannot be tested against real
