@@ -48,13 +48,19 @@ against a fake `IMAP4_SSL` (not committed) — **untested against a real mailbox
 ### Deployment for other people (done — #15)
 
 `compose.yaml` + `.env.example` are the documented path; **the k3s setup stays out of the repo**
-(it is mine, it does not generalise). Two services, both the *published* image (no build): `app`
-(web + API + the in-process reminders) and `fetch` (`sh -c 'while :; do python fetch_mail.py; sleep
-$${FETCH_EVERY:-3600}; done'`, `INGEST_URL=http://app:8000/ingest` over the compose network). The
-`$$` is a compose escape so the **container** shell expands it, not compose. Named volume `data`,
-not a bind mount. Both halves are **off-by-default-when-unset** — `fetch_mail.main()` returns early
-without `GMAIL_*` exactly like the reminders do without `TELEGRAM_*`, so a half-filled `.env` costs
-one log line an hour instead of a crash loop. `.env` is gitignored; `.env.example` is not.
+(it is mine, it does not generalise). **One service**, the *published* image, no build. The mail
+fetch is a timer in the web process (`_fetch_loop`, `FETCH_POLL`, default 3600s) for the same reason
+the reminders are — the server is already the long-running thing that knows `DATA_DIR`, so it is one
+container to deploy instead of two. 0.7.0 shipped a second compose service and a k8s CronJob for
+this; **0.8.0 deleted both.** Named volume `data`, not a bind mount. Both halves are
+**off-unless-configured** — the loop only starts when `GMAIL_USER` *and* `GMAIL_APP_PASSWORD` are
+set, exactly like the reminders and `TELEGRAM_*`, and `fetch_mail.main()` additionally no-ops if
+they vanish.
+
+**`_fetch_loop` deliberately goes back out through `/ingest` over the loopback**, unlike
+`_reminder_tick` which reads the PVC directly. Reading a file and running the pipeline are not the
+same problem: `/ingest` holds the lock, saves the PDF and reparses the corpus, so routing through it
+keeps one copy of that. The cost is knowing our own port — that is what `INGEST_URL` is for. `.env` is gitignored; `.env.example` is not.
 
 Docs split by audience: **README = user-facing** (what it is, banks, demo, quick start, one short
 `docker compose up` section), **`docs/DEPLOY.md`** = the whole hosting/automation reference (env
@@ -63,8 +69,8 @@ troubleshooting), **CONTRIBUTING.md** = adding a bank + the test suite (moved ou
 
 Verified locally: `docker build` → `docker compose up -d` → `/healthz` 200, `curl -F` ingest of a
 synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker compose restart`,
-`fetch` container reaches `http://app:8000/healthz` by service name and exits cleanly with no
-`GMAIL_*`. On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
+`server/test_app.py::test_fetch_loop_runs_only_when_gmail_is_configured` covers the on/off contract
+(mutation-checked: forcing the loop on makes it fail). On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
 `localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
 because untested instructions for someone else's product are exactly what #15 said not to write.
 

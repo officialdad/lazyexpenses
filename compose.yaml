@@ -3,9 +3,10 @@
 #   cp .env.example .env    # fill in what you have
 #   docker compose up -d
 #
-# `app` is the web app, the API and the bill reminders (the reminders run inside the
-# server process, so there is no third service here). `fetch` polls your mailbox and
-# posts new statements to it. Both are the same published image; nothing is built.
+# One service, because the server is the only long-running thing here and it already
+# knows where the data lives: it serves the web app and the API, fetches your statement
+# mail on a timer, and sends the bill reminders. Nothing is built - this is the image
+# published on every release.
 services:
   app:
     image: ghcr.io/officialdad/lazyexpenses/app:latest
@@ -14,21 +15,6 @@ services:
     env_file: .env
     volumes:
       - data:/data
-    restart: unless-stopped
-
-  fetch:
-    image: ghcr.io/officialdad/lazyexpenses/app:latest
-    env_file: .env
-    environment:
-      # over the compose network, not the published port
-      INGEST_URL: http://app:8000/ingest
-    # ponytail: a sleep loop is the whole scheduler. It survives restarts, needs no cron
-    # in the image and no host crontab; swap in a real scheduler if you ever need
-    # calendar-precise times. Exits quietly when the GMAIL_* vars are unset, so leaving
-    # the mail half unconfigured costs you one log line an hour.
-    command: sh -c 'while :; do python fetch_mail.py; sleep "$${FETCH_EVERY:-3600}"; done'
-    depends_on:
-      - app
     restart: unless-stopped
 
 # Named volume, not a bind mount: the statements, the parse cache and app.json live

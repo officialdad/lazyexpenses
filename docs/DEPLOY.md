@@ -25,16 +25,16 @@ docker compose up -d
 Open <http://localhost:8000>. That is the whole deployment.
 
 Nothing gets built — [`compose.yaml`](../compose.yaml) uses the image published on every
-release, so no Python, no Node, no toolchain. Two services come up:
+release, so no Python, no Node, no toolchain.
 
-| Service | What it does |
-|---|---|
-| `app` | the web app, the API, and the bill reminders (those run inside the server, so there is no third service) |
-| `fetch` | checks your mailbox every hour and posts new statements to `app` |
+**One service does everything.** The server is the only long-running thing here and it
+already knows where your data lives, so the mail fetch and the bill reminders are timers
+inside it rather than separate containers, cron entries or CronJobs. There is one thing
+to deploy, one log to read, and one `.env`.
 
-Both are the same image. Both read `.env`. Leave a section of `.env` blank and that part
-simply does nothing: no Gmail details means `fetch` says so and goes back to sleep, no
-Telegram token means no reminders. Nothing crash-loops because you only wanted half of it.
+Leave a section of `.env` blank and that part simply does nothing: no Gmail details means
+nothing is fetched, no Telegram token means no reminders. Nothing crash-loops because you
+only wanted half of it.
 
 A fresh volume is empty, so the page loads but the data request returns 404 until the
 first statement lands. That is not a bug. Post one by hand if you do not want to wait:
@@ -70,7 +70,7 @@ committed copy with placeholders — copy it, do not edit it.
 | `GMAIL_USER` | — | the mailbox to poll |
 | `GMAIL_APP_PASSWORD` | — | a Google app password, never your login password |
 | `GMAIL_LABEL` | `CC` | the label statement mail is filed under |
-| `FETCH_EVERY` | `3600` | seconds between mail checks |
+| `FETCH_POLL` | `3600` | seconds between mail checks |
 | `TELEGRAM_BOT_TOKEN` | — | reminders are off unless both this and the chat id are set |
 | `TELEGRAM_CHAT_ID` | — | |
 | `REMIND_DAYS` | `3` | how far ahead to look |
@@ -82,11 +82,11 @@ repo, never in a log line.
 
 ## Fetching statements from Gmail
 
-`fetch_mail.py` polls one Gmail label over IMAP and posts every PDF attachment to
+The server checks your mailbox every hour and posts every PDF attachment it finds to
 `/ingest`. Gmail exposes labels as IMAP mailboxes, so a label is just a mailbox to open,
 and `imaplib` and `email` both ship with Python — there is nothing to install and nothing
-to host. The compose stack runs it for you on a loop; on its own it is a script you can
-put in cron.
+extra to run. The same code is also a standalone script (`fetch_mail.py`) if you would
+rather drive it from cron.
 
 Set it up once:
 
@@ -242,8 +242,8 @@ change must never serve rows from the old rules.
 | Page loads, no data | `/data/app.json` does not exist yet — nothing has been ingested |
 | A statement shows `ERROR` | locked PDF, and its `CC_PW_<BANK>` is unset or wrong |
 | A statement shows `REVIEW` | the bank changed its layout; `python probe.py <file>` shows what the parser sees |
-| `fetch` logs "nothing to fetch" | `GMAIL_USER` / `GMAIL_APP_PASSWORD` are blank in `.env` |
+| the log says "nothing to fetch" | `GMAIL_USER` / `GMAIL_APP_PASSWORD` are blank in `.env` |
 | Reminders never arrive | both Telegram variables set? Did you message the bot first? |
 | No install prompt | you are on plain HTTP from another machine — see [above](#putting-it-on-your-network) |
 
-Logs for everything: `docker compose logs -f app` and `docker compose logs -f fetch`.
+Logs for everything, in one place: `docker compose logs -f`.
