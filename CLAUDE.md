@@ -11,12 +11,13 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
-## Active work — retiring n8n (deployed 2026-08-20)
+## Active work — retiring n8n (last touched 2026-08-20)
 
 The automated refresh pipeline is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.4.0` on k3s, serving the PWA and re-running
-`parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`. 84 statements on the
-volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions. `Recreate` strategy (the volume is RWO).
+runs `ghcr.io/officialdad/lazyexpenses/app:0.6.0` on k3s, serving the PWA, re-running
+`parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
+reminders itself**. 84 statements on the volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions,
+7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
 
 **Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`
 (`deployment.yml`, `service.yml`, `persistentvolumeclaim.yml`, `secret.yml.example`). Ingress is a
@@ -25,52 +26,80 @@ single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opar
 `k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
 Its `CLAUDE.md` has the conventions.
 
-**Stirling-PDF is redundant but still deployed.** Since #11 `parse.py` opens locked PDFs itself, and
-`CC_PW_<BANK>` is wired as a k8s Secret (`lazyexpense-secrets`, `envFrom` with `optional: true` so a
-missing secret cannot fail the rollout). All six passwords were verified against real statements —
-each bank's newest PDF re-encrypted with its own secret and parsed back, all VERIFIED. Every PDF on
-the volume is still Stirling-unlocked, so `grep -la /Encrypt /data/pdfs/*.pdf | wc -l` reads **0**;
-non-zero is the signal that a genuinely locked statement has flowed end to end.
+**One job left: the Gmail trigger.** Everything else n8n did is gone from the code path.
 
-### What n8n still does (three jobs, each independently removable)
+| n8n job | Status |
+|---|---|
+| Unlock via Stirling-PDF + "set password" Code node | **Dead** since #11 — `parse.py` opens locked PDFs itself |
+| Daily reminder cron (Gemini + Google Tasks + Telegram) | **Replaced** by the in-process reminder, 0.5.0/0.6.0 (#13) |
+| Gmail trigger on label `CC` | **Still the only reason n8n runs.** → #12 |
 
-1. **Gmail trigger** — watches label `CC` for statement mail. → #12 (`fetch_mail.py`, stdlib IMAP).
-2. **Unlock + POST to `/ingest`** — the Stirling step is now dead weight; deleting that node and the
-   "set password" Code node is a UI-only change with no code behind it. Passwords are stored inside
-   the workflow on the n8n PVC and should be cleared once removed — the Secret is the source of truth.
-3. **Reminder cron** — daily, fires 3 days before a due date, sends Telegram. `/bills` already serves
-   this deterministically from `parse.py`, so Gemini/Google Tasks can come out of this path today,
-   before #13. → #13 (`remind_bills.py` + a k8s CronJob).
-
-**Telegram is not being retired.** It stays as the notification channel; #13 only moves the send from
-an n8n node to a cron pod.
-
-### Order of work
-
-1. n8n rewire (UI only, no code) — drop Stirling from the ingest path.
-2. Verify a locked statement landed, then delete `k3s/stirlingpdf/`, its block in
-   `k3s/traefik/ingress-local.yml`, and the `pdf.opariffazman.com` DNS record.
-3. #13 reminders → n8n stops being a scheduler.
-4. #12 IMAP → n8n goes away entirely.
-5. #15 deployment docs (`compose.yaml`, `.env.example` — needs the six `CC_PW_*`, it predates them).
+**Next session starts at #12** (`fetch_mail.py`, stdlib `imaplib` + `email`, `--dry-run`, `detect_bank`
+pure and tested, mark `\Seen` only after a successful `/ingest`). The issue is written to be picked up
+cold and needs no design work. After it: #15 (deployment docs — `compose.yaml`, `.env.example`, and
+they predate both the six `CC_PW_*` and the `TELEGRAM_*`/`REMIND_*` vars).
 
 Also open: #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
 picks the wrong password and persists in the filename), #27 (CI web job), #29 (optional local LLM for
 the `Other` bucket), #20 (tracking).
+
+### Bill reminders (done — #13, shipped 0.5.0/0.6.0)
+
+`remind_bills.py` holds the logic; **`server/app.py` runs it on a timer inside the web process** —
+deliberately not a k8s CronJob or a cron line, because the server is already the long-running thing
+that knows `DATA_DIR`, so this is one container to deploy instead of two. The same file is still
+runnable standalone (`python remind_bills.py --dry-run`), where it reads `/bills` over HTTP instead
+of the volume, for anyone not running the container.
+
+- **Off unless `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set** (both live in
+  `lazyexpense-secrets`, which `envFrom`s into the pod). Loop starts in the FastAPI `lifespan`.
+- **Polls (`REMIND_POLL`, 1800s) and sends once past `REMIND_HOUR` (9) local**, rather than sleeping
+  until 09:00. The per-bill state file `/data/reminded.json` is what prevents duplicates, so an extra
+  tick is a no-op and a restart cannot re-send — that is why the schedule can be this crude.
+- **One message per bill**, recorded immediately after its own send, so a failure partway through
+  keeps what went out and retries only the rest. Wording is `REMIND_TEMPLATE` (Telegram HTML;
+  placeholders `bank/amount/due/days/when/month`), defaulting to the message the n8n workflow sent.
+- Bills marked paid in the PWA (`/data/paid.json`, key `bank|statement_month`) are skipped, as are
+  null `payment_due_date`/`current_balance` — `parse.py` emits `None` rather than guessing.
+- **ponytail: assumes a single instance** (replicas:1 + RWO volume + `Recreate`). Two replicas would
+  each hold their own view of `reminded.json` and could double-send.
+- Verified in prod by exec'ing the tick with an isolated state file. **Still unexercised: the timer
+  firing on its own** — `/data/reminded.json` did not exist as of the last check, so the first real
+  09:00 MYT run is the proof. `kubectl logs deploy/lazyexpense | grep reminder`.
+
+### Stirling-PDF — still deployed, still not deletable
+
+Reported torn down on 2026-08-20; it is not. `kubectl get pods -A | grep stirling` shows it Running,
+`k3s/stirlingpdf/` exists, and `k3s/traefik/ingress-local.yml:136` still routes `pdf.opariffazman.com`.
+The n8n workflow may already have stopped calling it, but the gate for deleting the service is
+evidence that a **genuinely locked** statement flowed end to end, and
+`grep -la /Encrypt /data/pdfs/*.pdf | wc -l` still reads **0** of 84 — every PDF on the volume is
+Stirling-unlocked. All six `CC_PW_<BANK>` were verified offline (each bank's newest PDF re-encrypted
+with its own secret, parsed back, all VERIFIED), so the capability is proven; only the live path is not.
+
+Teardown, once a locked statement has landed: delete `k3s/stirlingpdf/`, its block in
+`k3s/traefik/ingress-local.yml`, and the `pdf.opariffazman.com` DNS record.
 
 ### Sharp edges
 
 - **`bank` on `/ingest` is load-bearing and unchecked.** It selects the password, the parser branch,
   and the filename *permanently* — `parse.py` re-derives the bank from that filename on every later
   run. A typo writes a file that reports `NO_BALANCE` forever until deleted by hand. See #31.
+  This is worth fixing **before** #12 starts posting unattended.
 - **Editing `parse.py` invalidates the whole parse cache** (`PARSE_VER` = hash of the file). On the
-  0.4.0 rollout the full 84-PDF reparse took **109s**, versus 0.5s warm. Long enough to trip an n8n
-  HTTP timeout, so warm it in-pod after any deploy that touches the parser:
+  0.4.0 rollout the full 84-PDF reparse took **109s**, versus 0.5s warm. Long enough to trip an
+  ingest HTTP timeout, so warm it in-pod after any deploy that touches the parser:
   `kubectl exec deploy/lazyexpense -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
+  (0.5.0 and 0.6.0 did not touch `parse.py`, so those rollouts kept the cache — 83 entries.)
+- **Telegram will not let a bot message first.** A misconfigured reminder returns `400 Bad Request`
+  whose body says `chat not found`; `send()` now keeps that description, because the status line
+  alone is useless in an unattended log. Fix is to message the bot once from the target chat.
 - **PWA runtime-refresh gate** (carried from Plan 2, still unverified in prod): the vite-pwa service
   worker must serve `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores` +
   `runtimeCaching`, cache `app-data`). Without it an installed PWA precaches the data cache-first and
   never sees a refresh until a rebuild. Verify by swapping `app.json` on the PVC and reloading.
+- **No venv on this machine and `python` is not on PATH** — use `python3`, and `python3 -m venv` is
+  broken (no `python3-venv`). `uv venv` works: that is how the `server/` pytest suite gets run.
 - **`docs/superpowers/` is gitignored and absent on this machine.** Earlier specs, plans and the
   cutover runbook that older notes referenced are not available; do not send anyone to them.
 
@@ -83,6 +112,8 @@ python test_parse_cache.py            # plain-assert tests for cached_parse (hit
 python insights.py                    # transactions.csv -> recommendations.csv + prints leak summary (deterministic, no LLM)
 python dashboard.py                   # transactions.csv -> dashboard.html (self-contained, offline; embeds insights.compute())
 python test_insights.py               # plain-assert tests for insights.py (prints OK)
+python remind_bills.py --dry-run      # bill reminders: print what would be Telegrammed, send nothing (BILLS_URL/PAID_URL point at a running server; in prod the server runs this itself on a timer)
+python test_remind_bills.py           # plain-assert tests for remind_bills.py (window/nulls/paid, template rendering, per-bill state dedupe; prints OK)
 node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim render + view-switch without throwing (prints SMOKE OK); run AFTER dashboard.py
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
@@ -193,8 +224,10 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The ba
 
 > **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
 
-- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram.
+- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Only the Gmail trigger still has to exist** (→ #12); the unlock is dead (#11) and the reminder is now the server's own timer (#13). `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
+
+Passwords stored inside the workflow on the n8n PVC should be cleared as the unlock nodes go — the k8s Secret `lazyexpense-secrets` is the source of truth now.
 
 Both share a per-bank PDF password map (each bank derives its default from cardholder DOB/IC). **Passwords are NOT committed** — the workflow Code node reads them from n8n env vars `CC_PW_<BANK>` (`CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`, `CC_PW_HSBC`, `CC_PW_RHB`); set them on the n8n instance. Bank detection keys off the bank name appearing in the email text/PDF.
 
