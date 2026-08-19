@@ -18,23 +18,69 @@ jobs:
           cache-dependency-path: server/requirements.txt
 
       # Pinned runtime deps, so CI tests the versions the image actually ships.
-      # pytest and httpx are test-only: starlette's TestClient needs httpx, and it
-      # is deliberately not a runtime dependency.
-      - run: pip install -r server/requirements.txt pytest httpx
+      # pytest, httpx and pypdf are test-only: starlette's TestClient needs httpx,
+      # and pypdf only ever writes the encrypted fixtures. Neither is a runtime
+      # dependency and neither belongs in requirements.txt.
+      - run: pip install -r server/requirements.txt pytest httpx pypdf
 
-      # The same four commands the README tells contributors to run. All pass with
-      # an empty cc-statements/ — they work off fixtures, not the real corpus.
+      # The commands the README tells contributors to run. All pass with an empty
+      # cc-statements/ — they work off fixtures, not the real corpus.
       - run: python test_parse_cache.py
       - run: python test_insights.py
       - run: python test_export_data.py
+      - run: python test_parse_password.py
       - run: python -m pytest -q server/
 
-  # Not here yet, and deliberately so — a permanently red job teaches everyone to
-  # ignore CI:
-  #   test_parse.py / verify_parity.py  need parsed statements on disk
-  #   web/ (svelte-check + vitest)      need web/static/data/app.json, which is
-  #                                     gitignored; without it svelte-check reports
-  #                                     2 errors out of 368 files and every vitest
-  #                                     file fails to import
-  # All four are unblocked by the synthetic demo dataset (#16), which is what finally
-  # puts parse.py itself under CI.
+  # parse.py is the most fragile code here and cannot be tested against real
+  # statements, which must never reach CI. So this job builds synthetic ones that
+  # drive each bank's actual code path, then makes the parser read them back.
+  parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - run: pip install -r server/requirements.txt pytest httpx pypdf
+
+      - name: Generate synthetic statements
+        run: python make_demo_data.py --pdfs
+
+      # Round trip: reconcile() decides what each statement says, the renderer prints
+      # it, parse.py re-derives it from the words on the page. Covers per-bank balance
+      # labels, multi-card attribution, the CR sign flips, CIMB-i memo exclusion, the
+      # SC due-date-before-statement-date trap and the duplicate fingerprint.
+      - run: python test_demo_pdfs.py
+      - run: python test_parse.py
+
+      # The reconciliation report is the correctness bar the whole repo is judged on,
+      # so fail the job if any statement stops reconciling rather than only reading it.
+      - name: Reconciliation report must stay all-VERIFIED
+        run: |
+          python parse.py | tee recon.log
+          python - <<'PY'
+          import csv, collections, sys
+          rows = list(csv.DictReader(open("reconciliation.csv", encoding="utf-8-sig")))
+          counts = collections.Counter(r["status"] for r in rows)
+          print("statuses:", dict(counts))
+          bad = {k: v for k, v in counts.items() if k not in ("VERIFIED", "DUPLICATE")}
+          sys.exit(f"statements did not reconcile: {bad}" if bad else 0)
+          PY
+
+      - run: python insights.py
+      - run: python export_data.py
+      - run: python verify_parity.py
+
+      # With statements on disk the server's end-to-end test stops skipping itself:
+      # POST a PDF to /ingest, run the real pipeline, assert app.json and /bills.
+      - name: Server suite, including the end-to-end ingest
+        run: |
+          mkdir -p web/build && echo '<!doctype html>' > web/build/index.html
+          python -m pytest -q server/
+
+  # Still not here: the web half (svelte-check + vitest). Both are unblocked — the
+  # demo dataset gives them the app.json they need — and wiring them up is #27.
