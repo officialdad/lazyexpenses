@@ -42,12 +42,26 @@ def test_paid_and_already_sent_are_excluded():
                     paid={bill_key(b)}) != []
 
 
-def test_message_labels_today_overdue_and_future():
-    txt = message(due_soon([_bill("cimb", "2026-08-20", 1234.5),
-                            _bill("sc", "2026-08-18", 20.0),
-                            _bill("rhb", "2026-08-22", 5.0)], TODAY, 3), TODAY)
-    assert "2d OVERDUE" in txt and "(today)" in txt and "(in 2d)" in txt, txt
-    assert "RM1,234.50" in txt, txt
+def test_default_template_renders_bank_amount_and_due():
+    txt = message(_bill("cimb", "2026-08-22", 1234.5), TODAY)
+    assert "<b>Automated Credit Card Payment Reminder</b>" in txt, txt
+    assert "Pay CIMB statement amount of RM <code>1,234.50</code>" in txt, txt
+    assert "By 2026-08-22 to avoid late charges" in txt, txt
+
+
+def test_custom_template_gets_every_field():
+    txt = message(_bill("sc", "2026-08-18", 20.0), TODAY,
+                  "{bank} {amount} {due} {days} {when} {month}")
+    assert txt == "SC 20.00 2026-08-18 -2 2d OVERDUE 2026-08", txt
+    assert message(_bill("rhb", "2026-08-20", 5.0), TODAY, "{when}") == "today"
+
+
+def test_unknown_placeholder_names_the_valid_ones():
+    try:
+        message(_bill("hsbc", "2026-08-21"), TODAY, "{nope}")
+        raise AssertionError("expected a failure")
+    except RuntimeError as e:
+        assert "nope" in str(e) and "amount" in str(e), e
 
 
 def test_send_keeps_the_telegram_description():
@@ -72,6 +86,45 @@ def test_send_keeps_the_telegram_description():
         assert "chat not found" in str(e), e
     finally:
         urllib.request.urlopen = real_open
+
+
+def test_run_sends_one_message_per_bill():
+    sent = []
+    real, remind_bills.send = remind_bills.send, sent.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            bills = [_bill("hsbc", "2026-08-22"), _bill("cimb", "2026-08-21")]
+            assert len(remind_bills.run(bills, set(), state, TODAY)) == 2
+            assert len(sent) == 2 and sum("HSBC" in t for t in sent) == 1
+            assert remind_bills.load_state(state) == {"hsbc|2026-08", "cimb|2026-08"}
+    finally:
+        remind_bills.send = real
+
+
+def test_a_failed_send_does_not_lose_the_ones_already_sent():
+    """Recording per bill: bill 1 stays recorded, bill 2 retries next run."""
+    sent = []
+
+    def flaky(text):
+        if "CIMB" in text:
+            raise RuntimeError("telegram 400: nope")
+        sent.append(text)
+
+    real, remind_bills.send = remind_bills.send, flaky
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            bills = [_bill("hsbc", "2026-08-21"), _bill("cimb", "2026-08-22")]
+            try:
+                remind_bills.run(bills, set(), state, TODAY)
+                raise AssertionError("expected a failure")
+            except RuntimeError:
+                pass
+            assert remind_bills.load_state(state) == {"hsbc|2026-08"}, "sent one is recorded"
+            assert len(sent) == 1
+    finally:
+        remind_bills.send = real
 
 
 def test_run_sends_once_then_records_it():
@@ -101,7 +154,11 @@ if __name__ == "__main__":
     test_overdue_included_and_sorted_first()
     test_nulls_are_skipped_not_defaulted()
     test_paid_and_already_sent_are_excluded()
-    test_message_labels_today_overdue_and_future()
+    test_default_template_renders_bank_amount_and_due()
+    test_custom_template_gets_every_field()
+    test_unknown_placeholder_names_the_valid_ones()
     test_run_sends_once_then_records_it()
+    test_run_sends_one_message_per_bill()
+    test_a_failed_send_does_not_lose_the_ones_already_sent()
     test_send_keeps_the_telegram_description()
     print("OK")
