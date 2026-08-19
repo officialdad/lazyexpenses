@@ -33,3 +33,6 @@ n8n-reminder-filter.mjs
 test_reminder_filter.mjs
 test_workflow_ingest.py
 test_workflow_reminder.py
+
+# local deployment config - real secrets
+.env
