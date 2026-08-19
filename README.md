@@ -163,13 +163,40 @@ Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (up
 
 Everything above is manual: unlock, drop in a folder, run a script or post it. That loop is short enough that automating it is genuinely optional.
 
-I do automate my own copy, and most of it is now in this repo. Reminders are built into the server (below). What is left outside is one n8n workflow wired to my Gmail: it watches for statement mail and posts the attachment to `/ingest`. That workflow file stays local because it is full of credentials and references to my own instance, and it would not import cleanly anywhere else.
+I do automate my own copy, and all of it is now in this repo: one script fetches the mail, the server does the rest. It used to be an n8n instance with a self-hosted Stirling-PDF next to it purely to strip statement passwords — both are gone. The parser opens locked PDFs itself, the reminders run inside the server, and the mail fetch is `fetch_mail.py` below. Nothing here needs anything you cannot `pip install` — in fact the two automation pieces need nothing at all beyond the standard library.
 
-It used to run a self-hosted Stirling-PDF alongside it purely to strip statement passwords. That is gone — the parser opens locked PDFs itself now, so the whole decrypt step disappeared.
+### Fetching statement mail
 
-So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
+`fetch_mail.py` polls a Gmail label over IMAP and posts every PDF attachment to `/ingest`. Gmail exposes labels as IMAP mailboxes, so a label is just a mailbox to select, and `imaplib` and `email` are both stdlib — no dependency, nothing to deploy. It is a script, not a daemon: run it from cron, a systemd timer, a Kubernetes CronJob, whatever you already have.
 
-It used to do more. Unlocking moved into the parser, and the bill reminders moved into the server, which is what the rest of this section is about.
+Set it up once:
+
+1. **Turn on 2-Step Verification** on the Google account ([myaccount.google.com/security](https://myaccount.google.com/security)). App passwords do not exist without it.
+2. **Generate an app password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). You get a 16-character string; it is shown once. That is what you use below, never your real password.
+3. **Check IMAP is enabled** — Gmail settings → *Forwarding and POP/IMAP* → *Enable IMAP*.
+4. **Label the statement mail.** Make a Gmail filter that applies a label (I use `CC`) to mail from your banks. The script only ever looks in that one mailbox, and only at unread messages in it.
+
+Then:
+
+```bash
+export GMAIL_USER='you@gmail.com'
+export GMAIL_APP_PASSWORD='abcd efgh ijkl mnop'   # the app password, not your login
+export GMAIL_LABEL='CC'                           # default
+export INGEST_URL='http://localhost:8000/ingest'  # default
+
+python fetch_mail.py --dry-run    # list what it would fetch, change nothing
+python fetch_mail.py
+```
+
+`--dry-run` opens the mailbox read-only, so it cannot mark anything read even by accident. Start there.
+
+Which bank a statement belongs to is read off the sender, then the subject, then the body — in that order. If none of them names a bank the script says so and moves on: a statement posted under the wrong bank parses against the wrong rules and produces confidently wrong numbers, which is worse than skipping it.
+
+A message is marked read **only after every attachment in it ingested cleanly**. So a server that was down, an unknown bank, or a mail with no PDF stays unread and comes back next run — noisy on purpose, because a mail that quietly vanishes into the read pile is a statement you never notice is missing. Re-running straight away does nothing: everything that worked is already read.
+
+Credentials come from the environment only. Nothing is written to disk and nothing is logged.
+
+Google still issues app passwords with 2FA on, but has been signalling a move to OAuth 2.0. If that day comes, the login is four lines in one function and nothing else in the script touches it.
 
 ### Bill reminders
 
@@ -242,9 +269,10 @@ python test_insights.py          # leak detection
 python test_export_data.py       # the web app's data file
 python test_parse_password.py    # opening password-protected PDFs
 python test_remind_bills.py      # which bills a reminder run picks
+python test_fetch_mail.py        # bank detection and the mail fetch
 ```
 
-All five run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All six run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 
@@ -282,7 +310,7 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 
 Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, the card picker and the Telegram bill reminders are all done, and my own copy runs as a container behind HTTPS.
 
-Still on the list: replacing the n8n mail fetch with a small script in this repo, and a proper deployment guide (`compose.yaml` and an `.env.example`) so hosting it does not mean reading a Dockerfile.
+The mail fetch moved into this repo too, so n8n is gone entirely. Still on the list: a proper deployment guide (`compose.yaml` and an `.env.example`) so hosting it does not mean reading a Dockerfile.
 
 ## License
 

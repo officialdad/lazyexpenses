@@ -26,18 +26,27 @@ single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opar
 `k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
 Its `CLAUDE.md` has the conventions.
 
-**One job left: the Gmail trigger.** Everything else n8n did is gone from the code path.
+**n8n is fully retired from the code path** — the Gmail trigger was the last job, and `fetch_mail.py` (#12) replaces it.
 
 | n8n job | Status |
 |---|---|
 | Unlock via Stirling-PDF + "set password" Code node | **Dead** since #11 — `parse.py` opens locked PDFs itself |
 | Daily reminder cron (Gemini + Google Tasks + Telegram) | **Replaced** by the in-process reminder, 0.5.0/0.6.0 (#13) |
-| Gmail trigger on label `CC` | **Still the only reason n8n runs.** → #12 |
+| Gmail trigger on label `CC` | **Replaced** by `fetch_mail.py` (#12) — stdlib IMAP, run it on a schedule |
 
-**Next session starts at #12** (`fetch_mail.py`, stdlib `imaplib` + `email`, `--dry-run`, `detect_bank`
-pure and tested, mark `\Seen` only after a successful `/ingest`). The issue is written to be picked up
-cold and needs no design work. After it: #15 (deployment docs — `compose.yaml`, `.env.example`, and
-they predate both the six `CC_PW_*` and the `TELEGRAM_*`/`REMIND_*` vars).
+**`fetch_mail.py`** (#12): `imaplib.IMAP4_SSL` → select `GMAIL_LABEL` (`CC`) → `UNSEEN` → `BODY.PEEK[]`
+(a plain FETCH would set `\Seen` itself and defeat the retry) → POST each PDF part to `INGEST_URL` as
+hand-rolled multipart (`urllib`, no `requests`) → `+FLAGS \Seen` **only if every attachment ingested**.
+`detect_bank(text)` is pure (first-match over `BANKS` regexes), called on From, then Subject, then body;
+`None` skips the mail rather than guessing. Skips (unknown bank, no PDF) and `--dry-run`
+(`select(readonly=True)`) never mark seen — so a skipped mail nags every run on purpose. The multipart
+filename is `<bank>.pdf`, **never** the mail's (untrusted, and `pipeline.save_pdf` names by content hash
+anyway). IMAP lives only in `main()`, which is the boundary `test_fetch_mail.py` does not cross.
+Verified end to end against a live server on a synthetic CIMB mail; the IMAP loop itself was smoke-run
+against a fake `IMAP4_SSL` (not committed) — **untested against a real mailbox**.
+
+**Next session:** #15 (deployment docs — `compose.yaml`, `.env.example`, and they predate both the six
+`CC_PW_*` and the `TELEGRAM_*`/`REMIND_*` vars, plus now the four `GMAIL_*`/`INGEST_URL` ones).
 
 Also open: #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
 picks the wrong password and persists in the filename), #27 (CI web job), #29 (optional local LLM for
@@ -114,6 +123,8 @@ python dashboard.py                   # transactions.csv -> dashboard.html (self
 python test_insights.py               # plain-assert tests for insights.py (prints OK)
 python remind_bills.py --dry-run      # bill reminders: print what would be Telegrammed, send nothing (BILLS_URL/PAID_URL point at a running server; in prod the server runs this itself on a timer)
 python test_remind_bills.py           # plain-assert tests for remind_bills.py (window/nulls/paid, template rendering, per-bill state dedupe; prints OK)
+python fetch_mail.py --dry-run        # IMAP: list unread statement mail in GMAIL_LABEL + what it would POST to /ingest, touching nothing (env: GMAIL_USER, GMAIL_APP_PASSWORD, GMAIL_LABEL=CC, INGEST_URL, IMAP_HOST)
+python test_fetch_mail.py             # plain-assert tests for fetch_mail.py (detect_bank x6 + no-match, From>Subject>body precedence, attachment walk, mark-seen only on success; prints OK)
 node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim render + view-switch without throwing (prints SMOKE OK); run AFTER dashboard.py
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
@@ -224,7 +235,7 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The ba
 
 > **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
 
-- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Only the Gmail trigger still has to exist** (→ #12); the unlock is dead (#11) and the reminder is now the server's own timer (#13). `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
+- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Nothing in it is still needed**: the unlock is dead (#11), the reminder is the server's own timer (#13), and the Gmail trigger is `fetch_mail.py` (#12). Disable the workflow. `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
 
 Passwords stored inside the workflow on the n8n PVC should be cleared as the unlock nodes go — the k8s Secret `lazyexpense-secrets` is the source of truth now.
