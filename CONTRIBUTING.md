@@ -38,7 +38,7 @@ python parse.py
 ```
 At the end it prints a reconciliation report. Find your statement in it. It needs to say `VERIFIED`, which means previous balance plus debits minus credits matched the printed current balance to within two cents. `REVIEW` means the numbers do not add up yet, usually a missed row or a balance read wrong. `NO_BALANCE` means `recon_balances` could not find the balances at all.
 
-One rule matters above the rest: your change must not turn any existing `VERIFIED` statement into a `REVIEW`. The current count is 69 verified statements, and the bar is to keep every one of them passing while your new bank joins them.
+One rule matters above the rest: your change must not turn any existing `VERIFIED` statement into a `REVIEW`. The bar is to keep every statement that verifies today still verifying while your new bank joins them.
 
 When a statement will not reconcile, go back to `probe.py` and read the rows until you find the line the parser is mishandling.
 
@@ -46,11 +46,58 @@ When a statement will not reconcile, go back to `probe.py` and read the rows unt
 
 Categories come from `CATS` near the top of `parse.py`, a keyword map checked in order where the first match wins. If a merchant from your statement lands in `Other`, add a keyword for it next to the category it belongs in. `Other` is meant to stay empty, so a merchant showing up there is your cue to add a rule.
 
+## Tests
+
+No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
+
+```bash
+python test_parse_cache.py       # the per-PDF parse cache
+python test_insights.py          # leak detection
+python test_export_data.py       # the web app's data file
+python test_parse_password.py    # opening password-protected PDFs
+python test_remind_bills.py      # which bills a reminder run picks
+python test_fetch_mail.py        # bank detection and the mail fetch
+```
+
+All six run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+
+`parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
+
+```bash
+python make_demo_data.py --pdfs   # fake statements, one per bank per month
+python test_demo_pdfs.py          # the parser has to read them all back to the cent
+python parse.py                   # and the reconciliation report has to stay clean
+```
+
+`test_demo_pdfs.py` is a round trip: the generator decides what each statement says, prints it at real coordinates, and the parser re-derives the figures from the words on the page. They only agree if every row parsed, every balance label was found, and each bank's quirks were handled. That covers per-bank balance extraction, multi-card attribution, the credit-balance sign flips, installment memo exclusion, the Standard Chartered layout that once filed three statements in the wrong month, and the duplicate fingerprint.
+
+With those statements on disk the server's end-to-end test stops skipping itself, and posts one through `/ingest` to `app.json`.
+
+The server tests use pytest, and also pass with no statements (the end-to-end one skips itself when there is no sample PDF):
+
+```bash
+pip install pytest httpx    # httpx is what starlette's TestClient imports
+python -m pytest server/
+```
+
+The web app's own suite needs an `app.json` to exist, which `make_demo_data.py` is enough to produce:
+
+```bash
+python make_demo_data.py && python insights.py && python export_data.py
+cd web && npm ci && npm run check && npm test
+```
+
+`python verify_parity.py` (both dashboards agreeing) runs after `parse.py` on either kind of demo data.
+
+The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
+
+The bar for any parser change is simple: it must not turn a `VERIFIED` statement into a `REVIEW`.
+
 ## Before you open a PR
 
 - Your statement reconciles `VERIFIED`, and no existing statement dropped to `REVIEW`.
 - `python test_insights.py` still prints `OK`.
-- No personal data in the diff. Do not commit statement PDFs (the `cc-statements/` folder is gitignored), real passwords (those belong in n8n environment variables, not the code), or the generated CSVs.
+- No personal data in the diff. Do not commit statement PDFs (the `cc-statements/` folder is gitignored), real passwords (those belong in environment variables, not the code), or the generated CSVs.
 - A short note on which bank you added and where the sample came from, so the next person can retrace it.
 
 Thanks for adding a bank. Each one makes this useful to more people.

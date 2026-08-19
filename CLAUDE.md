@@ -26,22 +26,52 @@ single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opar
 `k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
 Its `CLAUDE.md` has the conventions.
 
-**One job left: the Gmail trigger.** Everything else n8n did is gone from the code path.
+**n8n is fully retired from the code path** — the Gmail trigger was the last job, and `fetch_mail.py` (#12) replaces it.
 
 | n8n job | Status |
 |---|---|
 | Unlock via Stirling-PDF + "set password" Code node | **Dead** since #11 — `parse.py` opens locked PDFs itself |
 | Daily reminder cron (Gemini + Google Tasks + Telegram) | **Replaced** by the in-process reminder, 0.5.0/0.6.0 (#13) |
-| Gmail trigger on label `CC` | **Still the only reason n8n runs.** → #12 |
+| Gmail trigger on label `CC` | **Replaced** by `fetch_mail.py` (#12) — stdlib IMAP, run it on a schedule |
 
-**Next session starts at #12** (`fetch_mail.py`, stdlib `imaplib` + `email`, `--dry-run`, `detect_bank`
-pure and tested, mark `\Seen` only after a successful `/ingest`). The issue is written to be picked up
-cold and needs no design work. After it: #15 (deployment docs — `compose.yaml`, `.env.example`, and
-they predate both the six `CC_PW_*` and the `TELEGRAM_*`/`REMIND_*` vars).
+**`fetch_mail.py`** (#12): `imaplib.IMAP4_SSL` → select `GMAIL_LABEL` (`CC`) → `UNSEEN` → `BODY.PEEK[]`
+(a plain FETCH would set `\Seen` itself and defeat the retry) → POST each PDF part to `INGEST_URL` as
+hand-rolled multipart (`urllib`, no `requests`) → `+FLAGS \Seen` **only if every attachment ingested**.
+`detect_bank(text)` is pure (first-match over `BANKS` regexes), called on From, then Subject, then body;
+`None` skips the mail rather than guessing. Skips (unknown bank, no PDF) and `--dry-run`
+(`select(readonly=True)`) never mark seen — so a skipped mail nags every run on purpose. The multipart
+filename is `<bank>.pdf`, **never** the mail's (untrusted, and `pipeline.save_pdf` names by content hash
+anyway). IMAP lives only in `main()`, which is the boundary `test_fetch_mail.py` does not cross.
+Verified end to end against a live server on a synthetic CIMB mail; the IMAP loop itself was smoke-run
+against a fake `IMAP4_SSL` (not committed) — **untested against a real mailbox**.
 
-Also open: #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
-picks the wrong password and persists in the filename), #27 (CI web job), #29 (optional local LLM for
-the `Other` bucket), #20 (tracking).
+### Deployment for other people (done — #15)
+
+`compose.yaml` + `.env.example` are the documented path; **the k3s setup stays out of the repo**
+(it is mine, it does not generalise). Two services, both the *published* image (no build): `app`
+(web + API + the in-process reminders) and `fetch` (`sh -c 'while :; do python fetch_mail.py; sleep
+$${FETCH_EVERY:-3600}; done'`, `INGEST_URL=http://app:8000/ingest` over the compose network). The
+`$$` is a compose escape so the **container** shell expands it, not compose. Named volume `data`,
+not a bind mount. Both halves are **off-by-default-when-unset** — `fetch_mail.main()` returns early
+without `GMAIL_*` exactly like the reminders do without `TELEGRAM_*`, so a half-filled `.env` costs
+one log line an hour instead of a crash loop. `.env` is gitignored; `.env.example` is not.
+
+Docs split by audience: **README = user-facing** (what it is, banks, demo, quick start, one short
+`docker compose up` section), **`docs/DEPLOY.md`** = the whole hosting/automation reference (env
+table, Gmail app-password onboarding, reminder template, secure-context, upgrade/backup,
+troubleshooting), **CONTRIBUTING.md** = adding a bank + the test suite (moved out of README).
+
+Verified locally: `docker build` → `docker compose up -d` → `/healthz` 200, `curl -F` ingest of a
+synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker compose restart`,
+`fetch` container reaches `http://app:8000/healthz` by service name and exits cleanly with no
+`GMAIL_*`. On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
+`localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
+because untested instructions for someone else's product are exactly what #15 said not to write.
+
+**Also open:** #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
+picks the wrong password and persists in the filename; worth doing before `fetch_mail` runs
+unattended), #27 (CI web job), #29 (optional local LLM for the `Other` bucket). #20 (tracking) is
+closed — every issue it tracked is done.
 
 ### Bill reminders (done — #13, shipped 0.5.0/0.6.0)
 
@@ -114,6 +144,9 @@ python dashboard.py                   # transactions.csv -> dashboard.html (self
 python test_insights.py               # plain-assert tests for insights.py (prints OK)
 python remind_bills.py --dry-run      # bill reminders: print what would be Telegrammed, send nothing (BILLS_URL/PAID_URL point at a running server; in prod the server runs this itself on a timer)
 python test_remind_bills.py           # plain-assert tests for remind_bills.py (window/nulls/paid, template rendering, per-bill state dedupe; prints OK)
+python fetch_mail.py --dry-run        # IMAP: list unread statement mail in GMAIL_LABEL + what it would POST to /ingest, touching nothing (env: GMAIL_USER, GMAIL_APP_PASSWORD, GMAIL_LABEL=CC, INGEST_URL, IMAP_HOST)
+python test_fetch_mail.py             # plain-assert tests for fetch_mail.py (detect_bank x6 + no-match, From>Subject>body precedence, attachment walk, mark-seen only on success; prints OK)
+docker compose up -d                  # the documented deployment: app (web+API+reminders) + fetch (hourly IMAP poll), published image, named volume `data`; needs `cp .env.example .env` first
 node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim render + view-switch without throwing (prints SMOKE OK); run AFTER dashboard.py
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
@@ -224,7 +257,7 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The ba
 
 > **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
 
-- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Only the Gmail trigger still has to exist** (→ #12); the unlock is dead (#11) and the reminder is now the server's own timer (#13). `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
+- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Nothing in it is still needed**: the unlock is dead (#11), the reminder is the server's own timer (#13), and the Gmail trigger is `fetch_mail.py` (#12). Disable the workflow. `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
 
 Passwords stored inside the workflow on the n8n PVC should be cleared as the unlock nodes go — the k8s Secret `lazyexpense-secrets` is the source of truth now.

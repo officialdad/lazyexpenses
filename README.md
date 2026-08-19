@@ -60,15 +60,8 @@ Six names in total: `CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`,
 
 Each bank derives your password from something like your IC or date of birth — check the covering email. Passwords live in environment variables and nowhere else: never in a file in this repo, never in a filename, never in a log line.
 
-Running the server in Docker? Pass them through to the container, which forwards them to the parser:
-
-```bash
-docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
-  -e CC_PW_MAYBANK -e CC_PW_CIMB -e CC_PW_SC \
-  ghcr.io/officialdad/lazyexpenses/app:latest
-```
-
-Bare `-e NAME` forwards the value from your shell, so it does not end up in your shell history or in `docker inspect`.
+Running it as a service instead? The same six names go in your `.env` — see
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Just want a look first
 
@@ -121,168 +114,50 @@ cd web && npm install && npm run build
 
 The app fetches its data at runtime rather than baking it in, so refreshing your numbers means re-running `export_data.py` — no rebuild.
 
-Installing it as a real app needs HTTPS or localhost. Over a plain-HTTP LAN address the browser downgrades it to a bookmark-style shortcut.
+Installing it as a real app needs HTTPS or localhost. Over a plain-HTTP LAN address the browser quietly downgrades it to a bookmark-style shortcut — [docs/DEPLOY.md](docs/DEPLOY.md#putting-it-on-your-network) has a working fix.
 
-## Run it as a service (Docker)
+## Run it as a service
 
-The dashboard above is a file you open. To run the web app as a service instead, there is an image bundling the PWA and a small FastAPI server. Prebuilt images are published on every release, so you do not have to build anything:
-
-```bash
-docker run --rm -p 8000:8000 -v "$PWD/data:/data" ghcr.io/officialdad/lazyexpenses/app:latest
-```
-
-Or build it yourself from source:
+Everything above is manual: drop a file in a folder, run a script, open the result. That
+loop is short enough that automating it is genuinely optional. But if you would rather it
+kept itself up to date, there is a container that does the whole job:
 
 ```bash
-docker build -t lazyexpenses .
-docker run --rm -p 8000:8000 -v "$PWD/data:/data" lazyexpenses
+cp .env.example .env    # fill in what you have
+docker compose up -d
 ```
 
-The server keeps everything in `/data`, mounted as a volume so your statements live outside the image. That volume starts empty, so there is nothing to serve until you put some data there. Two ways to fill it:
+Open <http://localhost:8000>. That gets you:
 
-- Copy in an `app.json` you already built with `python export_data.py` (it writes to `web/static/data/app.json`).
-- Or post a PDF — locked or not — and let the server build it for you:
-  ```bash
-  curl -F "file=@cc-statements/maybank_x.pdf" -F "bank=maybank" http://localhost:8000/ingest
-  ```
-  It saves the PDF, re-runs the pipeline over everything accumulated so far, and replies with the reconciliation tally:
+- **the web app, always on**, so any device on your network can open it;
+- **statements fetched for you** — it watches a Gmail label, and each statement your bank
+  emails goes straight in, still locked, without you touching it;
+- **a Telegram message** once a day for any bill due within three days.
 
-  ```json
-  {"bank":"maybank","recon":{"VERIFIED":12},"problems":{},"warning":false}
-  ```
+Fill in only the parts you want. No Gmail details means nothing is fetched, no Telegram
+token means nothing is messaged, and neither one breaks anything else.
 
-  `warning` is true whenever a statement did not reconcile — `REVIEW`, `NO_BALANCE` or `ERROR` — and `problems` says which. `DUPLICATE` does not warn; the same statement legitimately arrives under several filenames and gets deduplicated. The HTTP status stays 200 either way: the upload itself succeeded, so retrying it would fail identically. Read the body, not the status code.
+**[docs/DEPLOY.md](docs/DEPLOY.md) is the full guide**: every setting, how to get a Gmail
+app password, how to make the app properly installable from your phone, and the security
+note that matters — **there is no login**, so this belongs on your own machine or a
+private network, never on the open internet.
 
-  A locked PDF whose `CC_PW_<BANK>` is not set on the server lands in `ERROR`, and you will see it.
+## Adding your own bank
 
-Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
-
-Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (upcoming balances as JSON), and small `/api/paid` and `/api/waivers` endpoints backing the cross-device mark-paid and fee-waiver state.
-
-## Automating it
-
-Everything above is manual: unlock, drop in a folder, run a script or post it. That loop is short enough that automating it is genuinely optional.
-
-I do automate my own copy, and most of it is now in this repo. Reminders are built into the server (below). What is left outside is one n8n workflow wired to my Gmail: it watches for statement mail and posts the attachment to `/ingest`. That workflow file stays local because it is full of credentials and references to my own instance, and it would not import cleanly anywhere else.
-
-It used to run a self-hosted Stirling-PDF alongside it purely to strip statement passwords. That is gone — the parser opens locked PDFs itself now, so the whole decrypt step disappeared.
-
-So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
-
-It used to do more. Unlocking moved into the parser, and the bill reminders moved into the server, which is what the rest of this section is about.
-
-### Bill reminders
-
-The reminder half no longer needs n8n, and it needs nothing extra to deploy either: **the server sends them itself**. Set two variables and it starts reminding, unset them and it does not:
-
-```bash
-docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
-  -e TELEGRAM_BOT_TOKEN='123456:ABC...' \
-  -e TELEGRAM_CHAT_ID='987654321' \
-  ghcr.io/officialdad/lazyexpenses/app:latest
-```
-
-The token comes from [@BotFather](https://t.me/BotFather); the chat id is your own chat with that bot — message the bot once first, because Telegram will not let a bot open a conversation. From then on, once a day after 09:00 local, every bill due within three days produces one Telegram message:
-
-> **Automated Credit Card Payment Reminder**
->
-> 💳 Pay HSBC statement amount of RM `1,643.65`
->
-> ⌛ By 2026-08-23 to avoid late charges
-
-`REMIND_TEMPLATE` replaces that wording. Messages are sent as Telegram HTML, so `<b>`, `<i>` and `<code>` work, and these placeholders are filled in per bill:
-
-| | |
-|---|---|
-| `{bank}` | `HSBC` |
-| `{amount}` | `1,643.65` |
-| `{due}` | `2026-08-23` |
-| `{days}` | `3` |
-| `{when}` | `in 3d` / `today` / `2d OVERDUE` |
-| `{month}` | `2026-08` (the statement month) |
-
-```bash
--e REMIND_TEMPLATE='⌛ {bank} — RM{amount} due {when}'
-```
-
-An unknown placeholder fails loudly with the list of real ones rather than sending a half-rendered message.
-
-It sends **at most one message per bill**, so restarts and extra checks are free: the bills it has already mentioned go in `/data/reminded.json`, next to `paid.json`. A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
-
-| Variable | Default | |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — | reminders are off unless both are set |
-| `TELEGRAM_CHAT_ID` | — | |
-| `REMIND_DAYS` | `3` | how far ahead to look |
-| `REMIND_HOUR` | `9` | earliest local hour to send |
-| `REMIND_STATE` | `/data/reminded.json` | on the data volume |
-| `REMIND_TEMPLATE` | the message above | Telegram HTML + the placeholders above |
-
-"Today" is resolved in Asia/Kuala_Lumpur regardless of the container's timezone, so a UTC host does not fire a day early.
-
-Not running the container? The same code is a standalone script — it reads `/bills` over HTTP instead of the volume, so point it at your server and run it from cron:
-
-```bash
-python remind_bills.py --dry-run   # prints the message, sends nothing
-```
-
-```
-0 9 * * *  python remind_bills.py
-```
-
-with `BILLS_URL` / `PAID_URL` (default `http://localhost:8000/...`) pointing at it.
-
-## Tests
-
-No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
-
-```bash
-python test_parse_cache.py       # the per-PDF parse cache
-python test_insights.py          # leak detection
-python test_export_data.py       # the web app's data file
-python test_parse_password.py    # opening password-protected PDFs
-python test_remind_bills.py      # which bills a reminder run picks
-```
-
-All five run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
-
-`parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
-
-```bash
-python make_demo_data.py --pdfs   # fake statements, one per bank per month
-python test_demo_pdfs.py          # the parser has to read them all back to the cent
-python parse.py                   # and the reconciliation report has to stay clean
-```
-
-`test_demo_pdfs.py` is a round trip: the generator decides what each statement says, prints it at real coordinates, and the parser re-derives the figures from the words on the page. They only agree if every row parsed, every balance label was found, and each bank's quirks were handled. That covers per-bank balance extraction, multi-card attribution, the credit-balance sign flips, installment memo exclusion, the Standard Chartered layout that once filed three statements in the wrong month, and the duplicate fingerprint.
-
-With those statements on disk the server's end-to-end test stops skipping itself, and posts one through `/ingest` to `app.json`.
-
-The server tests use pytest, and also pass with no statements (the end-to-end one skips itself when there is no sample PDF):
-
-```bash
-pip install pytest httpx    # httpx is what starlette's TestClient imports
-python -m pytest server/
-```
-
-The web app's own suite needs an `app.json` to exist, which `make_demo_data.py` is enough to produce:
-
-```bash
-python make_demo_data.py && python insights.py && python export_data.py
-cd web && npm ci && npm run check && npm test
-```
-
-`python verify_parity.py` (both dashboards agreeing) runs after `parse.py` on either kind of demo data.
-
-The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
-
-The bar for any parser change is simple: it must not turn a `VERIFIED` statement into a `REVIEW`.
+The parser covers six banks because each one needed its own rules. Adding a seventh is a
+branch in one dispatch function, and the reconciliation report tells you when you have it
+right. [CONTRIBUTING.md](CONTRIBUTING.md) walks through it, and covers the test suite too.
 
 ## Status
 
-Working, and in daily use on my own statements. The parser, both dashboards, the leak finder, bills, fee waivers, the card picker and the Telegram bill reminders are all done, and my own copy runs as a container behind HTTPS.
+Working, and in daily use on my own statements. The parser, both dashboards, the leak
+finder, bills, fee waivers, the card picker, the Telegram reminders and the mail fetch are
+all done, and my own copy runs as a container behind HTTPS.
 
-Still on the list: replacing the n8n mail fetch with a small script in this repo, and a proper deployment guide (`compose.yaml` and an `.env.example`) so hosting it does not mean reading a Dockerfile.
+It used to lean on two self-hosted services — n8n for the automation and Stirling-PDF just
+to strip statement passwords. Both are gone: the parser opens locked PDFs itself, the
+reminders run inside the server, and the mail fetch is a script in this repo. What is left
+is Python, its one dependency, and the standard library.
 
 ## License
 
