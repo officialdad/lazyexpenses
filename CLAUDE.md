@@ -11,10 +11,11 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
-## Active work — retiring n8n (last touched 2026-08-20)
+## Active work — deployment for beginners (last touched 2026-08-20)
 
-The automated refresh pipeline is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.6.0` on k3s, serving the PWA, re-running
+**n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
+is **live in production**, not a plan. `lazyexpense.opariffazman.com`
+runs `ghcr.io/officialdad/lazyexpenses/app:0.8.0` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
 reminders itself**. 84 statements on the volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
@@ -73,6 +74,28 @@ synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker 
 (mutation-checked: forcing the loop on makes it fail). On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
 `localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
 because untested instructions for someone else's product are exactly what #15 said not to write.
+
+**Prod as of 0.8.0:** deployed and rolled out, CronJob deleted from the cluster, `GMAIL_*` **not yet
+in the k8s Secret** — the fetch loop is therefore still off in prod. Filling it in is a
+`kubectl apply -f k3s/lazyexpense/secret.yml` from the infra repo (the local file already has the
+empty keys and a FILL THESE IN comment). Until then **`fetch_mail.py` has never run against a real
+mailbox** — that is the one unverified thing in the whole chain.
+
+### Next: the deployment has to be beginner-usable
+
+The stated goal now is the simplest possible deployment for someone who is not the author. Two
+issues frame it, both filed to be picked up cold:
+
+- **#39 — Web Push as the default reminder transport**, Telegram demoted to fallback. Kills two
+  secrets and six manual @BotFather steps from the getting-started path. Watch for: Web Push needs a
+  secure context (same gate as PWA install), iOS only allows it for an installed PWA, and VAPID
+  signing may not be doable with stdlib alone — **this repo has one runtime dependency and should
+  stay that way**, so a `pywebpush` would be a deliberate decision.
+- **#40 — first-run setup in the web UI**, so getting started is not "edit `.env` and restart".
+  Upload a statement from the browser, answer for a locked PDF's password in context, configure mail
+  and reminders with test buttons. The crux is where values live: `/data/settings.json` with **env
+  vars taking precedence**, secrets **write-only** over the API. Note this sharpens the no-auth
+  exposure — the app would then hold credentials, and that may finally justify a login.
 
 **Also open:** #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
 picks the wrong password and persists in the filename; worth doing before `fetch_mail` runs
