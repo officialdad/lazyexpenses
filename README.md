@@ -169,6 +169,36 @@ It used to run a self-hosted Stirling-PDF alongside it purely to strip statement
 
 So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anything that can fetch mail and POST a file does the same job, and replacing it with a small script in this repo is next on the list.
 
+### Bill reminders
+
+The reminder half no longer needs n8n. `remind_bills.py` reads `/bills`, keeps what is due within three days, and sends one Telegram message. Stdlib only, and it ships in the image:
+
+```bash
+export TELEGRAM_BOT_TOKEN='123456:ABC...'   # from @BotFather
+export TELEGRAM_CHAT_ID='987654321'         # your own chat with the bot
+python remind_bills.py --dry-run            # prints the message, sends nothing
+python remind_bills.py                      # sends it
+```
+
+Then run it daily — a cron line is enough:
+
+```
+0 9 * * *  python /app/remind_bills.py
+```
+
+It sends **at most one message per bill**, so running it twice in a day is harmless: the bills it has already reminded about go in `$REMIND_STATE` (default `/data/reminded.json`, next to `paid.json`). A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
+
+| Variable | Default | |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | required |
+| `TELEGRAM_CHAT_ID` | — | required |
+| `BILLS_URL` | `http://localhost:8000/bills` | your server |
+| `PAID_URL` | `http://localhost:8000/data/paid.json` | same server |
+| `REMIND_STATE` | `/data/reminded.json` | on the data volume |
+| `REMIND_DAYS` | `3` | how far ahead to look |
+
+"Today" is resolved in Asia/Kuala_Lumpur regardless of the container's timezone, so a UTC host does not fire a day early.
+
 ## Tests
 
 No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
@@ -178,9 +208,10 @@ python test_parse_cache.py       # the per-PDF parse cache
 python test_insights.py          # leak detection
 python test_export_data.py       # the web app's data file
 python test_parse_password.py    # opening password-protected PDFs
+python test_remind_bills.py      # which bills a reminder run picks
 ```
 
-All four run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All five run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 
