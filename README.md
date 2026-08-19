@@ -180,7 +180,30 @@ docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
   ghcr.io/officialdad/lazyexpenses/app:latest
 ```
 
-The token comes from [@BotFather](https://t.me/BotFather); the chat id is your own chat with that bot. From then on, once a day after 09:00 local, any bill due within three days produces one Telegram message.
+The token comes from [@BotFather](https://t.me/BotFather); the chat id is your own chat with that bot — message the bot once first, because Telegram will not let a bot open a conversation. From then on, once a day after 09:00 local, every bill due within three days produces one Telegram message:
+
+> **Automated Credit Card Payment Reminder**
+>
+> 💳 Pay HSBC statement amount of RM `1,643.65`
+>
+> ⌛ By 2026-08-23 to avoid late charges
+
+`REMIND_TEMPLATE` replaces that wording. Messages are sent as Telegram HTML, so `<b>`, `<i>` and `<code>` work, and these placeholders are filled in per bill:
+
+| | |
+|---|---|
+| `{bank}` | `HSBC` |
+| `{amount}` | `1,643.65` |
+| `{due}` | `2026-08-23` |
+| `{days}` | `3` |
+| `{when}` | `in 3d` / `today` / `2d OVERDUE` |
+| `{month}` | `2026-08` (the statement month) |
+
+```bash
+-e REMIND_TEMPLATE='⌛ {bank} — RM{amount} due {when}'
+```
+
+An unknown placeholder fails loudly with the list of real ones rather than sending a half-rendered message.
 
 It sends **at most one message per bill**, so restarts and extra checks are free: the bills it has already mentioned go in `/data/reminded.json`, next to `paid.json`. A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
 
@@ -191,6 +214,7 @@ It sends **at most one message per bill**, so restarts and extra checks are free
 | `REMIND_DAYS` | `3` | how far ahead to look |
 | `REMIND_HOUR` | `9` | earliest local hour to send |
 | `REMIND_STATE` | `/data/reminded.json` | on the data volume |
+| `REMIND_TEMPLATE` | the message above | Telegram HTML + the placeholders above |
 
 "Today" is resolved in Asia/Kuala_Lumpur regardless of the container's timezone, so a UTC host does not fire a day early.
 
