@@ -11,15 +11,68 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
-## Active work — Automated refresh pipeline (2026-06-22, in progress)
+## Active work — retiring n8n (deployed 2026-08-20)
 
-Approved plan to **automate** the manual handoff above and **retire Gemini/Google Tasks**: everything runs in-cluster (k3s, LAN-only). n8n keeps the Gmail trigger + Stirling unlock, then POSTs the unlocked PDF to a single `statement-app` FastAPI pod that serves the PWA + re-runs `parse.py→insights.py→export_data.py` over an accumulating PVC and writes `app.json` (the PWA fetches it at **runtime**, no rebuild). Payment reminders move to the existing **Telegram bot** via a daily n8n cron (fires 3 days before due), sourced from a new deterministic `due_date` in `parse.py`.
+The automated refresh pipeline is **live in production**, not a plan. `lazyexpense.opariffazman.com`
+runs `ghcr.io/officialdad/lazyexpenses/app:0.4.0` on k3s, serving the PWA and re-running
+`parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`. 84 statements on the
+volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions. `Recreate` strategy (the volume is RWO).
 
-- **Spec (approved):** `docs/superpowers/specs/2026-06-22-automated-refresh-pipeline-design.md` (supersedes backlog "Spec 2").
-- **Plans (3, do one at a time):** Plan 1 … **DONE**. Plan 2 … **DONE**. Plan 3 `…/2026-06-22-statement-app-runner-n8n-cutover.md` **code complete** (statement-app FastAPI + Dockerfile + n8n ingest rewire + reminder cron; k8s manifests delegated to the infra repo — see runbook Appendix A). Cutover via `docs/superpowers/plans/runbook-cutover.md`; hard gate = installed-PWA runtime refresh with no rebuild.
-- **Plan 3 hard gate (carried from Plan 2 final review):** the vite-pwa service worker now serves `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores` + `runtimeCaching`, cache `app-data`) — without it an installed PWA precaches the data cache-first and never sees a refresh until a rebuild. On the prod cutover **verify** a PVC-only `app.json` rewrite is picked up with no rebuild (build SW → install → swap `build/data/app.json` → reload → new data).
-- **Plan 3 handoff (from Plan 1/2):** `bills[]` keys on **bank** not card; `minimum_payment` is a null placeholder; `build_bills` newest-per-bank uses string-compare on `smonth` — add a `\d{4}-\d{2}` guard before relying on it (an `UNKNOWN`-smonth row would mis-sort, impossible on current data).
-- Details + locked decisions: memory `automated-refresh-pipeline.md`.
+**Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`
+(`deployment.yml`, `service.yml`, `persistentvolumeclaim.yml`, `secret.yml.example`). Ingress is a
+single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opariffazman.com` → svc
+`lazyexpense:8000`. Images are digest-pinned for Renovate. Push to `main` auto-deploys changed
+`k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
+Its `CLAUDE.md` has the conventions.
+
+**Stirling-PDF is redundant but still deployed.** Since #11 `parse.py` opens locked PDFs itself, and
+`CC_PW_<BANK>` is wired as a k8s Secret (`lazyexpense-secrets`, `envFrom` with `optional: true` so a
+missing secret cannot fail the rollout). All six passwords were verified against real statements —
+each bank's newest PDF re-encrypted with its own secret and parsed back, all VERIFIED. Every PDF on
+the volume is still Stirling-unlocked, so `grep -la /Encrypt /data/pdfs/*.pdf | wc -l` reads **0**;
+non-zero is the signal that a genuinely locked statement has flowed end to end.
+
+### What n8n still does (three jobs, each independently removable)
+
+1. **Gmail trigger** — watches label `CC` for statement mail. → #12 (`fetch_mail.py`, stdlib IMAP).
+2. **Unlock + POST to `/ingest`** — the Stirling step is now dead weight; deleting that node and the
+   "set password" Code node is a UI-only change with no code behind it. Passwords are stored inside
+   the workflow on the n8n PVC and should be cleared once removed — the Secret is the source of truth.
+3. **Reminder cron** — daily, fires 3 days before a due date, sends Telegram. `/bills` already serves
+   this deterministically from `parse.py`, so Gemini/Google Tasks can come out of this path today,
+   before #13. → #13 (`remind_bills.py` + a k8s CronJob).
+
+**Telegram is not being retired.** It stays as the notification channel; #13 only moves the send from
+an n8n node to a cron pod.
+
+### Order of work
+
+1. n8n rewire (UI only, no code) — drop Stirling from the ingest path.
+2. Verify a locked statement landed, then delete `k3s/stirlingpdf/`, its block in
+   `k3s/traefik/ingress-local.yml`, and the `pdf.opariffazman.com` DNS record.
+3. #13 reminders → n8n stops being a scheduler.
+4. #12 IMAP → n8n goes away entirely.
+5. #15 deployment docs (`compose.yaml`, `.env.example` — needs the six `CC_PW_*`, it predates them).
+
+Also open: #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
+picks the wrong password and persists in the filename), #27 (CI web job), #29 (optional local LLM for
+the `Other` bucket), #20 (tracking).
+
+### Sharp edges
+
+- **`bank` on `/ingest` is load-bearing and unchecked.** It selects the password, the parser branch,
+  and the filename *permanently* — `parse.py` re-derives the bank from that filename on every later
+  run. A typo writes a file that reports `NO_BALANCE` forever until deleted by hand. See #31.
+- **Editing `parse.py` invalidates the whole parse cache** (`PARSE_VER` = hash of the file). On the
+  0.4.0 rollout the full 84-PDF reparse took **109s**, versus 0.5s warm. Long enough to trip an n8n
+  HTTP timeout, so warm it in-pod after any deploy that touches the parser:
+  `kubectl exec deploy/lazyexpense -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
+- **PWA runtime-refresh gate** (carried from Plan 2, still unverified in prod): the vite-pwa service
+  worker must serve `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores` +
+  `runtimeCaching`, cache `app-data`). Without it an installed PWA precaches the data cache-first and
+  never sees a refresh until a rebuild. Verify by swapping `app.json` on the PVC and reloading.
+- **`docs/superpowers/` is gitignored and absent on this machine.** Earlier specs, plans and the
+  cutover runbook that older notes referenced are not available; do not send anyone to them.
 
 ## Commands
 
@@ -132,7 +185,7 @@ logic is pure/tested in `cardpick.test.ts`.
 New statements → run the n8n `compile-cc-statements` workflow (re-exports the **full** label-`CC` history, not just new mail) → unzip into `cc-statements/`, replacing contents (keep the `<bank>_…` filename prefix; the `_N` index is meaningless) → `python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs` → check the reconciliation report stays all-VERIFIED, and that `audit.mjs` prints no ISSUES (overflow / sub-11px text — e.g. a new long card name or category could overflow a chart) (a new `REVIEW` means the bank changed its template — debug with `probe.py`) and skim `recommendations.csv` for new false-positives (a new unseen recurring merchant may need an `INSTALLMENT_MERCHANTS` / category-allowlist tweak). New months/cards surface in all dashboard views automatically.
 
 ### Categorization & spend definition
-Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The full back-catalogue is hand-mapped to merchant-specific keywords, so `Other` is currently **empty** (0%) — it stays in the list as the safety fallback for new/unseen merchants (a fresh statement that matches nothing lands there; surfaces during the refresh-loop reconciliation check). **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
+Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The back-catalogue is hand-mapped to merchant-specific keywords, so `Other` stays small — but it is **not empty**: as of 2026-08-20 the production corpus has **15 rows / RM958** in it, all one-off merchants that appeared after the last hand-mapping pass (`K S S OTOMOBIL`, `Dominos Malaysia`, `Miniso Winky`, …). `Other` is the safety fallback for new/unseen merchants and is meant to be watched — it surfaces in the dashboard donut and during the refresh-loop check. Most entries are a one-line `CATS` addition; #29 proposes an optional local LLM for the tail. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
 
 **Spend is netted**: in the summaries, consumption categories use signed amounts (debit `+`, credit `−`) so a **refund/reversal** (a credit sitting under a merchant category — e.g. a cancelled `…-REV` booking) subtracts from that category. `NON_SPEND` categories stay debit-only/gross (their credits are bill payments & cashback, not negative spend). The dashboard mirrors this exactly via its `val(r)` helper. Net cells can occasionally go slightly negative (a refund whose original purchase was a different month) — charts guard against it; the reconciliation is unaffected (it nets all debits/credits globally regardless of category).
 
