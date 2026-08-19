@@ -1,6 +1,10 @@
-"""Tests for remind_bills.py — pure selection logic only, no HTTP, no state file."""
+"""Tests for remind_bills.py — selection logic + the state file. Telegram is stubbed;
+no test crosses the HTTP boundary."""
+import os
+import tempfile
 from datetime import date
 
+import remind_bills
 from remind_bills import bill_key, due_soon, message
 
 TODAY = date(2026, 8, 20)
@@ -46,10 +50,33 @@ def test_message_labels_today_overdue_and_future():
     assert "RM1,234.50" in txt, txt
 
 
+def test_run_sends_once_then_records_it():
+    """The dedupe that makes an extra tick (or a server restart) a no-op."""
+    sent = []
+    real, remind_bills.send = remind_bills.send, sent.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            bills, paid = [_bill("hsbc", "2026-08-22")], set()
+            assert len(remind_bills.run(bills, paid, state, TODAY)) == 1
+            assert len(sent) == 1 and "HSBC" in sent[0]
+            # second run, same day or a restart later: nothing new to say
+            assert remind_bills.run(bills, paid, state, TODAY) == []
+            assert len(sent) == 1
+            # dry run never sends and never records
+            assert remind_bills.run([_bill("rhb", "2026-08-21")], paid, state, TODAY,
+                                    dry=True) != []
+            assert len(sent) == 1
+            assert remind_bills.load_state(state) == {"hsbc|2026-08"}
+    finally:
+        remind_bills.send = real
+
+
 if __name__ == "__main__":
     test_window()
     test_overdue_included_and_sorted_first()
     test_nulls_are_skipped_not_defaulted()
     test_paid_and_already_sent_are_excluded()
     test_message_labels_today_overdue_and_future()
+    test_run_sends_once_then_records_it()
     print("OK")

@@ -161,3 +161,41 @@ def test_paid_post_rejects_missing_key():
     with tempfile.TemporaryDirectory() as d:
         c, _ = _client(d)
         assert c.post("/api/paid", json={"paid": True}).status_code == 400
+
+
+def test_reminder_tick_reads_bills_and_paid_from_pvc():
+    """The in-process reminder reads the PVC directly (no self-HTTP). Telegram stubbed."""
+    import remind_bills
+    with tempfile.TemporaryDirectory() as d:
+        _, appmod = _client(d)
+        bills = [
+            {"bank": "hsbc", "statement_month": "2026-08", "current_balance": 10.0,
+             "payment_due_date": "2026-08-22"},
+            {"bank": "cimb", "statement_month": "2026-08", "current_balance": 20.0,
+             "payment_due_date": "2026-08-22"},   # marked paid -> skipped
+            {"bank": "rhb", "statement_month": "2026-08", "current_balance": 30.0,
+             "payment_due_date": None},           # no due date -> skipped, not guessed
+        ]
+        with open(os.path.join(d, "app.json"), "w", encoding="utf-8") as fh:
+            json.dump({"bills": bills}, fh)
+        with open(os.path.join(d, "paid.json"), "w", encoding="utf-8") as fh:
+            json.dump(["cimb|2026-08"], fh)
+
+        sent = []
+        real_send, real_today = remind_bills.send, remind_bills.today_myt
+        remind_bills.send = sent.append
+        remind_bills.today_myt = lambda: __import__("datetime").date(2026, 8, 20)
+        try:
+            got = appmod._reminder_tick()
+            assert [b["bank"] for b in got] == ["hsbc"], got
+            assert len(sent) == 1 and "HSBC" in sent[0]
+            assert appmod._reminder_tick() == []           # state file dedupes
+            assert os.path.exists(os.path.join(d, "reminded.json"))
+        finally:
+            remind_bills.send, remind_bills.today_myt = real_send, real_today
+
+
+def test_reminder_tick_noop_without_app_json():
+    with tempfile.TemporaryDirectory() as d:
+        _, appmod = _client(d)
+        assert appmod._reminder_tick() == []

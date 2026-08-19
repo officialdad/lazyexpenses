@@ -157,7 +157,7 @@ The server keeps everything in `/data`, mounted as a volume so your statements l
 
 Open the app before `/data` has an `app.json` and the page loads but the data request returns 404. That is a fresh empty volume, not a bug. Once the file is there, visit http://localhost:8000.
 
-Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (upcoming balances as JSON, handy for wiring your own reminder), and small `/api/paid` and `/api/waivers` endpoints backing the cross-device mark-paid and fee-waiver state.
+Besides `/ingest`, the server exposes `/healthz`, `/data/app.json`, `/bills` (upcoming balances as JSON), and small `/api/paid` and `/api/waivers` endpoints backing the cross-device mark-paid and fee-waiver state.
 
 ## Automating it
 
@@ -171,33 +171,40 @@ So treat n8n as one example of how to feed `/ingest`, not as a dependency. Anyth
 
 ### Bill reminders
 
-The reminder half no longer needs n8n. `remind_bills.py` reads `/bills`, keeps what is due within three days, and sends one Telegram message. Stdlib only, and it ships in the image:
+The reminder half no longer needs n8n, and it needs nothing extra to deploy either: **the server sends them itself**. Set two variables and it starts reminding, unset them and it does not:
 
 ```bash
-export TELEGRAM_BOT_TOKEN='123456:ABC...'   # from @BotFather
-export TELEGRAM_CHAT_ID='987654321'         # your own chat with the bot
-python remind_bills.py --dry-run            # prints the message, sends nothing
-python remind_bills.py                      # sends it
+docker run --rm -p 8000:8000 -v "$PWD/data:/data" \
+  -e TELEGRAM_BOT_TOKEN='123456:ABC...' \
+  -e TELEGRAM_CHAT_ID='987654321' \
+  ghcr.io/officialdad/lazyexpenses/app:latest
 ```
 
-Then run it daily — a cron line is enough:
+The token comes from [@BotFather](https://t.me/BotFather); the chat id is your own chat with that bot. From then on, once a day after 09:00 local, any bill due within three days produces one Telegram message.
 
-```
-0 9 * * *  python /app/remind_bills.py
-```
-
-It sends **at most one message per bill**, so running it twice in a day is harmless: the bills it has already reminded about go in `$REMIND_STATE` (default `/data/reminded.json`, next to `paid.json`). A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
+It sends **at most one message per bill**, so restarts and extra checks are free: the bills it has already mentioned go in `/data/reminded.json`, next to `paid.json`. A bill you marked paid in the web app is never reminded about, and a statement whose due date the parser could not find is skipped rather than guessed at.
 
 | Variable | Default | |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — | required |
-| `TELEGRAM_CHAT_ID` | — | required |
-| `BILLS_URL` | `http://localhost:8000/bills` | your server |
-| `PAID_URL` | `http://localhost:8000/data/paid.json` | same server |
-| `REMIND_STATE` | `/data/reminded.json` | on the data volume |
+| `TELEGRAM_BOT_TOKEN` | — | reminders are off unless both are set |
+| `TELEGRAM_CHAT_ID` | — | |
 | `REMIND_DAYS` | `3` | how far ahead to look |
+| `REMIND_HOUR` | `9` | earliest local hour to send |
+| `REMIND_STATE` | `/data/reminded.json` | on the data volume |
 
 "Today" is resolved in Asia/Kuala_Lumpur regardless of the container's timezone, so a UTC host does not fire a day early.
+
+Not running the container? The same code is a standalone script — it reads `/bills` over HTTP instead of the volume, so point it at your server and run it from cron:
+
+```bash
+python remind_bills.py --dry-run   # prints the message, sends nothing
+```
+
+```
+0 9 * * *  python remind_bills.py
+```
+
+with `BILLS_URL` / `PAID_URL` (default `http://localhost:8000/...`) pointing at it.
 
 ## Tests
 

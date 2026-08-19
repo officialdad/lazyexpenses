@@ -1,8 +1,13 @@
-"""Bill reminders without n8n: read /bills, Telegram what is due soon.
+"""Bill reminders without n8n: which bills are due soon, and Telegram about them.
 
-Run daily (cron / k8s CronJob). At most ONE message per bill (bank+statement_month),
-tracked in a state file on the data volume next to paid.json/waivers.json — so
-running the job twice in a day does not send twice.
+Two ways in, same logic:
+  - `python remind_bills.py` — standalone, reads /bills over HTTP, for cron or a
+    machine that is not running the server.
+  - `server.app` calls run() on a timer, reading the PVC directly (no self-HTTP).
+
+At most ONE message per bill (bank+statement_month), tracked in a state file next to
+paid.json/waivers.json — so a second run in the same day sends nothing, and a server
+restart cannot re-send.
 
 Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BILLS_URL, PAID_URL, REMIND_STATE, REMIND_DAYS.
 """
@@ -74,38 +79,44 @@ def send(text):
         r.read()
 
 
-def load_state():
+def load_state(path):
     try:
-        with open(STATE, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return set(json.load(fh))
     except (OSError, ValueError):
         return set()   # missing or corrupt state only costs one duplicate message
 
 
-def save_state(keys):
-    os.makedirs(os.path.dirname(STATE) or ".", exist_ok=True)
-    tmp = STATE + ".tmp"
+def save_state(path, keys):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(sorted(keys), fh)
-    os.replace(tmp, STATE)   # atomic on POSIX
+    os.replace(tmp, path)   # atomic on POSIX
+
+
+def run(bills, paid, state_path=None, today=None, days=REMIND_DAYS, dry=False):
+    """Send one message for the bills due within `days` that are not paid or already
+    reminded, then record them. Returns what it reminded about ([] = nothing to do)."""
+    state_path = state_path or STATE
+    today = today or today_myt()
+    sent = load_state(state_path)
+    todo = due_soon(bills, today, days, paid, sent)
+    if not todo or dry:
+        if todo:
+            print(message(todo, today))
+        return todo
+    send(message(todo, today))
+    # Record only after a successful send: a Telegram failure retries next run.
+    save_state(state_path, sent | {bill_key(b) for b in todo})
+    return todo
 
 
 def main(dry=False):
-    today = today_myt()
-    bills = _get_json(BILLS_URL)
-    paid = set(_get_json(PAID_URL))
-    sent = load_state()
-    todo = due_soon(bills, today, REMIND_DAYS, paid, sent)
-    if not todo:
-        print(f"{today}: nothing due within {REMIND_DAYS}d")
-        return
-    text = message(todo, today)
-    if dry:
-        print(text)
-        return
-    send(text)
-    save_state(sent | {bill_key(b) for b in todo})
-    print(f"{today}: reminded {len(todo)} bill(s)")
+    todo = run(_get_json(BILLS_URL), set(_get_json(PAID_URL)), dry=dry)
+    print(f"{today_myt()}: "
+          + (f"reminded {len(todo)} bill(s)" if todo and not dry
+             else f"nothing due within {REMIND_DAYS}d" if not todo else "dry run"))
 
 
 if __name__ == "__main__":

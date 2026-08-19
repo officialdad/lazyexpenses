@@ -9,13 +9,17 @@ code stay decoupled (runtime refresh, no rebuild).
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import remind_bills
 from server import pipeline
 
 # Reconciliation statuses that are NOT a problem. VERIFIED is the goal; DUPLICATE is
@@ -61,12 +65,63 @@ def _data_dir() -> Path:
     return Path(os.environ.get("DATA_DIR", "/data"))
 
 
+# Bill reminders run IN this process rather than as a separate cron/CronJob: the
+# server is already the long-running thing that knows DATA_DIR, so a timer here means
+# one container to deploy instead of two. Off unless both Telegram vars are set.
+# remind_bills.py stays runnable standalone for anyone not running the server.
+REMIND_HOUR = int(os.environ.get("REMIND_HOUR", "9"))       # earliest local hour to send
+REMIND_POLL = int(os.environ.get("REMIND_POLL", "1800"))    # seconds between checks
+
+
+def _reminder_tick():
+    """One check: read bills + paid state off the PVC and remind about what is due.
+
+    Reads the files directly instead of calling our own /bills over HTTP — same data,
+    no dependency on which port/host uvicorn happens to be bound to."""
+    d = _data_dir()
+    app_json, paid_json = d / "app.json", d / "paid.json"
+    if not app_json.exists():
+        return []
+    bills = json.loads(app_json.read_text(encoding="utf-8")).get("bills", [])
+    paid = set(json.loads(paid_json.read_text(encoding="utf-8"))) if paid_json.exists() else set()
+    return remind_bills.run(bills, paid, state_path=str(d / "reminded.json"))
+
+
+async def _reminder_loop():
+    """Poll instead of sleeping until 09:00: the per-bill state file is what prevents
+    duplicates, so an extra tick is a no-op and a restart cannot re-send. That makes
+    the schedule a plain `is it past REMIND_HOUR yet` check with no timer to lose.
+
+    ponytail: assumes ONE instance (replicas:1 + RWO volume + Recreate). Two replicas
+    would each hold their own view of reminded.json and could double-send.
+    """
+    while True:
+        try:
+            if datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).hour >= REMIND_HOUR:
+                # off-loop: the tick does blocking file IO and a blocking Telegram POST
+                for b in await asyncio.to_thread(_reminder_tick):
+                    print(f"reminder sent: {b['bank']} {b['statement_month']}", flush=True)
+        except Exception as e:  # a bad token or a Telegram outage must not kill the app
+            print(f"reminder failed: {e}", flush=True)
+        await asyncio.sleep(REMIND_POLL)
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    task = None
+    if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
+        task = asyncio.create_task(_reminder_loop())
+    yield
+    if task:
+        task.cancel()
+
+
 def _web_dir() -> Path:
     return Path(os.environ.get("WEB_DIR", str(Path(__file__).resolve().parent.parent / "web_build")))
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="statement-app")
+    app = FastAPI(title="statement-app", lifespan=_lifespan)
     lock = asyncio.Lock()  # serialize the pipeline: no concurrent parse runs
 
     @app.get("/healthz")
