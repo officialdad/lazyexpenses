@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import fetch_mail
 import remind_bills
 from server import pipeline
 
@@ -72,6 +73,11 @@ def _data_dir() -> Path:
 REMIND_HOUR = int(os.environ.get("REMIND_HOUR", "9"))       # earliest local hour to send
 REMIND_POLL = int(os.environ.get("REMIND_POLL", "1800"))    # seconds between checks
 
+# The mail fetch rides in this process for the same reason, and is off unless the two
+# GMAIL_* vars are set. One container runs the whole pipeline; there is no CronJob and
+# no second compose service.
+FETCH_POLL = int(os.environ.get("FETCH_POLL", "3600"))      # seconds between mail checks
+
 
 def _reminder_tick():
     """One check: read bills + paid state off the PVC and remind about what is due.
@@ -106,14 +112,38 @@ async def _reminder_loop():
         await asyncio.sleep(REMIND_POLL)
 
 
+async def _fetch_loop():
+    """Poll the mailbox and post whatever arrived, on a timer inside the web process.
+
+    Unlike the reminder tick - which reads the PVC directly rather than calling our own
+    /bills - this deliberately goes back out through /ingest over the loopback. Reading
+    a file and running the pipeline are not the same problem: /ingest holds the lock,
+    saves the PDF and reparses the corpus, and going through the route keeps exactly one
+    copy of that. The cost is knowing our own port, which is what INGEST_URL is for.
+
+    No state of its own is needed: fetch_mail marks a message \\Seen only once every
+    attachment ingested, so anything that failed is simply still unread next tick.
+    """
+    while True:
+        try:
+            # off-loop: IMAP and the ingest POST both block, and the POST is answered by
+            # this very event loop
+            await asyncio.to_thread(fetch_mail.main)
+        except Exception as e:  # a mailbox outage must not kill the app
+            print(f"fetch failed: {e}", flush=True)
+        await asyncio.sleep(FETCH_POLL)
+
+
 @asynccontextmanager
 async def _lifespan(app):
-    task = None
+    tasks = []
     if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
-        task = asyncio.create_task(_reminder_loop())
+        tasks.append(asyncio.create_task(_reminder_loop()))
+    if os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"):
+        tasks.append(asyncio.create_task(_fetch_loop()))
     yield
-    if task:
-        task.cancel()
+    for t in tasks:
+        t.cancel()
 
 
 def _web_dir() -> Path:

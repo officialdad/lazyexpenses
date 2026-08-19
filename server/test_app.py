@@ -195,6 +195,34 @@ def test_reminder_tick_reads_bills_and_paid_from_pvc():
             remind_bills.send, remind_bills.today_myt = real_send, real_today
 
 
+def test_fetch_loop_runs_only_when_gmail_is_configured():
+    """The mail fetch is a timer in this process, off unless both GMAIL_* vars are set -
+    same contract as the reminders. IMAP itself is stubbed; no mailbox is touched."""
+    import threading
+
+    import fetch_mail
+    called = threading.Event()
+    real, real_env = fetch_mail.main, {k: os.environ.pop(k, None)
+                                       for k in ("GMAIL_USER", "GMAIL_APP_PASSWORD")}
+    fetch_mail.main = lambda *a, **k: called.set()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _client(d)
+            with c:                                  # entering runs the lifespan
+                assert not called.wait(0.5), "fetched without credentials"
+            os.environ["GMAIL_USER"] = "someone@example.com"
+            os.environ["GMAIL_APP_PASSWORD"] = "app-password"
+            c, _ = _client(d)
+            with c:
+                assert called.wait(5), "configured, but never fetched"
+    finally:
+        fetch_mail.main = real
+        for k, v in real_env.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 def test_reminder_tick_noop_without_app_json():
     with tempfile.TemporaryDirectory() as d:
         _, appmod = _client(d)
