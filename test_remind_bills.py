@@ -50,6 +50,30 @@ def test_message_labels_today_overdue_and_future():
     assert "RM1,234.50" in txt, txt
 
 
+def test_send_keeps_the_telegram_description():
+    """A 400 says only "Bad Request"; the reason ("chat not found") is in the body."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError(
+            "u", 400, "Bad Request", {},
+            io.BytesIO(b'{"ok":false,"description":"Bad Request: chat not found"}'))
+
+    real_open = urllib.request.urlopen
+    urllib.request.urlopen = boom
+    os.environ.setdefault("TELEGRAM_BOT_TOKEN", "x")
+    os.environ.setdefault("TELEGRAM_CHAT_ID", "y")
+    try:
+        remind_bills.send("hi")
+        raise AssertionError("expected a failure")
+    except RuntimeError as e:
+        assert "chat not found" in str(e), e
+    finally:
+        urllib.request.urlopen = real_open
+
+
 def test_run_sends_once_then_records_it():
     """The dedupe that makes an extra tick (or a server restart) a no-op."""
     sent = []
@@ -79,4 +103,5 @@ if __name__ == "__main__":
     test_paid_and_already_sent_are_excluded()
     test_message_labels_today_overdue_and_future()
     test_run_sends_once_then_records_it()
+    test_send_keeps_the_telegram_description()
     print("OK")

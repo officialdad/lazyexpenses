@@ -14,6 +14,7 @@ Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BILLS_URL, PAID_URL, REMIND_STATE, RE
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime
@@ -75,8 +76,14 @@ def _get_json(url):
 def send(text):
     token, chat = os.environ["TELEGRAM_BOT_TOKEN"], os.environ["TELEGRAM_CHAT_ID"]
     body = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode()
-    with urllib.request.urlopen(API.format(token), data=body, timeout=30) as r:
-        r.read()
+    try:
+        with urllib.request.urlopen(API.format(token), data=body, timeout=30) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        # Telegram explains itself in the RESPONSE BODY ("chat not found",
+        # "Unauthorized", ...); the status line alone just says "Bad Request",
+        # which is useless in a log nobody is watching. Keep the description.
+        raise RuntimeError(f"telegram {e.code}: {e.read().decode(errors='replace')[:300]}") from None
 
 
 def load_state(path):
