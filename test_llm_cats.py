@@ -4,6 +4,9 @@ and what happens when the model is missing.
 No server and no model: `classify` is the boundary that touches HTTP and no test
 crosses it, exactly like IMAP lives only in fetch_mail.main().
 """
+import contextlib
+import io
+import tempfile
 import os
 import urllib.error
 
@@ -159,6 +162,37 @@ def test_paste_block_is_keywords_grouped_in_cats_order():
                          "    ('Shopping', ['MINISO WINKY']),"], lines
 
 
+def test_default_csv_follows_data_dir_so_the_container_finds_it():
+    # `docker exec` lands in /app, but the pipeline writes transactions.csv to
+    # DATA_DIR. Guessing cwd there is how the documented command came up empty.
+    old = os.environ.pop("DATA_DIR", None)
+    try:
+        assert llm_cats.default_csv() == "transactions.csv"
+        os.environ["DATA_DIR"] = "/data"
+        assert llm_cats.default_csv() == "/data/transactions.csv"
+    finally:
+        os.environ.pop("DATA_DIR", None)
+        if old is not None:
+            os.environ["DATA_DIR"] = old
+
+
+def test_a_missing_csv_is_one_line_not_a_traceback():
+    env = {"LLM_ENABLED": "1", "LLM_URL": "http://127.0.0.1:9", "DATA_DIR": tempfile.mkdtemp()}
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = llm_cats.main(["--suggest-cats"])
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    assert rc == 1, rc
+    assert "not found" in buf.getvalue(), buf.getvalue()
+    assert "Traceback" not in buf.getvalue()
+
+
+
 if __name__ == "__main__":
     test_prompt_carries_the_taxonomy_not_just_the_names()
     test_the_schema_pins_the_answer_to_the_fifteen_categories()
@@ -170,4 +204,6 @@ if __name__ == "__main__":
     test_one_garbage_answer_only_costs_that_merchant()
     test_off_unless_configured()
     test_paste_block_is_keywords_grouped_in_cats_order()
+    test_default_csv_follows_data_dir_so_the_container_finds_it()
+    test_a_missing_csv_is_one_line_not_a_traceback()
     print("OK")

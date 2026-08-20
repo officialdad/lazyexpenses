@@ -38,6 +38,13 @@ URL = os.environ.get("LLM_URL", "http://localhost:8080")
 MODEL = os.environ.get("LLM_MODEL", "local")
 OUT = "suggested_cats.csv"
 
+
+def default_csv():
+    """Where transactions.csv lives. In the container the pipeline writes it to
+    DATA_DIR, and `docker exec` lands in /app — so cwd is the wrong guess there."""
+    d = os.environ.get("DATA_DIR")
+    return os.path.join(d, "transactions.csv") if d else "transactions.csv"
+
 CATEGORIES = [c for c, _ in CATS]          # the 15 names, in CATS order
 
 # One line each. Malaysian merchant strings are opaque abbreviations ("PSS-",
@@ -207,15 +214,19 @@ def main(argv=()):
     args = [a for a in argv if not a.startswith("-")]
     if "--suggest-cats" not in argv:
         print(__doc__.strip().splitlines()[0])
-        print("usage: python llm_cats.py --suggest-cats [transactions.csv]")
+        print(f"usage: python llm_cats.py --suggest-cats [{default_csv()}]")
         return
     if not enabled():
         print("LLM_URL / LLM_ENABLED not set - the local classifier is off "
               "(see docs/DEPLOY.md). Nothing to do.")
         return
-    path = args[0] if args else "transactions.csv"
-    with open(path, encoding="utf-8-sig", newline="") as fh:
-        rows = list(csv.DictReader(fh))
+    path = args[0] if args else default_csv()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except FileNotFoundError:
+        print(f"{path}: not found - run parse.py first, or pass the path as an argument.")
+        return 1
     todo = unmatched(rows)
     if not todo:
         print(f"{path}: no Other rows - CATS covered every merchant.")
@@ -228,14 +239,15 @@ def main(argv=()):
         # Nothing came back — don't overwrite a good proposal file with an empty one.
         print("no proposals; every unmatched merchant stays Other.")
         return
-    with open(OUT, "w", newline="", encoding="utf-8-sig") as fh:
+    out = os.path.join(os.path.dirname(path), OUT) if os.path.dirname(path) else OUT
+    with open(out, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=["merchant", "category", "confidence", "n", "rm"])
         w.writeheader()
         w.writerows({k: p[k] for k in w.fieldnames} for p in props)
-    print(f"wrote {OUT}: {len(props)} proposal(s). Nothing was applied.")
+    print(f"wrote {out}: {len(props)} proposal(s). Nothing was applied.")
     if props:
         print(paste_block(props))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]) or 0)
