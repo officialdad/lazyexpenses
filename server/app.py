@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import fetch_mail
+import parse  # for BANKS — the dispatch list, not a second copy of it
 import remind_bills
 from server import pipeline
 
@@ -226,6 +227,12 @@ def create_app() -> FastAPI:
 
     @app.post("/ingest")
     async def ingest(file: UploadFile, bank: str = Form(...)):
+        # Reject before anything touches the volume: `bank` picks the password and the
+        # parser branch, and the filename keeps it forever (parse.py re-derives it).
+        bank = bank.strip().lower()
+        if bank not in parse.BANKS:
+            raise HTTPException(status_code=400,
+                                detail=f"unknown bank {bank!r}; expected one of: {', '.join(parse.BANKS)}")
         content = await file.read()
         data_dir = _data_dir()
         async with lock:

@@ -341,6 +341,11 @@ DATE_2_SLASH = re.compile(r'^(?P<n>\d{2}/\d{2}\s+\d{2}/\d{2})\b')
 DATE_2_MON = re.compile(r'^(?P<n>\d{2}\s+[A-Za-z]{3}\s+\d{2}\s+[A-Za-z]{3})\b')
 
 
+# The banks parse_statement dispatches on below — also the only values /ingest
+# accepts, since that string becomes the filename this re-derives `bank` from.
+BANKS = ("maybank", "cimb", "sc", "alliance", "hsbc", "rhb")
+
+
 def parse_statement(path):
     bank = os.path.basename(path).split('_')[0]
     text = full_text(path)
