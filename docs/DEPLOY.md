@@ -206,6 +206,14 @@ python parse.py                     # unchanged; no model involved
 python llm_cats.py --suggest-cats   # reads transactions.csv, writes suggested_cats.csv
 ```
 
+Running the container instead? The tool ships in the image, and both files live on the
+volume, so it needs no path — `DATA_DIR` already says where they are:
+
+```bash
+docker compose exec -e LLM_ENABLED=1 -e LLM_URL=http://host.docker.internal:8080 \
+  app python llm_cats.py --suggest-cats     # writes /data/suggested_cats.csv
+```
+
 | Variable | Default | |
 |---|---|---|
 | `LLM_URL` | — | where `llama-server` is listening, e.g. `http://localhost:8080`. Unset means the feature is not there at all |
