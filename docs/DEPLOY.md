@@ -172,6 +172,61 @@ is never reminded about, and a statement whose due date the parser could not fin
 skipped rather than guessed at. "Today" is resolved in Asia/Kuala_Lumpur whatever the
 host's timezone is, so a UTC machine does not fire a day early.
 
+## Suggesting categories with a local model (optional, off by default)
+
+Every merchant the keyword table in `parse.py` does not recognise lands in `Other`. That
+table was hand-written against one person's statements, so on yours `Other` starts out
+larger than it should be, and the fix is to read the source and add keywords for your own
+merchants. This is a way to get a first draft of those keywords instead of doing all of it
+by eye.
+
+It is off unless you configure it, and it is local only — there is no hosted option and no
+API key. A list of everything you buy is exactly the data you would least want to send to
+someone else's server.
+
+What it actually costs you:
+
+- **A model download.** An instruct-tuned GGUF under 1 GB is enough; a 0.5B at Q4_K_M is
+  around 400 MB. Qwen2.5-0.5B-Instruct is a reasonable place to start.
+- **A server to run.** [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server`,
+  on your own machine, for as long as the run takes.
+- **A real accuracy ceiling.** A model that small guesses, and Malaysian merchant strings
+  are abbreviations that are hard for a person to read (`PSS-`, `MPC2004`). This is a
+  convenience for the tail of unknown merchants, not a replacement for the table.
+
+Nothing is applied for you. The run writes `suggested_cats.csv` — merchant, proposed
+category, confidence, how many times it appeared, what it came to in ringgit — and prints a
+block of keywords to paste into `CATS`. You decide what goes in. Once a keyword is in the
+table, that merchant costs nothing forever after.
+
+```bash
+llama-server -hf <a small instruct GGUF> --port 8080   # in another terminal
+export LLM_URL=http://localhost:8080
+python parse.py                     # unchanged; no model involved
+python llm_cats.py --suggest-cats   # reads transactions.csv, writes suggested_cats.csv
+```
+
+| Variable | Default | |
+|---|---|---|
+| `LLM_URL` | — | where `llama-server` is listening, e.g. `http://localhost:8080`. Unset means the feature is not there at all |
+| `LLM_MODEL` | `local` | model name sent with the request; `llama-server` serves one model and ignores it |
+| `LLM_ENABLED` | — | set to `0` to force it off even with `LLM_URL` set |
+
+These are for the command you run by hand, not for the container — the server never talks
+to a model.
+
+Two things are worth knowing about how it works. The keyword table is asked first and always
+wins: a description it matches is never sent anywhere, so the model only ever sees merchants
+that were already going to be `Other`. And the reply is constrained as it is generated — the
+request carries a JSON schema whose category is an `enum` of the fifteen category names, which
+llama.cpp compiles into a grammar, so the model cannot answer with a sixteenth category or a
+paragraph of explanation.
+
+`parse.py` never calls a model, configured or not. Categorisation during a parse is the
+keyword table and nothing else, so the same statements always produce the same CSVs. If the
+server is down, `llm_cats.py` says so in one line and stops; those merchants stay `Other`
+and nothing else notices.
+
 ## Putting it on your network
 
 > **There is no login.** Anyone who can reach the port sees every transaction, every

@@ -31,6 +31,7 @@ jobs:
       - run: python test_parse_password.py
       - run: python test_remind_bills.py
       - run: python test_fetch_mail.py
+      - run: python test_llm_cats.py
       - run: python -m pytest -q server/
 
   # parse.py is the most fragile code here and cannot be tested against real

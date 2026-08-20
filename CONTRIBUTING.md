@@ -46,6 +46,8 @@ When a statement will not reconcile, go back to `probe.py` and read the rows unt
 
 Categories come from `CATS` near the top of `parse.py`, a keyword map checked in order where the first match wins. If a merchant from your statement lands in `Other`, add a keyword for it next to the category it belongs in. `Other` is meant to stay empty, so a merchant showing up there is your cue to add a rule.
 
+If you would rather not read every unknown merchant yourself, `llm_cats.py --suggest-cats` drafts the keywords for you with a small local model and writes them to `suggested_cats.csv` for review. It is off unless you configure it, the keyword table is still asked first, and nothing edits `parse.py` — see [docs/DEPLOY.md](docs/DEPLOY.md#suggesting-categories-with-a-local-model-optional-off-by-default).
+
 ## Tests
 
 No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
@@ -57,9 +59,10 @@ python test_export_data.py       # the web app's data file
 python test_parse_password.py    # opening password-protected PDFs
 python test_remind_bills.py      # which bills a reminder run picks
 python test_fetch_mail.py        # bank detection and the mail fetch
+python test_llm_cats.py          # the optional category suggester (no server, no model)
 ```
 
-All six run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All seven run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 
