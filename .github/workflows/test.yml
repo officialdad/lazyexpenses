@@ -85,5 +85,47 @@ jobs:
           mkdir -p web/build && echo '<!doctype html>' > web/build/index.html
           python -m pytest -q server/
 
-  # Still not here: the web half (svelte-check + vitest). Both are unblocked — the
-  # demo dataset gives them the app.json they need — and wiring them up is #27.
+  # The web suite imports web/static/data/app.json directly (src/test-setup.ts and
+  # src/lib/data.test.ts), and that file is gitignored — so this job has to build a
+  # dataset before it can run anything. Separate from `parser` because it needs the
+  # Node toolchain that job has no use for, because the two then run in parallel,
+  # and because a red job should name its own half: `parser` red means parse.py
+  # regressed, `web` red means the front end did.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          # No cache: pip — nothing is installed. make_demo_data.py and export_data.py
+          # (via dashboard.py + insights.py) are stdlib-only; pdfplumber is only ever
+          # needed to read a PDF, and this job never makes one.
+
+      # Deliberately NOT the --pdfs route the parser job takes. That one renders 85
+      # statements and has parse.py read them back, which is the point over there and
+      # ~30s of pure waste here — all this job needs is app.json. Without --pdfs the
+      # generator writes transactions.csv itself and export_data.py turns it into
+      # app.json, same 596 transactions in 0.02s. (insights.py is not needed in
+      # between; export_data.py imports it.)
+      - name: Synthetic dataset for the web suite
+        run: |
+          python make_demo_data.py
+          python export_data.py
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'   # matches the web build stage of the Dockerfile
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # svelte-check first: it fails on a missing app.json with a clearer message than
+      # vitest's transform stack, so a broken dataset reads as a broken dataset.
+      - run: npm run check
+        working-directory: web
+      - run: npm test
+        working-directory: web

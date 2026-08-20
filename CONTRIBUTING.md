@@ -86,7 +86,7 @@ python -m pytest server/
 The web app's own suite needs an `app.json` to exist, which `make_demo_data.py` is enough to produce:
 
 ```bash
-python make_demo_data.py && python insights.py && python export_data.py
+python make_demo_data.py && python export_data.py
 cd web && npm ci && npm run check && npm test
 ```
 
