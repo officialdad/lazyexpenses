@@ -75,11 +75,17 @@ synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker 
 `localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
 because untested instructions for someone else's product are exactly what #15 said not to write.
 
-**Prod as of 0.8.0:** deployed and rolled out, CronJob deleted from the cluster, `GMAIL_*` **not yet
-in the k8s Secret** — the fetch loop is therefore still off in prod. Filling it in is a
-`kubectl apply -f k3s/lazyexpense/secret.yml` from the infra repo (the local file already has the
-empty keys and a FILL THESE IN comment). Until then **`fetch_mail.py` has never run against a real
-mailbox** — that is the one unverified thing in the whole chain.
+**Prod as of 0.8.0 — both timers verified live (2026-08-20):** `GMAIL_*` is in the k8s Secret and
+the fetch loop **has run against the real mailbox**, hourly on the dot, 11 ticks logging
+`CC: 0 unread` / `marked 0 message(s) seen` — so IMAP login, mailbox select and the unread search all
+work in prod. The reminder timer **fired on its own for the first time** the same morning:
+`reminder sent: hsbc 2026-08` at 09:08:55 MYT, with `/data/reminded.json` now holding
+`["hsbc|2026-08"]`. Neither had ever been exercised before.
+
+**Still unproven** (needs a bank, not a code change): an actual statement mail flowing
+label → IMAP → `/ingest` → VERIFIED. Every step is proven separately; the end-to-end is not.
+`kubectl logs deploy/lazyexpense | grep -E 'unread|ingested'` — note the log is mostly healthz
+probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
@@ -122,9 +128,9 @@ of the volume, for anyone not running the container.
   null `payment_due_date`/`current_balance` — `parse.py` emits `None` rather than guessing.
 - **ponytail: assumes a single instance** (replicas:1 + RWO volume + `Recreate`). Two replicas would
   each hold their own view of `reminded.json` and could double-send.
-- Verified in prod by exec'ing the tick with an isolated state file. **Still unexercised: the timer
-  firing on its own** — `/data/reminded.json` did not exist as of the last check, so the first real
-  09:00 MYT run is the proof. `kubectl logs deploy/lazyexpense | grep reminder`.
+- **Verified end to end in prod on 2026-08-20**: the timer fired by itself at 09:08:55 MYT and sent
+  `reminder sent: hsbc 2026-08`; `/data/reminded.json` now exists and holds `["hsbc|2026-08"]`, which
+  is also the proof that the dedupe survives. Nothing left to exercise here.
 
 ### Stirling-PDF — still deployed, still not deletable
 
