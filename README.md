@@ -34,7 +34,7 @@ Banking somewhere else? A new bank is a new branch in one dispatch function — 
 
 ## How accurate is it
 
-Every statement gets checked the boring way: previous balance, plus what you spent, minus what you paid, should land on the new balance. On my own statements that is 78 of them, every one matching to within two cents. If a bank quietly changes its layout and a statement stops adding up, you get a flag instead of a wrong number you never notice.
+Every statement gets checked the boring way: previous balance, plus what you spent, minus what you paid, should land on the new balance. On my own statements that is 80 of them, every one matching to within two cents. If a bank quietly changes its layout and a statement stops adding up, you get a flag instead of a wrong number you never notice.
 
 ## What you need
 
@@ -120,7 +120,8 @@ Installing it as a real app needs HTTPS or localhost. Over a plain-HTTP LAN addr
 
 Everything above is manual: drop a file in a folder, run a script, open the result. That
 loop is short enough that automating it is genuinely optional. But if you would rather it
-kept itself up to date, there is a container that does the whole job:
+kept itself up to date, **one container does the whole job** — it serves the app, collects
+your statements and reminds you about bills, with nothing else to install or schedule:
 
 ```bash
 cp .env.example .env    # fill in what you have
@@ -134,7 +135,8 @@ Open <http://localhost:8000>. That gets you:
   emails goes straight in, still locked, without you touching it;
 - **a Telegram message** once a day for any bill due within three days.
 
-Fill in only the parts you want. No Gmail details means nothing is fetched, no Telegram
+No cron, no scheduler, no second service: the app is already running, so it does both jobs
+on its own timers. Fill in only the parts you want. No Gmail details means nothing is fetched, no Telegram
 token means nothing is messaged, and neither one breaks anything else.
 
 **[docs/DEPLOY.md](docs/DEPLOY.md) is the full guide**: every setting, how to get a Gmail
@@ -155,9 +157,9 @@ finder, bills, fee waivers, the card picker, the Telegram reminders and the mail
 all done, and my own copy runs as a container behind HTTPS.
 
 It used to lean on two self-hosted services — n8n for the automation and Stirling-PDF just
-to strip statement passwords. Both are gone: the parser opens locked PDFs itself, the
-reminders run inside the server, and the mail fetch is a script in this repo. What is left
-is Python, its one dependency, and the standard library.
+to strip statement passwords. Both are gone: the parser opens locked PDFs itself, and the
+mail fetch and the bill reminders are timers inside the app. One container is the whole
+deployment, and what is left is Python, its one dependency, and the standard library.
 
 ## License
 
