@@ -103,6 +103,50 @@ def _ingest(monkeypatch, counts):
                       files={"file": ("s.pdf", b"%PDF-X", "application/pdf")}).json()
 
 
+def test_ingest_rejects_unknown_bank_without_touching_the_volume(monkeypatch):
+    # The file is the point: a typo used to land on the PVC and report NO_BALANCE forever.
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: 1 / 0)  # must not run
+        r = c.post("/ingest", data={"bank": "mybank"},
+                   files={"file": ("s.pdf", b"%PDF-Z", "application/pdf")})
+        assert r.status_code == 400
+        assert not os.path.exists(os.path.join(d, "pdfs"))
+
+
+def test_ingest_error_names_the_valid_banks():
+    import parse
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        detail = c.post("/ingest", data={"bank": "mybank"},
+                        files={"file": ("s.pdf", b"%PDF-Z", "application/pdf")}).json()["detail"]
+        for b in parse.BANKS:
+            assert b in detail
+
+
+def test_ingest_accepts_every_dispatched_bank(monkeypatch):
+    import parse
+    for bank in parse.BANKS:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _client(d)
+            monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: {"VERIFIED": 1})
+            r = c.post("/ingest", data={"bank": bank},
+                       files={"file": ("s.pdf", b"%PDF-" + bank.encode(), "application/pdf")})
+            assert r.status_code == 200 and r.json()["bank"] == bank
+            assert os.listdir(os.path.join(d, "pdfs"))[0].startswith(bank + "_")
+
+
+def test_ingest_case_folds_bank_to_the_lowercase_filename(monkeypatch):
+    # The filename carries the bank forever, so it must be the form parse_statement expects.
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: {"VERIFIED": 1})
+        r = c.post("/ingest", data={"bank": " Maybank "},
+                   files={"file": ("s.pdf", b"%PDF-M", "application/pdf")})
+        assert r.status_code == 200 and r.json()["bank"] == "maybank"
+        assert os.listdir(os.path.join(d, "pdfs"))[0].startswith("maybank_")
+
+
 def test_ingest_warns_on_review(monkeypatch):
     assert _ingest(monkeypatch, {"VERIFIED": 68, "REVIEW": 1})["warning"] is True
 
