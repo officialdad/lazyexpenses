@@ -15,7 +15,7 @@ The handoff between halves is manual: the n8n `compile-cc-statements` workflow z
 
 **n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
 is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.8.0` on k3s, serving the PWA, re-running
+runs `ghcr.io/officialdad/lazyexpenses/app:0.9.1` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
 reminders itself**. 84 statements on the volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
@@ -75,7 +75,15 @@ synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker 
 `localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
 because untested instructions for someone else's product are exactly what #15 said not to write.
 
-**Prod as of 0.8.0 — both timers verified live (2026-08-20):** `GMAIL_*` is in the k8s Secret and
+**Prod as of 0.9.1 (rolled out 2026-08-20).** The bump carried #31's `parse.py` edit, so
+`PARSE_VER` changed and the whole cache was invalidated — the in-pod warm took **108.9s** (the
+~109s the note below predicts), and the run right after it **0.51s**. Corpus came through the
+rollout unchanged: 84 PDFs, 1364 transactions, 80 VERIFIED / 4 DUPLICATE, `reminded.json` still
+`["hsbc|2026-08"]`, 83 cache entries. **#31 confirmed on the live host** — `bank=mybank` returns
+400 naming the six and the volume stays at 84 (that request writes nothing, which is what makes it
+safe to run against prod). `llm_cats.py` is in the image and reports itself off.
+
+**Both timers verified live (2026-08-20):** `GMAIL_*` is in the k8s Secret and
 the fetch loop **has run against the real mailbox**, hourly on the dot, 11 ticks logging
 `CC: 0 unread` / `marked 0 message(s) seen` — so IMAP login, mailbox select and the unread search all
 work in prod. The reminder timer **fired on its own for the first time** the same morning:
@@ -103,10 +111,26 @@ issues frame it, both filed to be picked up cold:
   vars taking precedence**, secrets **write-only** over the API. Note this sharpens the no-auth
   exposure — the app would then hold credentials, and that may finally justify a login.
 
-**Also open:** #31 (`/ingest` accepts any bank string unvalidated — sharper now that a bad value both
-picks the wrong password and persists in the filename; worth doing before `fetch_mail` runs
-unattended), #27 (CI web job), #29 (optional local LLM for the `Other` bucket — **suggest mode shipped**, the live parse-time fallback deliberately not built). #20 (tracking) is
-closed — every issue it tracked is done.
+**Shipped in 0.9.0/0.9.1** (2026-08-20), so the only open issues left are #39, #40 and #44:
+
+- **#31 — `/ingest` validates the bank.** `BANKS` lives in `parse.py` beside the dispatch it
+  mirrors; the server strips + lowercases, then 400s naming the six **before** `file.read()`. A
+  mixed-case `HSBC` works and is stored lowercase, because the filename is what carries the bank
+  forward.
+- **#27 — CI runs the web suite.** A third job, `web`. It deliberately skips `--pdfs`: the suite
+  only needs `app.json`, and `make_demo_data.py` + `export_data.py` are stdlib-only, so the job has
+  **no pip install** and takes 0.02s instead of ~30s to build its data.
+- **#29 — `llm_cats.py --suggest-cats`.** Suggest mode only; the live parse-time fallback was
+  deliberately not built. Off unless `LLM_URL`/`LLM_ENABLED`; byte-identical parse output proven by
+  a cold-cache reparse diff. **The live model path is still unverified** — no llama.cpp on this
+  machine, so only a fake HTTP server has ever answered it.
+- **0.9.1** fixed what testing the published 0.9.0 image found: `llm_cats.py` was missing from
+  `Dockerfile`'s COPY list entirely, and once added, defaulted to a cwd-relative
+  `transactions.csv` — wrong inside a container, where `docker exec` lands in `/app` and the CSVs
+  live on `DATA_DIR`. **Lesson worth keeping: a new root-level module is not in the image unless
+  `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
+
+#20 (tracking) is closed — every issue it tracked is done.
 
 ### Bill reminders (done — #13, shipped 0.5.0/0.6.0)
 
@@ -181,9 +205,9 @@ python remind_bills.py --dry-run      # bill reminders: print what would be Tele
 python test_remind_bills.py           # plain-assert tests for remind_bills.py (window/nulls/paid, template rendering, per-bill state dedupe; prints OK)
 python fetch_mail.py --dry-run        # IMAP: list unread statement mail in GMAIL_LABEL + what it would POST to /ingest, touching nothing (env: GMAIL_USER, GMAIL_APP_PASSWORD, GMAIL_LABEL=CC, INGEST_URL, IMAP_HOST)
 python test_fetch_mail.py             # plain-assert tests for fetch_mail.py (detect_bank x6 + no-match, From>Subject>body precedence, attachment walk, mark-seen only on success; prints OK)
-python llm_cats.py --suggest-cats     # OPTIONAL, off unless LLM_URL/LLM_ENABLED is set: reads the `Other` rows of transactions.csv, asks a LOCAL llama-server for a category per distinct merchant, writes suggested_cats.csv + a paste-ready CATS block. Never edits parse.py, never runs during a parse (env: LLM_URL=http://localhost:8080, LLM_MODEL, LLM_ENABLED)
+python llm_cats.py --suggest-cats     # OPTIONAL, off unless LLM_URL/LLM_ENABLED is set: reads the `Other` rows of transactions.csv, asks a LOCAL llama-server for a category per distinct merchant, writes suggested_cats.csv + a paste-ready CATS block next to its input. Never edits parse.py, never runs during a parse. Input defaults to $DATA_DIR/transactions.csv when DATA_DIR is set (i.e. /data in the container, cwd otherwise) — 0.9.1, because `docker exec` lands in /app (env: LLM_URL=http://localhost:8080, LLM_MODEL, LLM_ENABLED)
 python test_llm_cats.py               # plain-assert tests for llm_cats.py (prompt/taxonomy, the response_format enum, CATS-wins-first with zero requests, unreachable-server and garbage-answer paths; prints OK)
-docker compose up -d                  # the documented deployment: app (web+API+reminders) + fetch (hourly IMAP poll), published image, named volume `data`; needs `cp .env.example .env` first
+docker compose up -d                  # the documented deployment: ONE service (web+API+reminders+hourly IMAP fetch, all timers in-process), published image, named volume `data`; needs `cp .env.example .env` first
 node smoke_dashboard.mjs              # smoke-test dashboard.html: DOM-shim render + view-switch without throwing (prints SMOKE OK); run AFTER dashboard.py
 node audit.mjs                        # Playwright visual audit of dashboard.html: console/page errors, horizontal overflow, sub-11px text across 3 views x desktop/mobile; screenshots -> audit-shots/ (needs: npm i -D playwright && npx playwright install chromium)
 python probe.py <path-to.pdf>         # debug: dump y-reconstructed rows of one PDF (use when adding a bank/template)
