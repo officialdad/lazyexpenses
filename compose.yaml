@@ -3,10 +3,15 @@
 #   cp .env.example .env    # fill in what you have
 #   docker compose up -d
 #
-# One service, because the server is the only long-running thing here and it already
-# knows where the data lives: it serves the web app and the API, fetches your statement
-# mail on a timer, and sends the bill reminders. Nothing is built - this is the image
-# published on every release.
+# One service by default, because the server is the only long-running thing here and it
+# already knows where the data lives: it serves the web app and the API, fetches your
+# statement mail on a timer, and sends the bill reminders. Nothing is built - this is the
+# image published on every release.
+#
+# There is a second service, `llm`, but it is behind the `llm` profile and a plain
+# `docker compose up -d` never starts it, never pulls it and never downloads its model.
+# It exists only for `llm_cats.py --suggest-cats`, a command you run by hand every month
+# or two - see docs/DEPLOY.md. Turn it on with `docker compose --profile llm up -d`.
 services:
   app:
     image: ghcr.io/officialdad/lazyexpenses/app:latest
@@ -17,7 +22,39 @@ services:
       - data:/data
     restart: unless-stopped
 
-# Named volume, not a bind mount: the statements, the parse cache and app.json live
-# here and must outlive the container. `docker compose down` keeps it; `down -v` does not.
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    profiles: ["llm"]
+    environment:
+      # ~800 MB, downloaded on first start. Named here rather than left to the reader,
+      # and picked by measurement rather than vibes - see docs/DEPLOY.md. Gemma 3 1B
+      # beats Qwen2.5-0.5B on this task by actually knowing the merchants; both are
+      # under the 1 GB bar, and neither is good enough yet (the prompt is the blocker).
+      #
+      # NOT LLAMA_ARG_MODEL_URL. Upstream's own compose example still shows it, but the
+      # current :server image starts in "router mode" and SILENTLY IGNORES it - you get a
+      # healthy server with zero models loaded and no error anywhere. LLAMA_ARG_HF_REPO is
+      # what this build actually acts on. Verified by running it, not by reading the README.
+      LLAMA_ARG_HF_REPO: ggml-org/gemma-3-1b-it-GGUF:Q4_K_M
+      # Where that download lands. llama.cpp caches into whatever LLAMA_CACHE names, so this
+      # is what makes the volume below actually hold the weights - without it they go to
+      # /root/.cache and die with the container.
+      LLAMA_CACHE: /models
+      LLAMA_ARG_PORT: 8080
+      # The prompts are one merchant name each; the model's own 32k default would
+      # allocate a KV cache far larger than anything we send it.
+      LLAMA_ARG_CTX_SIZE: 4096
+    volumes:
+      - models:/models
+    restart: unless-stopped
+    # No `ports:` and no --host flag: the image already sets LLAMA_ARG_HOST=0.0.0.0, and
+    # `app` reaches it as http://llm:8080 over the compose network. Nothing on the host
+    # needs to see it. No GPU either - `server-cuda` is a deliberate non-goal; override
+    # `image:` yourself if you have one.
+
+# Named volumes, not bind mounts. `data` holds the statements, the parse cache and
+# app.json; `models` holds the downloaded weights so `docker compose down` does not throw
+# away the download. `down` keeps both; `down -v` does not.
 volumes:
   data:
+  models:

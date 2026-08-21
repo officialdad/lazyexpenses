@@ -160,8 +160,27 @@ issues frame it, both filed to be picked up cold:
   **no pip install** and takes 0.02s instead of ~30s to build its data.
 - **#29 — `llm_cats.py --suggest-cats`.** Suggest mode only; the live parse-time fallback was
   deliberately not built. Off unless `LLM_URL`/`LLM_ENABLED`; byte-identical parse output proven by
-  a cold-cache reparse diff. **The live model path is still unverified** — no llama.cpp on this
-  machine, so only a fake HTTP server has ever answered it.
+  a cold-cache reparse diff. **The live model path was answered on 2026-08-21 by #54's `llm`
+  compose profile** — a real `llama-server` (Qwen2.5-0.5B Q4_K_M) served it end to end. Two things
+  came out of it. (1) `LLAMA_ARG_MODEL_URL`, which upstream's own compose example still shows, is
+  **silently ignored** by the current `ghcr.io/ggml-org/llama.cpp:server` image: it starts in
+  *router mode*, loads zero models, and `/health` still returns `ok`. `LLAMA_ARG_HF_REPO` is what
+  works. (2) **Quality is bad, and `llm_cats.py`'s prompt is why** — not model size. Measured on
+  the 5 merchants `CATS` failed on (the honest population), deterministic over two runs, `high`
+  confidence on every answer right or wrong:
+
+  | Model | Size | As shipped | Asked in plain English |
+  |---|---|---|---|
+  | Qwen2.5-0.5B-Instruct Q4_K_M | 469 MB | 0/5 | ~1/5 — really does not know them |
+  | **Gemma 3 1B it Q4_K_M** (now the default) | 806 MB | 1/5 | **4/5 — knows them fine** |
+
+  Gemma free-form calls `K S S OTOMOBIL` an "auto parts supplier" and `DOMINOS MALAYSIA` a "pizza
+  restaurant", then answers `Shopping` for all five once handed the **717-token taxonomy block**;
+  Qwen collapses the same way to `Travel`. **Ablated and ruled out:** the JSON-schema grammar (same
+  collapse without it), Gemma 3's missing `system` role (same collapse folded into the user turn),
+  and truncation (717 tokens in a 4096 window). So the next move on #29 is **shortening/restructuring
+  the prompt**, not a bigger model — and `gemma-3-270m` was deliberately not run, because model size
+  is not the variable that is failing. Until then `suggested_cats.csv` is a worklist, not answers.
 - **0.9.1** fixed what testing the published 0.9.0 image found: `llm_cats.py` was missing from
   `Dockerfile`'s COPY list entirely, and once added, defaulted to a cwd-relative
   `transactions.csv` — wrong inside a container, where `docker exec` lands in `/app` and the CSVs

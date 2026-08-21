@@ -135,9 +135,9 @@ Open <http://localhost:8000>. That gets you:
   emails goes straight in, still locked, without you touching it;
 - **a Telegram message** once a day for any bill due within three days.
 
-No cron, no scheduler, no second service: the app is already running, so it does both jobs
-on its own timers. Fill in only the parts you want. No Gmail details means nothing is fetched, no Telegram
-token means nothing is messaged, and neither one breaks anything else.
+No cron and no scheduler: the app is already running, so it does both jobs on its own
+timers. Fill in only the parts you want. No Gmail details means nothing is fetched, no
+Telegram token means nothing is messaged, and neither one breaks anything else.
 
 **[docs/DEPLOY.md](docs/DEPLOY.md) is the full guide**: every setting, how to get a Gmail
 app password, how to make the app properly installable from your phone, and the security
