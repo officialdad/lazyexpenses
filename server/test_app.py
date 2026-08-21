@@ -550,3 +550,86 @@ def test_the_image_does_not_ship_the_baked_data_dir():
     assert "rm -rf build/data" in dockerfile, "the image would bake web/static/data into web_build"
     # and it has to happen in the web stage, before the COPY --from=web
     assert dockerfile.index("rm -rf build/data") < dockerfile.index("COPY --from=web")
+
+
+# ---------------------------------------------------------------- web push (#39)
+
+def test_push_key_is_generated_on_first_call_and_stable_after():
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        k = c.get("/api/push/key").json()["key"]
+        assert k and c.get("/api/push/key").json()["key"] == k
+        assert os.path.exists(os.path.join(d, "vapid.json"))
+
+
+def test_push_subscribe_stores_and_unsubscribe_forgets():
+    """Same volume-write shape as /api/paid: one JSON file next to it, atomic rewrite."""
+    import web_push
+    ep = "https://push.example.net/abc"
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        r = c.post("/api/push/subscribe",
+                   json={"endpoint": ep, "keys": {"p256dh": "BAAA", "auth": "AAAA"}})
+        assert r.json() == {"subscribed": True, "count": 1}, r.json()
+        assert os.path.exists(os.path.join(d, "push_subs.json"))
+        assert list(web_push.load_subs()) == [ep]
+        # no keys = the UI's off switch
+        assert c.post("/api/push/subscribe", json={"endpoint": ep}).json()["count"] == 0
+        assert web_push.load_subs() == {}
+
+
+def test_push_subscribe_rejects_a_missing_endpoint():
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.post("/api/push/subscribe", json={"keys": {}}).status_code == 400
+        assert c.post("/api/push/subscribe",
+                      json={"endpoint": "javascript:alert(1)"}).status_code == 400
+
+
+def test_push_routes_are_gated_by_app_password_like_every_other_api_route():
+    """The gate derives its set from the router, so a route added later is covered the
+    day it is added (#51). A subscription is somewhere to send balances to."""
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _gated(d)
+        try:
+            assert c.get("/api/push/key").status_code == 401
+            assert c.post("/api/push/subscribe", json={"endpoint": "https://x/y"}).status_code == 401
+        finally:
+            _ungate()
+
+
+def test_reminder_loop_runs_without_any_configuration_but_stays_quiet():
+    """#39 flips the lifespan gate: Web Push needs no env var, so the loop always starts
+    and decides per tick whether anyone is listening. Nothing configured -> no send."""
+    import threading
+
+    import remind_bills
+    ticked = threading.Event()
+    real_env = {k: os.environ.pop(k, None) for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}
+    real_hour, real_send = None, remind_bills.send
+    remind_bills.send = lambda t: ticked.set()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "app.json"), "w", encoding="utf-8") as fh:
+                json.dump({"bills": [{"bank": "hsbc", "statement_month": "2026-08",
+                                      "current_balance": 1.0,
+                                      "payment_due_date": "2020-01-01"}]}, fh)
+            c, appmod = _client(d)
+            real_hour, appmod.REMIND_HOUR = appmod.REMIND_HOUR, 0
+            appmod.REMIND_POLL = 1
+            with c:                                   # entering runs the lifespan
+                assert not ticked.wait(1.0), "sent with no transport configured"
+            # a browser subscribes -> the very same loop starts delivering
+            import web_push
+            web_push.save_subs({"https://push.example.net/x": {"p256dh": "B", "auth": "A"}})
+            assert remind_bills.transports_configured()
+            c, appmod = _client(d)
+            appmod.REMIND_HOUR, appmod.REMIND_POLL = 0, 1
+            with c:
+                assert ticked.wait(5), "subscribed, but never reminded"
+    finally:
+        remind_bills.send = real_send
+        for k, v in real_env.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v

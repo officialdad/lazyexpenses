@@ -10,7 +10,7 @@ you, it is enough. Nothing below is needed to use the parser or the offline dash
 - [The quick version](#the-quick-version)
 - [What each variable does](#what-each-variable-does)
 - [Fetching statements from Gmail](#fetching-statements-from-gmail)
-- [Bill reminders on Telegram](#bill-reminders-on-telegram)
+- [Bill reminders](#bill-reminders)
 - [Locking it with a password](#locking-it-with-a-password)
 - [Putting it on your network](#putting-it-on-your-network) — **read the security note**
 - [Without Docker](#without-docker)
@@ -34,8 +34,11 @@ inside it rather than separate containers, cron entries or CronJobs. There is on
 to deploy, one log to read, and one `.env`.
 
 Leave a section of `.env` blank and that part simply does nothing: no Gmail details means
-nothing is fetched, no Telegram token means no reminders. Nothing crash-loops because you
-only wanted half of it.
+nothing is fetched. Nothing crash-loops because you only wanted half of it.
+
+**Bill reminders need nothing in `.env` at all.** Open the app, press **Remind me** next
+to the bills, and allow notifications — that is the whole setup. Telegram is still there
+for anyone who wants it; see [Bill reminders](#bill-reminders).
 
 A fresh volume is empty, so the page loads but the data request returns 404 until the
 first statement lands. That is not a bug. Post one by hand if you do not want to wait:
@@ -73,8 +76,9 @@ committed copy with placeholders — copy it, do not edit it.
 | `GMAIL_APP_PASSWORD` | — | a Google app password, never your login password |
 | `GMAIL_LABEL` | `CC` | the label statement mail is filed under |
 | `FETCH_POLL` | `3600` | seconds between mail checks |
-| `TELEGRAM_BOT_TOKEN` | — | reminders are off unless both this and the chat id are set |
+| `TELEGRAM_BOT_TOKEN` | — | the *optional* Telegram fallback; off unless both this and the chat id are set |
 | `TELEGRAM_CHAT_ID` | — | |
+| `VAPID_SUBJECT` | `mailto:bills@lazyexpenses.invalid` | contact address the push services see. Nothing is emailed to it; change it only if a push service complains |
 | `REMIND_DAYS` | `3` | how far ahead to look |
 | `REMIND_HOUR` | `9` | earliest local hour to send |
 | `REMIND_TEMPLATE` | the message below | Telegram HTML plus the placeholders below |
@@ -131,17 +135,48 @@ because everything that worked is already read.
 Google still issues app passwords with 2FA on, but has been signalling a move to
 OAuth 2.0. If that day comes, the login is four lines in one function.
 
-## Bill reminders on Telegram
+## Bill reminders
 
-The server sends these itself — there is nothing extra to deploy. Set the two Telegram
-variables and it starts; unset them and it does not.
+The server sends these itself — there is nothing extra to deploy. Once a day after 09:00
+local, every bill due within three days produces **one message per bill**, on whichever
+transports you have turned on.
+
+### Notifications in the app (the default, no configuration)
+
+Open the app, find the **Bills due** panel, press **Remind me** and allow notifications.
+That is it — the signing key is generated on the volume the first time it is needed, so
+there is nothing to create, copy or paste. Press the button again to turn them back off.
+
+Two things have to be true, and both are the same conditions as installing the app:
+
+- **A secure context** — `https://`, or `http://localhost`. On a plain
+  `http://192.168.x.x` address the browser gives you no service worker and therefore no
+  notifications. See [Putting it on your network](#putting-it-on-your-network).
+- **On iPhone/iPad, the app has to be installed** (Share → Add to Home Screen) and opened
+  from the Home Screen. Safari allows push for installed web apps only.
+
+The app says which of these is missing rather than doing nothing quietly. A permission
+you refuse, a browser that cannot do push, and a subscription the browser later revokes
+are all a line in `docker compose logs` and never an error page — a revoked subscription
+answers `410 Gone` and is simply forgotten.
+
+Two files appear on the volume: `vapid.json` (the signing key — **back it up with the
+rest; replacing it makes every device re-enable reminders**) and `push_subs.json` (one
+entry per device you turned reminders on for).
+
+### Telegram (the fallback)
+
+Still fully supported, and the right answer for a desktop you never install the app on.
+Set the two Telegram variables and it starts; unset them and it does not.
 
 The token comes from [@BotFather](https://t.me/BotFather). The chat id is your own chat
 with that bot; **message the bot once first**, because Telegram will not let a bot open a
 conversation. (If you skip that step, the log says `chat not found`.)
 
-From then on, once a day after 09:00 local, every bill due within three days produces one
-message:
+Turn on both and you still get **one message per bill, not two per bill** — the reminder
+is recorded per bill in `reminded.json`, not per transport.
+
+The message looks like this:
 
 > **Automated Credit Card Payment Reminder**
 >
@@ -150,7 +185,9 @@ message:
 > ⌛ By 2026-08-23 to avoid late charges
 
 `REMIND_TEMPLATE` replaces that wording. Messages are Telegram HTML, so `<b>`, `<i>` and
-`<code>` work, and these placeholders are filled in per bill:
+`<code>` work, and these placeholders are filled in per bill. A notification cannot show
+markup, so the tags are stripped for it: the first line becomes the notification title
+and the rest its body.
 
 | | |
 |---|---|
@@ -335,12 +372,13 @@ and nothing else notices.
 > mesh, a proxy that authenticates) rather than relying on this alone.
 
 The other thing worth knowing before you move it off localhost: **installing the web app
-needs a secure context.** Over a plain `http://192.168.x.x` address the browser silently
+and getting notifications both need a secure context.** Over a plain `http://192.168.x.x` address the browser silently
 downgrades it to a bookmark-style shortcut — no install, no offline cache — and
 everything looks almost right, which is what makes it confusing.
 
 **On the machine it runs on, there is nothing to do.** `http://localhost:8000` already
-counts as a secure context, so the app installs and caches offline as-is.
+counts as a secure context, so the app installs, caches offline and can be granted
+notification permission as-is.
 
 **From your phone or another machine, you need HTTPS with a certificate that device
 already trusts.** Any reverse proxy in front of port 8000 does it, and whichever one you
@@ -397,7 +435,9 @@ change must never serve rows from the old rules.
 | A statement shows `ERROR` | locked PDF, and its `CC_PW_<BANK>` is unset or wrong |
 | A statement shows `REVIEW` | the bank changed its layout; `python probe.py <file>` shows what the parser sees |
 | the log says "nothing to fetch" | `GMAIL_USER` / `GMAIL_APP_PASSWORD` are blank in `.env` |
-| Reminders never arrive | both Telegram variables set? Did you message the bot first? |
+| Notification reminders never arrive | is the page on HTTPS or localhost? On iPhone, is the app installed to the Home Screen and opened from there? The **Remind me** button says which is missing |
+| Notifications stopped after a restore | `vapid.json` was not restored with the rest of the volume — press **Remind me** again on each device |
+| Telegram reminders never arrive | both Telegram variables set? Did you message the bot first? |
 | It keeps asking for the password | `APP_PASSWORD` changed, or the cookie expired after a month — type it again |
 | `fetch_mail.py` says `HTTP Error 401` | you set `APP_PASSWORD` on the server but not in the shell you ran the script from |
 | No install prompt | you are on plain HTTP from another machine — see [above](#putting-it-on-your-network) |

@@ -5,6 +5,7 @@
   import { prettyCard, todayMYT } from '$lib/cardpick';
   import { bankColor, CARD_ICON } from '$lib/banks';
   import { paid } from '$lib/paid.svelte';
+  import { push, togglePush } from '$lib/push.svelte';
   import { rm } from '$lib/fmt';
   import type { Bill } from '$lib/types';
 
@@ -13,7 +14,26 @@
 </script>
 
 <section aria-label="Bills due" class="border p-3" style="border-color:var(--divider)">
-  <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Bills due</h2>
+  <div class="mb-3 flex items-center gap-2">
+    <h2 class="text-xs uppercase tracking-widest flex-1" style="color:var(--muted)">Bills due</h2>
+    <!-- #39: asked HERE, next to the bills, rather than on first paint — the permission
+         prompt only makes sense once you can see what it would remind you about. -->
+    {#if push.status === 'off' || push.status === 'on' || push.status === 'busy'}
+      <button
+        type="button"
+        class="remindbtn text-[11px] underline cursor-pointer bg-transparent border-0 p-0"
+        style="color:{push.status === 'on' ? 'var(--muted)' : 'var(--accent)'}"
+        aria-pressed={push.status === 'on'}
+        disabled={push.status === 'busy'}
+        onclick={() => togglePush()}
+      >
+        {push.status === 'busy' ? '…' : push.status === 'on' ? '🔔 Reminders on' : 'Remind me'}
+      </button>
+    {/if}
+  </div>
+  {#if push.note}
+    <p class="mb-3 text-[11px]" style="color:var(--muted)">{push.note}</p>
+  {/if}
   {#if !rows.length}
     <p class="text-xs" style="color:var(--muted)">No bills yet.</p>
   {:else}
@@ -71,6 +91,7 @@
 </section>
 
 <style>
+  .remindbtn:focus-visible,
   .paidbtn:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
