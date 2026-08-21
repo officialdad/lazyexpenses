@@ -47,30 +47,32 @@ def default_csv():
 
 CATEGORIES = [c for c, _ in CATS]          # the 15 names, in CATS order
 
-# One line each. Malaysian merchant strings are opaque abbreviations ("PSS-",
-# "MPC2004"); a bare list of 15 names tells a small model nothing about what they mean.
-# CAVEAT, measured 2026-08-21 (#54): the glosses + CATS examples make this block ~717
-# tokens, and that is currently the bottleneck. Gemma 3 1B names these merchants correctly
-# when asked in plain English (4/5) but collapses to one constant category (1/5) once given
-# this block; Qwen2.5-0.5B collapses the same way. Not the grammar, not the system role, not
-# truncation - all three were ablated. Shortening/restructuring this is the next move on #29.
-GLOSS = {
-    'Transfers/Payments': "money moved, not spent: card bill payments, DuitNow, IBG, fund transfers",
-    'Fees/Charges': "bank fees and interest: service tax, late payment, finance charge, annual fee",
-    'Rebate/Cashback': "money coming back from the bank: cashback, rebates, reward redemptions",
-    'Installments/BT': "financing plans: balance transfers, easy-payment/installment plan charges",
-    'Vehicle': "getting around: petrol, tolls, parking, ride-hailing, trains, workshops",
-    'Groceries': "supermarkets, hypermarkets, minimarts and convenience stores",
-    'F&B': "eating and drinking: restaurants, cafes, fast food, bakeries, bubble tea",
-    'Telco/Utilities': "mobile, broadband, electricity, water, sewerage bills",
-    'Travel': "flights, hotels, and travel booking sites",
-    'Health/Insurance': "clinics, hospitals, dentists, pharmacies, opticians, insurance premiums",
-    'Subscriptions': "recurring digital services: streaming, SaaS, cloud, app stores",
-    'Shopping': "retail goods: marketplaces, electronics, furniture, clothing, department stores",
-    'Entertainment': "leisure: cinemas, games, gyms, karaoke, play centres",
-    'Certifications': "professional bodies, licences and certification fees",
-    'Charity': "donations, zakat, waqf",
-}
+# MEASURED 2026-08-21 (#58): this block is the CATEGORY NAMES AND NOTHING ELSE, and
+# that is load-bearing. On the 5 merchants CATS gave up on (Gemma 3 1B it Q4_K_M,
+# temperature 0, deterministic over two runs) names-only scores 4/5 at 145 prompt
+# tokens. The block this replaced - a one-line gloss plus six real CATS examples per
+# category, 715 tokens - scored 1/5, because the model stopped reading the merchant and
+# answered one constant category for everything.
+#
+# It is not length, and it is not the grammar, the system role or truncation (#54
+# ablated those three). It is prose describing the categories, anywhere in the prompt:
+#
+#   names only ............................... 4/5   145 tok   <- shipped
+#   names + 5 few-shot examples .............. 4/5   309 tok   longer, no better
+#   names, merchant after the instruction .... 3/5   145 tok
+#   names + examples, no gloss ............... 2/5   511 tok
+#   identify-the-business first, then map .... 2/5   175 tok   and NOT deterministic
+#   names + gloss, no examples ............... 1/5   349 tok
+#   names + a 26-token line of category prose
+#     in the *system* message ................ 1/5   171 tok   collapsed to Shopping x5
+#   names + gloss + examples (the old block) . 1/5   715 tok
+#
+# So: do not re-add descriptions here, and do not describe the categories in SYSTEM
+# either. Known cost, measured on a second 10-string probe of bank jargon
+# ("SERVICE TAX", "BALANCE TRANSFER 3M"): the old block got 6/10 there, names-only 4/10.
+# Accepted, because CATS matches that jargon on fixed strings the banks print and it is
+# asked first - what actually reaches the model is merchant names CATS failed on.
+# n=5 and n=10, synthetic. The 86-statement corpus is the real eval and is gitignored.
 
 SYSTEM = ("You categorize Malaysian credit-card merchant names into a fixed taxonomy. "
           "Many are abbreviated or truncated. Pick the single best category. "
@@ -78,15 +80,9 @@ SYSTEM = ("You categorize Malaysian credit-card merchant names into a fixed taxo
 
 
 def taxonomy(cats=None):
-    """The prompt's taxonomy block: name, gloss, and real examples lifted from CATS."""
+    """The prompt's taxonomy block: the category names, nothing else. See above."""
     keep = set(cats or CATEGORIES)
-    out = []
-    for cat, kws in CATS:
-        if cat not in keep:
-            continue
-        egs = ", ".join(k.strip() for k in kws[:6])
-        out.append(f"- {cat}: {GLOSS[cat]}. e.g. {egs}")
-    return "\n".join(out)
+    return "\n".join(f"- {c}" for c in CATEGORIES if c in keep)
 
 
 def prompt(merchant):
@@ -207,7 +203,8 @@ def suggest(merchants, url=None, model=None):
 def paste_block(proposals):
     """The point of the whole thing: keywords to paste into CATS, grouped by category
     in CATS order, so a merchant the model got right costs zero inference next time."""
-    lines = ["# paste into CATS in parse.py (REVIEW EVERY LINE - measured 0-1 of 5 right):"]
+    lines = ["# paste into CATS in parse.py (REVIEW EVERY LINE - 4 of 5 right on a "
+             "5-merchant pilot, and every answer reads 'high' confidence, wrong ones too):"]
     for cat in CATEGORIES:
         ms = [p["merchant"] for p in proposals if p["category"] == cat]
         if ms:
