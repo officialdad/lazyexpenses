@@ -15,7 +15,7 @@ The handoff between halves is manual: the n8n `compile-cc-statements` workflow z
 
 **n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
 is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.9.1` on k3s, serving the PWA, re-running
+runs `ghcr.io/officialdad/lazyexpenses/app:0.10.0` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
 reminders itself**. 86 statements on the volume, **82 VERIFIED / 4 DUPLICATE**, 1383 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
@@ -114,8 +114,8 @@ probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
-**Handoff state (2026-08-21).** Prod runs 0.9.1 and everything the pipeline does has now been
-exercised in production at least once — parse, reconcile, ingest, both timers, and the full
+**Handoff state (2026-08-21, after 0.10.0).** Prod runs 0.10.0 and everything the pipeline does has
+been exercised in production at least once — parse, reconcile, ingest, both timers, and the full
 mail-to-VERIFIED path. Nothing is half-finished and nothing is blocked on evidence any more; what
 remains is feature work, and it is a chain rather than a menu:
 
@@ -126,14 +126,13 @@ already decided — VAPID signing uses `cryptography` (a 5th server dep, hand-ro
 four packages to save ~80 lines. The "one runtime dependency" rule is about `parse.py`/`pdfplumber`,
 not the server.
 
-Two more are filed but off the critical path: **#51** (the app has no auth, and #40 turns that from
-"reads your spending" into "reconfigures where your statements come from" — decide before #40 ships,
-not after) and **#52** (nothing checks that a documented command exists in the image, which is how
-0.9.0 shipped a `docs/DEPLOY.md` line that could not run).
+**#51 and #52 are done** — both shipped in 0.10.0, see below. **#58** is new and replaces the old
+"is a small model good enough" question with a sharper one: `llm_cats.py`'s prompt is what makes the
+model wrong, not its size.
 
-**Known-unverified, needs hardware not code:** #29's live model path. No `llama-server` has ever
-answered it — only a fake HTTP server in a scratch dir. The 86-statement corpus would double as a
-free labelled eval set for whether a 0.5B is good enough.
+**#29's live model path is answered** — a real `llama-server` ran it on 2026-08-21 via #54's compose
+profile, so the "needs hardware not code" caveat is gone. The 86-statement corpus is still the real
+eval and still not runnable from this repo (`cc-statements/` is gitignored).
 
 The stated goal now is the simplest possible deployment for someone who is not the author. Two
 issues frame it, both filed to be picked up cold:
@@ -188,6 +187,47 @@ issues frame it, both filed to be picked up cold:
   `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
 
 #20 (tracking) is closed — every issue it tracked is done.
+
+### Shipped in 0.10.0 (rolled out 2026-08-21)
+
+Three independent issues, built **in parallel git worktrees** under `~/repo/lazyexpenses-wt/` and
+merged the same day. That parallelism was only safe because the collision zone was checked first:
+`server/app.py` and `web/` are what #39/#40/#51 all rewrite, so only one of those three could run at
+a time. #52 and #54 touch neither.
+
+- **#51 — optional shared-password gate (`APP_PASSWORD`), off unless set.** The first attempt gated
+  with a global FastAPI **route dependency**, and it was bypassable: a `StaticFiles` mount is not an
+  `APIRoute`, so it never ran, and `web/build/data/` lives inside that mount. `//data/app.json`,
+  `/data/app.json/`, `/./data/app.json`, `/data//app.json`, `/x/../data/app.json` and
+  `/DATA/app.json` all served the data while `/data/app.json` correctly 401'd. **The fix is
+  `@app.middleware("http")`**, which runs before routing and therefore sees mount traffic, plus
+  `posixpath.normpath("/" + path.lstrip("/"))` — the `lstrip` is load-bearing, `normpath` preserves
+  a leading `//`. The protected set is derived from the router rather than hand-listed, so a route
+  added later is gated the day it is added. `Dockerfile` now `rm -rf build/data` before
+  `COPY --from=web`, so a local `docker build` cannot bake real transactions into an image layer.
+  `/healthz` and `/api/login` stay open; `/ingest` takes an `X-App-Password` header so `_fetch_loop`
+  is unaffected. **Testing trap worth keeping: do NOT write this regression test with `TestClient`
+  — httpx normalises 3 of the 5 variants client-side, so it passes with the hole wide open.** The
+  test builds the ASGI scope by hand.
+- **#54 — opt-in `llm` compose profile.** A plain `docker compose up -d` is unchanged (verified: one
+  container, no model pull). `docker compose --profile llm up -d` adds `llama-server` at
+  `http://llm:8080`, which is also the fix for the `host.docker.internal` line that could never work
+  on Linux Docker. **`LLAMA_ARG_MODEL_URL` is silently ignored** by the current image — it starts in
+  router mode with zero models and `/health` still returns `ok`; use `LLAMA_ARG_HF_REPO`, and
+  `LLAMA_CACHE` or the weights land in `/root/.cache` and die with the container.
+- **#52 — CI asserts every documented `python x.py` is in the image.** Greps fenced code blocks in
+  `docs/DEPLOY.md`/`README.md` against `Dockerfile`'s COPY line. Fenced-blocks-only drops `probe.py`
+  on its own; `make_demo_data.py`/`verify_parity.py` need an explicit `DEV_ONLY` list because they
+  appear in exactly the shape a real hoster command does.
+
+**The rollout itself:** `parse.py` was untouched, so `PARSE_VER` was unchanged and the cache survived
+— **no reparse warm needed**, unlike 0.9.1 which cost 108.9s. Verified on the live host after
+rollout: image digest `sha256:73371010…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**,
+1383 transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`, `/healthz` and
+`/data/app.json` both 200. `_norm` present in the running image and `_app_password()` falsy —
+**the gate shipped dormant on purpose**: `APP_PASSWORD` is deliberately not in `lazyexpense-secrets`,
+so exposure is exactly what it was before. Adding it to the secret is the whole switch.
+
 
 ### Bill reminders (done — #13, shipped 0.5.0/0.6.0)
 
