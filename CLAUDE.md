@@ -11,13 +11,13 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
-## Active work — deployment for beginners (last touched 2026-08-20)
+## Active work — deployment for beginners (last touched 2026-08-21)
 
 **n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
 is **live in production**, not a plan. `lazyexpense.opariffazman.com`
 runs `ghcr.io/officialdad/lazyexpenses/app:0.9.1` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
-reminders itself**. 84 statements on the volume, **80 VERIFIED / 4 DUPLICATE**, 1364 transactions,
+reminders itself**. 86 statements on the volume, **82 VERIFIED / 4 DUPLICATE**, 1383 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
 
 **Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`
@@ -33,7 +33,7 @@ Its `CLAUDE.md` has the conventions.
 |---|---|
 | Unlock via Stirling-PDF + "set password" Code node | **Dead** since #11 — `parse.py` opens locked PDFs itself |
 | Daily reminder cron (Gemini + Google Tasks + Telegram) | **Replaced** by the in-process reminder, 0.5.0/0.6.0 (#13) |
-| Gmail trigger on label `CC` | **Replaced** by `fetch_mail.py` (#12) — stdlib IMAP, run it on a schedule |
+| Gmail trigger on label `CC` | **Replaced and proven** — `fetch_mail.py` (#12) took a real statement mail unassisted on 2026-08-21 |
 
 **`fetch_mail.py`** (#12): `imaplib.IMAP4_SSL` → select `GMAIL_LABEL` (`CC`) → `UNSEEN` → `BODY.PEEK[]`
 (a plain FETCH would set `\Seen` itself and defeat the retry) → POST each PDF part to `INGEST_URL` as
@@ -90,8 +90,21 @@ work in prod. The reminder timer **fired on its own for the first time** the sam
 `reminder sent: hsbc 2026-08` at 09:08:55 MYT, with `/data/reminded.json` now holding
 `["hsbc|2026-08"]`. Neither had ever been exercised before.
 
-**Still unproven** (needs a bank, not a code change): an actual statement mail flowing
-label → IMAP → `/ingest` → VERIFIED. Every step is proven separately; the end-to-end is not.
+**The end-to-end is now proven (2026-08-21).** A real CIMB statement mail flowed
+label → IMAP → `/ingest` → VERIFIED with nothing else touching it:
+
+```
+CC: 1 unread
+ingested cimb: 2220260819202608210052170081440.PDF {"VERIFIED": 82, "DUPLICATE": 4}
+marked 1 message(s) seen
+```
+
+4.8s for the whole path, and the attachment was a **genuinely encrypted** CIMB PDF — multi-card,
+`:NN/MM` installment memos, opened with `CC_PW_CIMB` and no Stirling anywhere. n8n had already
+ingested the same mail earlier that day, so this run was **idempotent** and proved it: 86 PDFs and
+md5 `606dc0f7…` identical before and after, because `save_pdf` names by content hash. Re-running
+`fetch_mail.py` on an already-ingested statement is therefore safe.
+
 `kubectl logs deploy/lazyexpense | grep -E 'unread|ingested'` — note the log is mostly healthz
 probes, so `--tail` will hide these; grep the whole thing.
 
@@ -156,25 +169,30 @@ of the volume, for anyone not running the container.
   `reminder sent: hsbc 2026-08`; `/data/reminded.json` now exists and holds `["hsbc|2026-08"]`, which
   is also the proof that the dedupe survives. Nothing left to exercise here.
 
-### Stirling-PDF — still deployed, still not deletable
+### Stirling-PDF — still deployed, now deletable
 
-Reported torn down on 2026-08-20; it is not. `kubectl get pods -A | grep stirling` shows it Running,
-`k3s/stirlingpdf/` exists, and `k3s/traefik/ingress-local.yml:136` still routes `pdf.opariffazman.com`.
-The n8n workflow may already have stopped calling it, but the gate for deleting the service is
-evidence that a **genuinely locked** statement flowed end to end, and
-`grep -la /Encrypt /data/pdfs/*.pdf | wc -l` still reads **0** of 84 — every PDF on the volume is
-Stirling-unlocked. All six `CC_PW_<BANK>` were verified offline (each bank's newest PDF re-encrypted
-with its own secret, parsed back, all VERIFIED), so the capability is proven; only the live path is not.
+The gate was "evidence that a genuinely locked statement flowed end to end". **It is met as of
+2026-08-21.** `grep -la /Encrypt /data/pdfs/*.pdf | wc -l` reads **2 of 86** (it read 0 of 84 while
+this was blocked), and both reconcile to the cent with `parse.py` doing the unlocking:
 
-Teardown, once a locked statement has landed: delete `k3s/stirlingpdf/`, its block in
+```
+cimb_5ae639f1.pdf,cimb,2026-08,11,1005.47,0.0,VERIFIED
+sc_b0d14611.pdf, sc, 2026-08, 8, 165.87,0.0,VERIFIED
+```
+
+Still deployed though: `kubectl get pods -A | grep stirling` shows it Running, `k3s/stirlingpdf/`
+exists, and `k3s/traefik/ingress-local.yml:136` still routes `pdf.opariffazman.com`.
+
+**Teardown (nothing blocks it now):** delete `k3s/stirlingpdf/`, its block in
 `k3s/traefik/ingress-local.yml`, and the `pdf.opariffazman.com` DNS record.
 
 ### Sharp edges
 
-- **`bank` on `/ingest` is load-bearing and unchecked.** It selects the password, the parser branch,
-  and the filename *permanently* — `parse.py` re-derives the bank from that filename on every later
-  run. A typo writes a file that reports `NO_BALANCE` forever until deleted by hand. See #31.
-  This is worth fixing **before** #12 starts posting unattended.
+- **`bank` on `/ingest` is load-bearing — validated since 0.9.0 (#31), but only against the six.**
+  It still selects the password, the parser branch, and the filename *permanently*, because
+  `parse.py` re-derives the bank from that filename on every later run. An unknown value is now a
+  400 that writes nothing; a **wrong-but-valid** one (`hsbc` for a CIMB statement) still lands and
+  still misparses forever.
 - **Editing `parse.py` invalidates the whole parse cache** (`PARSE_VER` = hash of the file). On the
   0.4.0 rollout the full 84-PDF reparse took **109s**, versus 0.5s warm. Long enough to trip an
   ingest HTTP timeout, so warm it in-pod after any deploy that touches the parser:
@@ -318,7 +336,7 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The ba
 
 > **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
 
-- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Nothing in it is still needed**: the unlock is dead (#11), the reminder is the server's own timer (#13), and the Gmail trigger is `fetch_mail.py` (#12). Disable the workflow. `reminder-bills.json` should be disabled once the in-process reminder is seen firing on its own, or the same bill gets messaged twice.
+- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Nothing in it is still needed**, and it is **disabled as of 2026-08-21**: the unlock is dead (#11), the reminder is the server's own timer (#13, seen firing on its own), and the Gmail trigger is `fetch_mail.py` (#12, proven on a real mail). Its last act was ingesting the 2026-08 CIMB statement hours before `fetch_mail.py` re-took the same mail idempotently. `reminder-bills.json` must stay disabled too, or the same bill gets messaged twice.
 - `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
 
 Passwords stored inside the workflow on the n8n PVC should be cleared as the unlock nodes go — the k8s Secret `lazyexpense-secrets` is the source of truth now.
