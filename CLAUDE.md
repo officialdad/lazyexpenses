@@ -126,9 +126,7 @@ already decided — VAPID signing uses `cryptography` (a 5th server dep, hand-ro
 four packages to save ~80 lines. The "one runtime dependency" rule is about `parse.py`/`pdfplumber`,
 not the server.
 
-**#51 and #52 are done** — both shipped in 0.10.0, see below. **#58** is new and replaces the old
-"is a small model good enough" question with a sharper one: `llm_cats.py`'s prompt is what makes the
-model wrong, not its size.
+**#51, #52 and #58 are done** — #51/#52 shipped in 0.10.0, #58 landed after it, see below.
 
 **#29's live model path is answered** — a real `llama-server` ran it on 2026-08-21 via #54's compose
 profile, so the "needs hardware not code" caveat is gone. The 86-statement corpus is still the real
@@ -168,7 +166,7 @@ issues frame it, both filed to be picked up cold:
   the 5 merchants `CATS` failed on (the honest population), deterministic over two runs, `high`
   confidence on every answer right or wrong:
 
-  | Model | Size | As shipped | Asked in plain English |
+  | Model | Size | As shipped (0.9.x) | Asked in plain English |
   |---|---|---|---|
   | Qwen2.5-0.5B-Instruct Q4_K_M | 469 MB | 0/5 | ~1/5 — really does not know them |
   | **Gemma 3 1B it Q4_K_M** (now the default) | 806 MB | 1/5 | **4/5 — knows them fine** |
@@ -177,9 +175,8 @@ issues frame it, both filed to be picked up cold:
   restaurant", then answers `Shopping` for all five once handed the **717-token taxonomy block**;
   Qwen collapses the same way to `Travel`. **Ablated and ruled out:** the JSON-schema grammar (same
   collapse without it), Gemma 3's missing `system` role (same collapse folded into the user turn),
-  and truncation (717 tokens in a 4096 window). So the next move on #29 is **shortening/restructuring
-  the prompt**, not a bigger model — and `gemma-3-270m` was deliberately not run, because model size
-  is not the variable that is failing. Until then `suggested_cats.csv` is a worklist, not answers.
+  and truncation (717 tokens in a 4096 window). **#58 finished this** — see below.
+
 - **0.9.1** fixed what testing the published 0.9.0 image found: `llm_cats.py` was missing from
   `Dockerfile`'s COPY list entirely, and once added, defaulted to a cwd-relative
   `transactions.csv` — wrong inside a container, where `docker exec` lands in `/app` and the CSVs
@@ -227,6 +224,45 @@ rollout: image digest `sha256:73371010…`, pod Running 1/1, **86 PDFs, 82 VERIF
 `/data/app.json` both 200. `_norm` present in the running image and `_app_password()` falsy —
 **the gate shipped dormant on purpose**: `APP_PASSWORD` is deliberately not in `lazyexpense-secrets`,
 so exposure is exactly what it was before. Adding it to the secret is the whole switch.
+
+
+### Shipped after 0.10.0 — #58, the `llm_cats.py` prompt
+
+**The taxonomy block is now the 15 category names and nothing else, and that is load-bearing.**
+Measured against a real `llama-server` (Gemma 3 1B it Q4_K_M, `LLAMA_ARG_CTX_SIZE=4096`,
+temperature 0, every score deterministic over two runs) on the 5 merchants `CATS` gave up on:
+
+| Prompt variant | Score | Prompt tokens |
+|---|---|---|
+| **names only — shipped** | **4/5** | 145 |
+| names + 5 few-shot examples from `CATS` | 4/5 | 309 |
+| names, merchant *after* the reply instruction | 3/5 | 145 |
+| names + examples, no gloss | 2/5 | 511 |
+| two-step: identify the business, then map | 2/5 | 175 (**not deterministic**) |
+| names + gloss, no examples | 1/5 | 349 |
+| names + 26 tokens of category prose in `SYSTEM` | 1/5 | 171 |
+| names + gloss + examples (0.9.x, the baseline) | 1/5 | 715 |
+
+**The variable is prose describing the categories, anywhere in the prompt — not length.** A
+*longer* few-shot prompt still scores 4/5, while one extra sentence in `SYSTEM` re-collapses it to
+`Shopping` 5 times out of 5. Both failed hypotheses from the issue are negative results worth
+keeping: **the merchant is better placed before the instruction, not last** (position was the
+suspect; moving it last made things worse), and **the two-step identify-then-map is both worse and
+the only variant that was non-deterministic**.
+
+**Known cost, measured, accepted.** On a second 10-string probe of bank jargon (`SERVICE TAX`,
+`BALANCE TRANSFER 3M`, `CASHBACK EARNED` — labels are free, they *are* `CATS` keywords) the old
+block scored **6/10** and names-only **4/10**. The gloss really did help there. It is given up
+because `CATS` matches that jargon on fixed strings the banks print and is asked first, so what
+actually reaches the model is merchant names `CATS` failed on. A hybrid was tried and does not
+exist: hints for only the 6 ambiguous categories scored 1/5, and the `SYSTEM`-line version fixed the
+probe (6/10) while destroying the merchants (1/5).
+
+`test_llm_cats.py::test_the_prompt_is_the_category_names_and_nothing_else` is the guard — it fails
+if a gloss, a `CATS` example, or any category name in `SYSTEM` comes back, and if the merchant moves
+after the instruction. **n=5 and n=10, synthetic.** The 86-statement corpus is the real eval and is
+still gitignored, so this is a pilot. Confidence is still decoration: `high` on the wrong answer
+too, and the paste-block header now says so.
 
 
 ### Bill reminders (done — #13, shipped 0.5.0/0.6.0)

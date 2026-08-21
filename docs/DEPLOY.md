@@ -263,30 +263,33 @@ What it actually costs you:
   guessed — see the accuracy note below.
 - **A server to run.** [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server`,
   on your own machine, for as long as the run takes.
-- **A real accuracy ceiling, and today it is the prompt's fault rather than the model's.**
+- **A real accuracy ceiling, and it was the prompt's fault rather than the model's.**
   Measured on this profile against 5 merchants the keyword table could not name — which is
   the honest population, since the model only ever sees what `CATS` already failed on:
 
-  | Model | Size | Score, as shipped | Same merchants, asked in plain English |
-  |---|---|---|---|
-  | Qwen2.5-0.5B-Instruct Q4_K_M | 469 MB | **0 / 5** | ~1 / 5 — genuinely does not know them |
-  | **Gemma 3 1B it Q4_K_M** (default) | 806 MB | **1 / 5** | **4 / 5 — it knows them fine** |
+  | Prompt | Gemma 3 1B it Q4_K_M | Prompt tokens |
+  |---|---|---|
+  | Category names only — **what ships now** | **4 / 5** | 145 |
+  | The old block: a gloss + 6 real examples per category | 1 / 5 | 715 |
 
-  Both were deterministic across two runs and reported `high` confidence on **every**
-  answer, right or wrong, so the confidence column is decoration — do not filter on it.
+  Every score here is deterministic across two runs, and the model reported `high`
+  confidence on **every** answer, right or wrong — so the confidence column is decoration.
+  **Do not filter on it.**
 
-  The interesting part is the last column. Ask Gemma *"what kind of business is K S S
-  OTOMOBIL SDN BHD"* and it says "auto parts supplier"; `PERODUA SERVIS` → "auto repair";
-  `DOMINOS MALAYSIA` → "pizza restaurant". It knows. Hand it our 717-token taxonomy block
-  and it collapses to answering `Shopping` for all five. Qwen collapses the same way, to
-  `Travel`. Ruled out as causes: the JSON-schema grammar (same collapse without it), the
-  `system` role Gemma 3 does not have (same collapse with it folded into the user turn),
-  and truncation (717 tokens into a 4096 window).
+  The old prompt made the model stop reading the merchant and answer one constant category
+  (`Shopping`) for all five. It was never a size problem: ask Gemma *"what kind of business
+  is K S S OTOMOBIL SDN BHD"* and it says "auto parts supplier"; `PERODUA SERVIS` → "auto
+  repair"; `DOMINOS MALAYSIA` → "pizza restaurant". Removing the descriptions gets that
+  knowledge back. Ruled out as causes along the way: the JSON-schema grammar, the `system`
+  role Gemma 3 does not have, truncation, and prompt length itself — a *longer* few-shot
+  prompt (309 tokens) still scored 4/5, while 26 extra tokens of category prose in the
+  system message dropped it straight back to 1/5. See the comment above `taxonomy()` in
+  `llm_cats.py` for the full variant table.
 
-  So: **the taxonomy prompt is the bottleneck, not model size.** Gemma is the default
-  because it is the one with the knowledge to unlock. Until the prompt is fixed, **treat
-  `suggested_cats.csv` as a list of merchants worth looking at, not as categories worth
-  pasting**, and read every line before it goes into `CATS`.
+  **This is a 5-merchant pilot on synthetic strings.** Treat `suggested_cats.csv` as a
+  ranked list of merchants worth looking at, and read every line before it goes into
+  `CATS`. Qwen2.5-0.5B is still the worse choice — it scored 0/5 on the old prompt and
+  ~1/5 even asked in plain English, so it lacks the knowledge rather than the prompt.
 
 Nothing is applied for you. The run writes `suggested_cats.csv` — merchant, proposed
 category, confidence, how many times it appeared, what it came to in ringgit — and prints a
