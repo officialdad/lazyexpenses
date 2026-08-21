@@ -271,3 +271,153 @@ def test_reminder_tick_noop_without_app_json():
     with tempfile.TemporaryDirectory() as d:
         _, appmod = _client(d)
         assert appmod._reminder_tick() == []
+
+
+# ---------------------------------------------------------------- password gate (#51)
+# APP_PASSWORD off = today's behaviour, unchanged. On = every API route needs the cookie
+# or the header, except /healthz (the k8s probes) and the login route itself.
+
+def _gated(d, password="hunter2"):
+    """A client with the gate ON. Returns (client, appmod)."""
+    os.environ["APP_PASSWORD"] = password
+    return _client(d)
+
+
+def _ungate():
+    os.environ.pop("APP_PASSWORD", None)
+
+
+def test_gate_is_off_unless_app_password_is_set():
+    # Same off-unless-configured contract as TELEGRAM_* and GMAIL_*: an existing
+    # deployment that sets nothing must keep working with no cookie at all.
+    _ungate()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.get("/bills").status_code == 200
+        assert c.get("/data/paid.json").status_code == 200
+        # and login says so rather than 401-ing a caller who cannot possibly authenticate
+        assert c.post("/api/login", json={"password": "anything"}).json() == {"ok": True, "auth": False}
+
+
+def test_gate_401s_the_data_routes_but_not_the_shell():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            for path in ("/bills", "/data/app.json", "/data/paid.json", "/data/waivers.json"):
+                assert c.get(path).status_code == 401, path
+            assert c.post("/api/paid", json={"key": "cimb|2026-06", "paid": True}).status_code == 401
+            # The SPA shell stays public — it is code, not data, and the browser needs a
+            # page to render the password prompt in.
+            r = c.get("/")
+            assert r.status_code == 200 and "spa" in r.text
+    finally:
+        _ungate()
+
+
+def test_healthz_is_reachable_unauthenticated_in_both_modes():
+    # NOT NEGOTIABLE: the k8s liveness/readiness probes send no cookie and no header.
+    _ungate()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.get("/healthz").status_code == 200
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            assert c.get("/healthz").status_code == 200
+            assert c.get("/healthz").json() == {"ok": True}
+    finally:
+        _ungate()
+
+
+def test_correct_password_issues_a_working_cookie():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            assert c.get("/bills").status_code == 401
+            r = c.post("/api/login", json={"password": "hunter2"})
+            assert r.status_code == 200 and r.json()["auth"] is True
+            ck = r.cookies.get(appmod.COOKIE)
+            assert ck and "." in ck                       # signed, not the password
+            assert "hunter2" not in ck
+            set_cookie = r.headers["set-cookie"].lower()
+            assert "httponly" in set_cookie and "samesite=lax" in set_cookie
+            assert "secure" not in set_cookie             # TestClient speaks http
+            # the client kept the cookie: the gated routes now answer
+            assert c.get("/bills").status_code == 200
+            assert c.post("/api/paid", json={"key": "cimb|2026-06", "paid": True}).status_code == 200
+    finally:
+        _ungate()
+
+
+def test_wrong_password_is_rejected_and_sets_no_cookie():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            r = c.post("/api/login", json={"password": "hunter3"})
+            assert r.status_code == 401
+            assert appmod.COOKIE not in r.cookies
+            assert c.get("/bills").status_code == 401
+            # an empty/missing password is not a way in either
+            assert c.post("/api/login", json={}).status_code == 401
+    finally:
+        _ungate()
+
+
+def test_forged_and_expired_cookies_are_rejected():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            for bad in ("", "garbage", "9999999999.deadbeef", appmod._issue_token("hunter3")):
+                c.cookies.set(appmod.COOKIE, bad)
+                assert c.get("/bills").status_code == 401, bad
+            # a correctly signed but expired token is still no
+            exp = int(__import__("time").time()) - 1
+            c.cookies.set(appmod.COOKIE, f"{exp}.{appmod._sign(exp, 'hunter2')}")
+            assert c.get("/bills").status_code == 401
+    finally:
+        _ungate()
+
+
+def test_cookie_is_secure_when_the_request_came_over_https():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            r = c.post("/api/login", json={"password": "hunter2"},
+                       headers={"x-forwarded-proto": "https"})
+            assert "secure" in r.headers["set-cookie"].lower()
+    finally:
+        _ungate()
+
+
+def test_fetch_loop_can_still_ingest_with_the_gate_on(monkeypatch):
+    """The trap #51 names: _fetch_loop goes back out through /ingest over the loopback,
+    carrying no cookie. fetch_mail.ingest() sends APP_PASSWORD as X-App-Password instead,
+    which is the same value the server holds. This drives the REAL fetch_mail.ingest and
+    replays the request it built into the app, so both halves are exercised.
+    """
+    import contextlib
+    import io
+
+    import fetch_mail
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: {"VERIFIED": 1})
+
+            def urlopen(req, timeout=None):        # loopback stand-in
+                r = c.post("/ingest", content=req.data, headers=dict(req.header_items()))
+                assert r.status_code == 200, (r.status_code, r.text)
+                return contextlib.closing(io.BytesIO(r.content))
+
+            monkeypatch.setattr(fetch_mail.urllib.request, "urlopen", urlopen)
+            assert fetch_mail.ingest(b"%PDF-LOOP", "cimb")["recon"] == {"VERIFIED": 1}
+            assert os.listdir(os.path.join(d, "pdfs"))[0].startswith("cimb_")
+
+            # the header is not a rubber stamp: a wrong one is still 401, and no header
+            # at all (what a naive loopback POST looks like) is too.
+            for hdr in ({"x-app-password": "wrong"}, {}):
+                r = c.post("/ingest", data={"bank": "cimb"},
+                           files={"file": ("s.pdf", b"%PDF-N", "application/pdf")}, headers=hdr)
+                assert r.status_code == 401, hdr
+    finally:
+        _ungate()

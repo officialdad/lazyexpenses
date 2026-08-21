@@ -141,8 +141,10 @@ token means nothing is messaged, and neither one breaks anything else.
 
 **[docs/DEPLOY.md](docs/DEPLOY.md) is the full guide**: every setting, how to get a Gmail
 app password, how to make the app properly installable from your phone, and the security
-note that matters — **there is no login**, so this belongs on your own machine or a
-private network, never on the open internet.
+note that matters. **There is no login unless you set one** — leave `APP_PASSWORD` blank
+and anyone who can reach the port sees everything; set it and the app asks for that one
+password once per device. Either way this belongs on your own machine or a private
+network, never on the open internet.
 
 ## Adding your own bank
 

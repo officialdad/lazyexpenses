@@ -5,16 +5,22 @@ shadows sibling routes, so the explicit API routes (/healthz, /data/app.json,
 /bills, /ingest) are registered FIRST and the SPA mount LAST. /data/app.json is
 served from the writable PVC (DATA_DIR), never the baked build/ copy, so data and
 code stay decoupled (runtime refresh, no rebuild).
+
+An optional shared-password gate (APP_PASSWORD, #51) covers every API route and nothing
+else - see the block above create_app().
 """
 import asyncio
+import hashlib
+import hmac
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -29,6 +35,71 @@ from server import pipeline
 # which is why parse.py fingerprint-dedups). Everything else — REVIEW, NO_BALANCE,
 # ERROR — means a statement did not reconcile and the caller should know.
 RECON_OK = {"VERIFIED", "DUPLICATE"}
+
+# ---------------------------------------------------------------- password gate (#51)
+# Off unless APP_PASSWORD is set - the same off-unless-configured contract the reminders
+# (TELEGRAM_*) and the mail fetch (GMAIL_*) use, so an existing deployment that sets
+# nothing keeps behaving exactly as it did.
+#
+# When it IS set, every API route needs one of:
+#   - the session cookie issued by POST /api/login, or
+#   - the password in an X-App-Password header (that is how fetch_mail.py posts to
+#     /ingest, in-process on the loopback or standalone against INGEST_URL).
+# Two paths stay open on purpose: /healthz, because the k8s probes call it, and the
+# static SPA shell, because the browser needs a page to render the prompt in. The shell
+# is code, not data; every byte of financial data comes from a gated route.
+#
+# ponytail: one shared password, no accounts. One person, one volume - see #51.
+COOKIE = "lx_session"
+SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
+AUTH_PUBLIC = {"/healthz", "/api/login"}
+
+
+def _app_password() -> str:
+    return os.environ.get("APP_PASSWORD") or ""
+
+
+def _sign(exp: int, pw: str) -> str:
+    """MAC over the expiry. The key is derived from the password, so sessions need no
+    server-side store (they survive a restart) and changing the password invalidates
+    every outstanding cookie for free."""
+    return hmac.new(hashlib.sha256(pw.encode()).digest(),
+                    str(exp).encode(), hashlib.sha256).hexdigest()
+
+
+def _issue_token(pw: str) -> str:
+    exp = int(time.time()) + SESSION_TTL
+    return f"{exp}.{_sign(exp, pw)}"
+
+
+def _token_ok(token: str, pw: str) -> bool:
+    exp, _, mac = (token or "").partition(".")
+    if not exp.isdigit() or int(exp) < time.time():
+        return False
+    return hmac.compare_digest(mac, _sign(int(exp), pw))
+
+
+def _is_https(request: Request) -> bool:
+    """Behind a reverse proxy the app itself speaks http, so trust the forwarded header
+    when it is there - that is the whole point of terminating TLS in front."""
+    fwd = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return (fwd or request.url.scheme) == "https"
+
+
+def _auth(request: Request):
+    """Registered as a GLOBAL dependency, so every current and future API route is gated
+    by default. A StaticFiles mount is not an APIRoute and never sees this - which is
+    exactly the split we want."""
+    pw = _app_password()
+    if not pw or request.url.path in AUTH_PUBLIC:
+        return
+    header = request.headers.get("x-app-password")
+    # .encode(): compare_digest rejects non-ASCII str, and a password may well be
+    if header and hmac.compare_digest(header.encode(), pw.encode()):
+        return
+    if _token_ok(request.cookies.get(COOKIE, ""), pw):
+        return
+    raise HTTPException(status_code=401, detail="password required")
 
 
 class SPAStaticFiles(StaticFiles):
@@ -152,12 +223,28 @@ def _web_dir() -> Path:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="statement-app", lifespan=_lifespan)
+    app = FastAPI(title="statement-app", lifespan=_lifespan, dependencies=[Depends(_auth)])
     lock = asyncio.Lock()  # serialize the pipeline: no concurrent parse runs
 
     @app.get("/healthz")
     def healthz():
         return {"ok": True}
+
+    @app.post("/api/login")
+    def login(request: Request, body: dict = Body(...)):
+        """Exchange the shared password for a signed session cookie.
+
+        `auth: false` when no APP_PASSWORD is configured - the PWA never gets here in
+        that case, but a curl user deserves a straight answer rather than a 401."""
+        pw = _app_password()
+        if not pw:
+            return JSONResponse({"ok": True, "auth": False})
+        if not hmac.compare_digest(str(body.get("password") or "").encode(), pw.encode()):
+            raise HTTPException(status_code=401, detail="wrong password")
+        res = JSONResponse({"ok": True, "auth": True})
+        res.set_cookie(COOKIE, _issue_token(pw), max_age=SESSION_TTL, path="/",
+                       httponly=True, samesite="lax", secure=_is_https(request))
+        return res
 
     @app.get("/data/app.json")
     def data_app_json():

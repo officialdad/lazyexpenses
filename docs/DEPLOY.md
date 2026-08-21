@@ -11,6 +11,7 @@ you, it is enough. Nothing below is needed to use the parser or the offline dash
 - [What each variable does](#what-each-variable-does)
 - [Fetching statements from Gmail](#fetching-statements-from-gmail)
 - [Bill reminders on Telegram](#bill-reminders-on-telegram)
+- [Locking it with a password](#locking-it-with-a-password)
 - [Putting it on your network](#putting-it-on-your-network) — **read the security note**
 - [Without Docker](#without-docker)
 - [Upgrading, backing up, troubleshooting](#upgrading-and-backing-up)
@@ -66,6 +67,7 @@ committed copy with placeholders — copy it, do not edit it.
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8000` | port on the host |
+| `APP_PASSWORD` | — | blank means no login; set it and the app asks for it once per device |
 | `CC_PW_MAYBANK` … `CC_PW_RHB` | — | statement passwords, one per bank, named after the filename prefix. Set only the banks you hold |
 | `GMAIL_USER` | — | the mailbox to poll |
 | `GMAIL_APP_PASSWORD` | — | a Google app password, never your login password |
@@ -172,6 +174,37 @@ is never reminded about, and a statement whose due date the parser could not fin
 skipped rather than guessed at. "Today" is resolved in Asia/Kuala_Lumpur whatever the
 host's timezone is, so a UTC machine does not fire a day early.
 
+## Locking it with a password
+
+By default there is no login. Set `APP_PASSWORD` to any password you like and there is
+one:
+
+```
+APP_PASSWORD=something-only-you-know
+```
+
+Restart, open the app, and it asks for that password once. It is stored as a cookie your
+browser keeps, so you type it once per device and not again for a month. There are no
+accounts and no usernames — one password for the whole app, because there is one of you
+and one pile of statements.
+
+What the password covers is everything that carries your data: the statement data, the
+bills, the paid and waiver marks, and `/ingest`. What it deliberately does **not** cover:
+
+- **`/healthz`**, so a container platform can still tell whether the app is alive.
+- **the web app's own files** — the HTML and JavaScript, which contain none of your data
+  and have to load before the browser can ask you for anything.
+
+**The mail fetch keeps working.** The server's hourly fetch posts statements to its own
+`/ingest`, and it sends `APP_PASSWORD` along with them, so turning the gate on does not
+lock the app out of itself. If you run `python fetch_mail.py` yourself, set the same
+`APP_PASSWORD` in its environment — otherwise it gets a `401` and the mail stays unread.
+(`--dry-run` posts nothing, so it never needs it.)
+
+Changing the password logs every device out; there is nothing to clean up. And a password
+over plain HTTP is a password anyone on the network can read, so this pairs with the HTTPS
+note below rather than replacing it.
+
 ## Suggesting categories with a local model (optional, off by default)
 
 Every merchant the keyword table in `parse.py` does not recognise lands in `Other`. That
@@ -237,11 +270,16 @@ and nothing else notices.
 
 ## Putting it on your network
 
-> **There is no login.** Anyone who can reach the port sees every transaction, every
-> balance and every card. That is fine on your own machine, and fine on a private network
-> you control. It is **not** fine on the open internet — do not port-forward this, and do
-> not put it behind a plain reverse proxy on a public domain without adding
-> authentication of your own.
+> **Set `APP_PASSWORD` before this leaves your own machine.** With it blank there is no
+> login at all: anyone who can reach the port sees every transaction, every balance and
+> every card. With it set, they need the password — see
+> [Locking it with a password](#locking-it-with-a-password).
+>
+> A password is not the same as being safe on the open internet. Do not port-forward this.
+> A single shared password over a public domain is one guessed string away from your whole
+> financial history, and over plain HTTP it is readable in transit — so if it has to be
+> reachable from outside, put it behind HTTPS and something of your own (a VPN, a private
+> mesh, a proxy that authenticates) rather than relying on this alone.
 
 The other thing worth knowing before you move it off localhost: **installing the web app
 needs a secure context.** Over a plain `http://192.168.x.x` address the browser silently
@@ -307,6 +345,8 @@ change must never serve rows from the old rules.
 | A statement shows `REVIEW` | the bank changed its layout; `python probe.py <file>` shows what the parser sees |
 | the log says "nothing to fetch" | `GMAIL_USER` / `GMAIL_APP_PASSWORD` are blank in `.env` |
 | Reminders never arrive | both Telegram variables set? Did you message the bot first? |
+| It keeps asking for the password | `APP_PASSWORD` changed, or the cookie expired after a month — type it again |
+| `fetch_mail.py` says `HTTP Error 401` | you set `APP_PASSWORD` on the server but not in the shell you ran the script from |
 | No install prompt | you are on plain HTTP from another machine — see [above](#putting-it-on-your-network) |
 
 Logs for everything, in one place: `docker compose logs -f`.
