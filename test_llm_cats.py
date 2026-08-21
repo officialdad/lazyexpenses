@@ -19,17 +19,32 @@ def _row(desc, cat, amt="10.00"):
     return {"description": desc, "category": cat, "amount": amt, "type": "debit"}
 
 
-def test_prompt_carries_the_taxonomy_not_just_the_names():
+def test_the_prompt_is_the_category_names_and_nothing_else():
+    """#58, and this test is the guard on a measured result rather than a style rule.
+
+    Prose describing the categories makes the model stop reading the merchant and
+    answer one constant category: names-only 4/5, names + glosses + CATS examples
+    1/5 on the same 5 merchants. Not length - a longer few-shot prompt still got 4/5.
+    Adding a gloss back here, or a sentence about the categories to SYSTEM, undoes it.
+    """
     p = prompt("K S S OTOMOBIL")
     assert [m["role"] for m in p] == ["system", "user"]
     user = p[1]["content"]
     assert "K S S OTOMOBIL" in user
     for cat in CATEGORIES:
         assert cat in user, cat                       # all 15 names
-    assert "petrol, tolls, parking" in user           # the gloss
-    assert "PETRONAS" in user and "SHOPEE" in user    # real examples lifted from CATS
-    # examples are capped so a 300-keyword table does not become the prompt
     assert len(taxonomy().splitlines()) == 15
+    assert taxonomy() == "\n".join(f"- {c}" for c in CATEGORIES)   # names, nothing else
+    # no glosses, and no examples lifted from CATS
+    for leak in ("petrol", "supermarket", "PETRONAS", "SHOPEE", "e.g."):
+        assert leak not in user, leak
+    # the merchant goes BEFORE the reply instruction; merchant-last measured 3/5
+    assert user.index("K S S OTOMOBIL") < user.index("Reply as")
+    # and SYSTEM stays free of category prose too - one extra sentence there
+    # collapsed the answer to "Shopping" five times out of five
+    assert not any(cat in p[0]["content"] for cat in CATEGORIES)
+    # a caller may still narrow the block
+    assert taxonomy(["F&B", "Travel"]) == "- F&B\n- Travel"
 
 
 def test_the_schema_pins_the_answer_to_the_fifteen_categories():
@@ -194,7 +209,7 @@ def test_a_missing_csv_is_one_line_not_a_traceback():
 
 
 if __name__ == "__main__":
-    test_prompt_carries_the_taxonomy_not_just_the_names()
+    test_the_prompt_is_the_category_names_and_nothing_else()
     test_the_schema_pins_the_answer_to_the_fifteen_categories()
     test_parse_response_reads_a_constrained_reply()
     test_parse_response_raises_on_anything_it_cannot_trust()
