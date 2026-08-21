@@ -14,14 +14,16 @@ import hashlib
 import hmac
 import json
 import os
+import posixpath
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -41,18 +43,20 @@ RECON_OK = {"VERIFIED", "DUPLICATE"}
 # (TELEGRAM_*) and the mail fetch (GMAIL_*) use, so an existing deployment that sets
 # nothing keeps behaving exactly as it did.
 #
-# When it IS set, every API route needs one of:
+# When it IS set, a protected request needs one of:
 #   - the session cookie issued by POST /api/login, or
 #   - the password in an X-App-Password header (that is how fetch_mail.py posts to
 #     /ingest, in-process on the loopback or standalone against INGEST_URL).
-# Two paths stay open on purpose: /healthz, because the k8s probes call it, and the
-# static SPA shell, because the browser needs a page to render the prompt in. The shell
-# is code, not data; every byte of financial data comes from a gated route.
+# Two things stay open on purpose: /healthz, because the k8s probes call it, and the
+# PWA's own assets, because the browser needs them to render the prompt.
 #
 # ponytail: one shared password, no accounts. One person, one volume - see #51.
 COOKIE = "lx_session"
 SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
 AUTH_PUBLIC = {"/healthz", "/api/login"}
+# Gated by prefix as well as by route, so a file that somehow ends up under these paths
+# inside the static mount is not a way around the routes of the same name.
+AUTH_PREFIXES = ("/data/", "/api/")
 
 
 def _app_password() -> str:
@@ -86,20 +90,50 @@ def _is_https(request: Request) -> bool:
     return (fwd or request.url.scheme) == "https"
 
 
-def _auth(request: Request):
-    """Registered as a GLOBAL dependency, so every current and future API route is gated
-    by default. A StaticFiles mount is not an APIRoute and never sees this - which is
-    exactly the split we want."""
-    pw = _app_password()
-    if not pw or request.url.path in AUTH_PUBLIC:
-        return
+def _norm(path: str) -> str:
+    """Collapse `//`, resolve `.` and `..`, drop the trailing slash.
+
+    The gate matches paths as strings, and `//data/app.json`, `/data/app.json/`,
+    `/./data/app.json`, `/data//app.json` and `/x/../data/app.json` all reach the same
+    file - so they have to compare equal to `/data/app.json` or they are five bypasses.
+    (`lstrip` first because posixpath.normpath preserves a leading `//`.)"""
+    return posixpath.normpath("/" + path.lstrip("/"))
+
+
+def _authed(request: Request, pw: str) -> bool:
     header = request.headers.get("x-app-password")
     # .encode(): compare_digest rejects non-ASCII str, and a password may well be
     if header and hmac.compare_digest(header.encode(), pw.encode()):
-        return
-    if _token_ok(request.cookies.get(COOKIE, ""), pw):
-        return
-    raise HTTPException(status_code=401, detail="password required")
+        return True
+    return _token_ok(request.cookies.get(COOKIE, ""), pw)
+
+
+def _install_gate(app: FastAPI) -> None:
+    """MIDDLEWARE, NOT A ROUTE DEPENDENCY - this is the whole point.
+
+    A dependency only runs for APIRoutes, so a StaticFiles mount is structurally outside
+    it. The baked PWA build is mounted at "/", so anything the router hands to that mount
+    is public: `//data/app.json` and friends miss the exact `/data/app.json` route, fall
+    through to the mount and get served. Middleware runs BEFORE routing, so it sees mount
+    traffic too - and normalises the path before matching it.
+
+    `protected` is derived from the router rather than hand-listed, so a route added
+    later is gated the day it is added.
+    """
+    protected = {r.path for r in app.routes if isinstance(r, APIRoute)} - AUTH_PUBLIC
+
+    @app.middleware("http")
+    async def gate(request: Request, call_next):
+        pw = _app_password()
+        p = _norm(request.scope["path"])
+        # .lower() on the prefixes only: a case-insensitive filesystem would serve
+        # /DATA/app.json out of the mount. Route names stay case-sensitive, and nothing
+        # under a differently-cased AUTH_PUBLIC path exists to reach.
+        if pw and p not in AUTH_PUBLIC and (p in protected
+                                            or p.lower().startswith(AUTH_PREFIXES)):
+            if not _authed(request, pw):
+                return JSONResponse({"detail": "password required"}, status_code=401)
+        return await call_next(request)
 
 
 class SPAStaticFiles(StaticFiles):
@@ -223,7 +257,7 @@ def _web_dir() -> Path:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="statement-app", lifespan=_lifespan, dependencies=[Depends(_auth)])
+    app = FastAPI(title="statement-app", lifespan=_lifespan)
     lock = asyncio.Lock()  # serialize the pipeline: no concurrent parse runs
 
     @app.get("/healthz")
@@ -337,6 +371,7 @@ def create_app() -> FastAPI:
     web = _web_dir()
     if web.exists():
         app.mount("/", SPAStaticFiles(directory=str(web), html=True), name="spa")
+    _install_gate(app)   # after the routes: `protected` is read off the router
     return app
 
 

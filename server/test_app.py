@@ -421,3 +421,132 @@ def test_fetch_loop_can_still_ingest_with_the_gate_on(monkeypatch):
                 assert r.status_code == 401, hdr
     finally:
         _ungate()
+
+
+# ------------------------------------------------- the static mount is not a way around
+# A route-level dependency cannot gate a StaticFiles mount: the mount is not an APIRoute,
+# so it never runs one. The build baked web/static/data/*.json into web_build/data/, which
+# put app.json INSIDE the public mount - and every path variant that misses the exact
+# "/data/app.json" route fell through to it. Both halves are fixed: the gate is now
+# middleware over a normalised path, and the Dockerfile stops shipping build/data.
+
+SENTINEL = b"BAKED-INTO-IMAGE-SECRET"
+
+# All five reach the same file. curl --path-as-is sends them verbatim.
+BYPASS_PATHS = (
+    "/data/app.json",
+    "//data/app.json",
+    "/data/app.json/",
+    "/./data/app.json",
+    "/data//app.json",
+    "/x/../data/app.json",
+    "/DATA/app.json",          # only a bypass on a case-insensitive filesystem
+    "/data/paid.json",
+    "/data/waivers.json",
+    "//bills",
+)
+
+
+def _raw_get(asgi_app, path, headers=()):
+    """GET a RAW path straight into the ASGI app.
+
+    NOT TestClient: httpx normalises `//x`, `/./x` and `/a/../x` client-side, so a
+    TestClient-based version of this test passes with the hole wide open (verified).
+    A real client sends them verbatim; so does this.
+    """
+    import asyncio
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+        "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"",
+        "root_path": "", "client": ("127.0.0.1", 1234), "server": ("testserver", 80),
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers],
+    }
+    got = {"body": b""}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        if msg["type"] == "http.response.start":
+            got["status"] = msg["status"]
+        elif msg["type"] == "http.response.body":
+            got["body"] += msg.get("body", b"")
+
+    asyncio.run(asgi_app(scope, receive, send))
+    return got["status"], got["body"]
+
+
+def _baked_web(d):
+    """A WEB_DIR shaped like the image used to be: shell assets AND a data/ dir."""
+    web = os.path.join(d, "web_build")
+    os.makedirs(os.path.join(web, "data"), exist_ok=True)
+    os.makedirs(os.path.join(web, "_app"), exist_ok=True)
+    with open(os.path.join(web, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write("<!doctype html><title>spa</title>")
+    with open(os.path.join(web, "_app", "app.js"), "w", encoding="utf-8") as fh:
+        fh.write("console.log(1)")
+    with open(os.path.join(web, "manifest.webmanifest"), "w", encoding="utf-8") as fh:
+        fh.write('{"name":"m"}')
+    for name in ("app.json", "paid.json", "waivers.json"):
+        with open(os.path.join(web, "data", name), "wb") as fh:
+            fh.write(SENTINEL)
+    return web
+
+
+def test_no_path_variant_reaches_data_through_the_static_mount():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            web = _baked_web(d)
+            os.environ["APP_PASSWORD"] = "hunter2"
+            c, appmod = _client(d, web=web)
+            for path in BYPASS_PATHS:
+                status, body = _raw_get(c.app, path)
+                assert status == 401, f"{path} -> {status} {body[:80]!r}"
+                assert SENTINEL not in body, f"{path} served the baked file"
+            # the header and cookie still work on the canonical path
+            status, _ = _raw_get(c.app, "/data/app.json", [("x-app-password", "hunter2")])
+            assert status == 404          # gate passed; no app.json on the PVC
+            tok = appmod._issue_token("hunter2")
+            status, _ = _raw_get(c.app, "/data/app.json", [("cookie", f"{appmod.COOKIE}={tok}")])
+            assert status == 404
+    finally:
+        _ungate()
+
+
+def test_the_shell_still_loads_while_locked():
+    # The login form cannot render if the gate eats the assets that draw it.
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            web = _baked_web(d)
+            os.environ["APP_PASSWORD"] = "hunter2"
+            c, _ = _client(d, web=web)
+            for path in ("/", "/index.html", "/_app/app.js", "/manifest.webmanifest",
+                         "/healthz", "//healthz", "/some-spa-route"):
+                status, body = _raw_get(c.app, path)
+                assert status == 200, f"{path} -> {status}"
+                assert SENTINEL not in body
+    finally:
+        _ungate()
+
+
+def test_norm_collapses_every_variant_to_one_string():
+    from server import app as appmod
+    for path in ("//data/app.json", "/data/app.json/", "/./data/app.json",
+                 "/data//app.json", "/x/../data/app.json", "/data/./app.json",
+                 "///data//.//app.json"):
+        assert appmod._norm(path) == "/data/app.json", path
+    assert appmod._norm("/") == "/"
+    assert appmod._norm("//") == "/"
+    assert appmod._norm("/..") == "/"          # cannot climb out
+
+
+def test_the_image_does_not_ship_the_baked_data_dir():
+    """web/static/data/*.json is a local dev fixture; adapter-static copies it into
+    build/data/, which lands inside the public static mount. Nothing else can catch this
+    without building the image, so check the line that removes it."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "Dockerfile"), encoding="utf-8") as fh:
+        dockerfile = fh.read()
+    assert "rm -rf build/data" in dockerfile, "the image would bake web/static/data into web_build"
+    # and it has to happen in the web stage, before the COPY --from=web
+    assert dockerfile.index("rm -rf build/data") < dockerfile.index("COPY --from=web")
