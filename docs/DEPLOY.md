@@ -186,37 +186,71 @@ someone else's server.
 
 What it actually costs you:
 
-- **A model download.** An instruct-tuned GGUF under 1 GB is enough; a 0.5B at Q4_K_M is
-  around 400 MB. Qwen2.5-0.5B-Instruct is a reasonable place to start.
+- **A model download.** An instruct-tuned GGUF under 1 GB is enough. The one named below
+  and wired into `compose.yaml` is
+  [`Qwen2.5-0.5B-Instruct-GGUF` at Q4_K_M](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF),
+  ~470 MB. You do not have to choose one.
 - **A server to run.** [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server`,
   on your own machine, for as long as the run takes.
-- **A real accuracy ceiling.** A model that small guesses, and Malaysian merchant strings
-  are abbreviations that are hard for a person to read (`PSS-`, `MPC2004`). This is a
-  convenience for the tail of unknown merchants, not a replacement for the table.
+- **A real accuracy ceiling, and it is lower than it sounds.** A model that small guesses,
+  and Malaysian merchant strings are abbreviations that are hard for a person to read
+  (`PSS-`, `MPC2004`). On the first live run of this profile — 5 merchants the keyword
+  table could not name — Qwen2.5-0.5B got **0 of 5 right**, and reported `high` confidence
+  on every one of them (`K S S OTOMOBIL` → `Travel`, `PERODUA SERVIS` → `F&B`). The
+  selection effect is the whole problem: by design the model only ever sees the merchants
+  `CATS` already failed on, which are the hardest ones. **Treat the output as a list of
+  merchants worth looking at, not as categories worth pasting.** Read every line before it
+  goes into `CATS`, and do not assume a bigger model fixes it until you have measured one.
 
 Nothing is applied for you. The run writes `suggested_cats.csv` — merchant, proposed
 category, confidence, how many times it appeared, what it came to in ringgit — and prints a
 block of keywords to paste into `CATS`. You decide what goes in. Once a keyword is in the
 table, that merchant costs nothing forever after.
 
+### Running it from source
+
 ```bash
-llama-server -hf <a small instruct GGUF> --port 8080   # in another terminal
+# in another terminal. Note -hf, not -mu: current llama-server builds start in "router
+# mode" and silently ignore --model-url, leaving you a healthy server with no model.
+llama-server --port 8080 -hf Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M
 export LLM_URL=http://localhost:8080
 python parse.py                     # unchanged; no model involved
 python llm_cats.py --suggest-cats   # reads transactions.csv, writes suggested_cats.csv
 ```
 
-Running the container instead? The tool ships in the image, and both files live on the
-volume, so it needs no path — `DATA_DIR` already says where they are:
+### Running it with `docker compose`
+
+`compose.yaml` carries a second service, `llm`, behind a **compose profile**. A plain
+`docker compose up -d` does not start it, pull it, or download its model — the default
+deployment is one container, exactly as before. Turn it on only when you want it:
 
 ```bash
-docker compose exec -e LLM_ENABLED=1 -e LLM_URL=http://host.docker.internal:8080 \
-  app python llm_cats.py --suggest-cats     # writes /data/suggested_cats.csv
+docker compose --profile llm up -d           # first start downloads ~470 MB
+docker compose exec -e LLM_ENABLED=1 -e LLM_URL=http://llm:8080 \
+  app python llm_cats.py --suggest-cats      # writes /data/suggested_cats.csv
+docker compose --profile llm down            # stop it again; the weights are kept
 ```
+
+`http://llm:8080` is the service name on the compose network, so nothing is published to
+the host and there is no platform-specific hostname involved. `LLM_MODEL` can stay at its
+default — the server holds exactly one model and answers whatever name you send. The
+weights live on their own named volume (`models`), so stopping the profile — or
+`docker compose down` — does not throw away the download. `docker compose down -v` does.
+
+The model is CPU-only on purpose. If you have a GPU, override `image:` with
+`ghcr.io/ggml-org/llama.cpp:server-cuda` and add `--gpus all` yourself; that path is not
+tested here.
+
+> **If you would rather run `llama-server` on the host machine** and reach it from the
+> container, be aware that `host.docker.internal` **does not resolve on plain Linux
+> Docker** — it is a Docker Desktop convenience. On Linux you must add
+> `extra_hosts: ["host.docker.internal:host-gateway"]` to the `app` service yourself
+> before that hostname works. The `llm` profile above avoids the whole question, which is
+> why it is the documented path.
 
 | Variable | Default | |
 |---|---|---|
-| `LLM_URL` | — | where `llama-server` is listening, e.g. `http://localhost:8080`. Unset means the feature is not there at all |
+| `LLM_URL` | — | where `llama-server` is listening: `http://llm:8080` with the compose profile, `http://localhost:8080` from source. Unset means the feature is not there at all |
 | `LLM_MODEL` | `local` | model name sent with the request; `llama-server` serves one model and ignores it |
 | `LLM_ENABLED` | — | set to `0` to force it off even with `LLM_URL` set |
 

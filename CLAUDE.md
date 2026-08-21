@@ -160,8 +160,14 @@ issues frame it, both filed to be picked up cold:
   **no pip install** and takes 0.02s instead of ~30s to build its data.
 - **#29 — `llm_cats.py --suggest-cats`.** Suggest mode only; the live parse-time fallback was
   deliberately not built. Off unless `LLM_URL`/`LLM_ENABLED`; byte-identical parse output proven by
-  a cold-cache reparse diff. **The live model path is still unverified** — no llama.cpp on this
-  machine, so only a fake HTTP server has ever answered it.
+  a cold-cache reparse diff. **The live model path was answered on 2026-08-21 by #54's `llm`
+  compose profile** — a real `llama-server` (Qwen2.5-0.5B Q4_K_M) served it end to end. Two things
+  came out of it. (1) `LLAMA_ARG_MODEL_URL`, which upstream's own compose example still shows, is
+  **silently ignored** by the current `ghcr.io/ggml-org/llama.cpp:server` image: it starts in
+  *router mode*, loads zero models, and `/health` still returns `ok`. `LLAMA_ARG_HF_REPO` is what
+  works. (2) **Quality is bad**: 0 of 5 unmatched merchants categorised correctly, every one
+  reported `high` confidence. That is not a fluke of the sample — the model only ever sees what
+  `CATS` already failed on. Treat `suggested_cats.csv` as a worklist, not as answers.
 - **0.9.1** fixed what testing the published 0.9.0 image found: `llm_cats.py` was missing from
   `Dockerfile`'s COPY list entirely, and once added, defaulted to a cwd-relative
   `transactions.csv` — wrong inside a container, where `docker exec` lands in `/app` and the CSVs
