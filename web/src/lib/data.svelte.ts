@@ -1,7 +1,7 @@
 import type { AppData } from './types';
 import { monthlySeries, byCategory, topMerchants } from './trends';
 
-export type LoadStatus = 'loading' | 'ready' | 'error';
+export type LoadStatus = 'loading' | 'ready' | 'error' | 'auth';
 
 const EMPTY: AppData = {
   rows: [], months: [], cards: [], cats: [], nonSpend: [],
@@ -43,6 +43,12 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
   meta.error = '';
   try {
     const res = await f('/data/app.json');
+    // 401 = the server has APP_PASSWORD set and we have no session cookie. That is not
+    // an error to retry, it is a prompt to show — a fourth state, not a fourth screen.
+    if (res.status === 401) {
+      meta.status = 'auth';
+      return;
+    }
     if (!res.ok) throw new Error(`app.json HTTP ${res.status}`);
     const d = (await res.json()) as AppData;
     Object.assign(app, d);
@@ -54,5 +60,20 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
   } catch (e) {
     meta.error = e instanceof Error ? e.message : String(e);
     meta.status = 'error';
+  }
+}
+
+/** Exchange the shared password for a session cookie (HttpOnly — the browser holds it,
+ *  this code never sees it). true on success. `f` injectable for tests; never throws. */
+export async function login(password: string, f: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const res = await f('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

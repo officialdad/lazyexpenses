@@ -271,3 +271,282 @@ def test_reminder_tick_noop_without_app_json():
     with tempfile.TemporaryDirectory() as d:
         _, appmod = _client(d)
         assert appmod._reminder_tick() == []
+
+
+# ---------------------------------------------------------------- password gate (#51)
+# APP_PASSWORD off = today's behaviour, unchanged. On = every API route needs the cookie
+# or the header, except /healthz (the k8s probes) and the login route itself.
+
+def _gated(d, password="hunter2"):
+    """A client with the gate ON. Returns (client, appmod)."""
+    os.environ["APP_PASSWORD"] = password
+    return _client(d)
+
+
+def _ungate():
+    os.environ.pop("APP_PASSWORD", None)
+
+
+def test_gate_is_off_unless_app_password_is_set():
+    # Same off-unless-configured contract as TELEGRAM_* and GMAIL_*: an existing
+    # deployment that sets nothing must keep working with no cookie at all.
+    _ungate()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.get("/bills").status_code == 200
+        assert c.get("/data/paid.json").status_code == 200
+        # and login says so rather than 401-ing a caller who cannot possibly authenticate
+        assert c.post("/api/login", json={"password": "anything"}).json() == {"ok": True, "auth": False}
+
+
+def test_gate_401s_the_data_routes_but_not_the_shell():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            for path in ("/bills", "/data/app.json", "/data/paid.json", "/data/waivers.json"):
+                assert c.get(path).status_code == 401, path
+            assert c.post("/api/paid", json={"key": "cimb|2026-06", "paid": True}).status_code == 401
+            # The SPA shell stays public — it is code, not data, and the browser needs a
+            # page to render the password prompt in.
+            r = c.get("/")
+            assert r.status_code == 200 and "spa" in r.text
+    finally:
+        _ungate()
+
+
+def test_healthz_is_reachable_unauthenticated_in_both_modes():
+    # NOT NEGOTIABLE: the k8s liveness/readiness probes send no cookie and no header.
+    _ungate()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert c.get("/healthz").status_code == 200
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            assert c.get("/healthz").status_code == 200
+            assert c.get("/healthz").json() == {"ok": True}
+    finally:
+        _ungate()
+
+
+def test_correct_password_issues_a_working_cookie():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            assert c.get("/bills").status_code == 401
+            r = c.post("/api/login", json={"password": "hunter2"})
+            assert r.status_code == 200 and r.json()["auth"] is True
+            ck = r.cookies.get(appmod.COOKIE)
+            assert ck and "." in ck                       # signed, not the password
+            assert "hunter2" not in ck
+            set_cookie = r.headers["set-cookie"].lower()
+            assert "httponly" in set_cookie and "samesite=lax" in set_cookie
+            assert "secure" not in set_cookie             # TestClient speaks http
+            # the client kept the cookie: the gated routes now answer
+            assert c.get("/bills").status_code == 200
+            assert c.post("/api/paid", json={"key": "cimb|2026-06", "paid": True}).status_code == 200
+    finally:
+        _ungate()
+
+
+def test_wrong_password_is_rejected_and_sets_no_cookie():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            r = c.post("/api/login", json={"password": "hunter3"})
+            assert r.status_code == 401
+            assert appmod.COOKIE not in r.cookies
+            assert c.get("/bills").status_code == 401
+            # an empty/missing password is not a way in either
+            assert c.post("/api/login", json={}).status_code == 401
+    finally:
+        _ungate()
+
+
+def test_forged_and_expired_cookies_are_rejected():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            for bad in ("", "garbage", "9999999999.deadbeef", appmod._issue_token("hunter3")):
+                c.cookies.set(appmod.COOKIE, bad)
+                assert c.get("/bills").status_code == 401, bad
+            # a correctly signed but expired token is still no
+            exp = int(__import__("time").time()) - 1
+            c.cookies.set(appmod.COOKIE, f"{exp}.{appmod._sign(exp, 'hunter2')}")
+            assert c.get("/bills").status_code == 401
+    finally:
+        _ungate()
+
+
+def test_cookie_is_secure_when_the_request_came_over_https():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d)
+            r = c.post("/api/login", json={"password": "hunter2"},
+                       headers={"x-forwarded-proto": "https"})
+            assert "secure" in r.headers["set-cookie"].lower()
+    finally:
+        _ungate()
+
+
+def test_fetch_loop_can_still_ingest_with_the_gate_on(monkeypatch):
+    """The trap #51 names: _fetch_loop goes back out through /ingest over the loopback,
+    carrying no cookie. fetch_mail.ingest() sends APP_PASSWORD as X-App-Password instead,
+    which is the same value the server holds. This drives the REAL fetch_mail.ingest and
+    replays the request it built into the app, so both halves are exercised.
+    """
+    import contextlib
+    import io
+
+    import fetch_mail
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d)
+            monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: {"VERIFIED": 1})
+
+            def urlopen(req, timeout=None):        # loopback stand-in
+                r = c.post("/ingest", content=req.data, headers=dict(req.header_items()))
+                assert r.status_code == 200, (r.status_code, r.text)
+                return contextlib.closing(io.BytesIO(r.content))
+
+            monkeypatch.setattr(fetch_mail.urllib.request, "urlopen", urlopen)
+            assert fetch_mail.ingest(b"%PDF-LOOP", "cimb")["recon"] == {"VERIFIED": 1}
+            assert os.listdir(os.path.join(d, "pdfs"))[0].startswith("cimb_")
+
+            # the header is not a rubber stamp: a wrong one is still 401, and no header
+            # at all (what a naive loopback POST looks like) is too.
+            for hdr in ({"x-app-password": "wrong"}, {}):
+                r = c.post("/ingest", data={"bank": "cimb"},
+                           files={"file": ("s.pdf", b"%PDF-N", "application/pdf")}, headers=hdr)
+                assert r.status_code == 401, hdr
+    finally:
+        _ungate()
+
+
+# ------------------------------------------------- the static mount is not a way around
+# A route-level dependency cannot gate a StaticFiles mount: the mount is not an APIRoute,
+# so it never runs one. The build baked web/static/data/*.json into web_build/data/, which
+# put app.json INSIDE the public mount - and every path variant that misses the exact
+# "/data/app.json" route fell through to it. Both halves are fixed: the gate is now
+# middleware over a normalised path, and the Dockerfile stops shipping build/data.
+
+SENTINEL = b"BAKED-INTO-IMAGE-SECRET"
+
+# All five reach the same file. curl --path-as-is sends them verbatim.
+BYPASS_PATHS = (
+    "/data/app.json",
+    "//data/app.json",
+    "/data/app.json/",
+    "/./data/app.json",
+    "/data//app.json",
+    "/x/../data/app.json",
+    "/DATA/app.json",          # only a bypass on a case-insensitive filesystem
+    "/data/paid.json",
+    "/data/waivers.json",
+    "//bills",
+)
+
+
+def _raw_get(asgi_app, path, headers=()):
+    """GET a RAW path straight into the ASGI app.
+
+    NOT TestClient: httpx normalises `//x`, `/./x` and `/a/../x` client-side, so a
+    TestClient-based version of this test passes with the hole wide open (verified).
+    A real client sends them verbatim; so does this.
+    """
+    import asyncio
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+        "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"",
+        "root_path": "", "client": ("127.0.0.1", 1234), "server": ("testserver", 80),
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers],
+    }
+    got = {"body": b""}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        if msg["type"] == "http.response.start":
+            got["status"] = msg["status"]
+        elif msg["type"] == "http.response.body":
+            got["body"] += msg.get("body", b"")
+
+    asyncio.run(asgi_app(scope, receive, send))
+    return got["status"], got["body"]
+
+
+def _baked_web(d):
+    """A WEB_DIR shaped like the image used to be: shell assets AND a data/ dir."""
+    web = os.path.join(d, "web_build")
+    os.makedirs(os.path.join(web, "data"), exist_ok=True)
+    os.makedirs(os.path.join(web, "_app"), exist_ok=True)
+    with open(os.path.join(web, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write("<!doctype html><title>spa</title>")
+    with open(os.path.join(web, "_app", "app.js"), "w", encoding="utf-8") as fh:
+        fh.write("console.log(1)")
+    with open(os.path.join(web, "manifest.webmanifest"), "w", encoding="utf-8") as fh:
+        fh.write('{"name":"m"}')
+    for name in ("app.json", "paid.json", "waivers.json"):
+        with open(os.path.join(web, "data", name), "wb") as fh:
+            fh.write(SENTINEL)
+    return web
+
+
+def test_no_path_variant_reaches_data_through_the_static_mount():
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            web = _baked_web(d)
+            os.environ["APP_PASSWORD"] = "hunter2"
+            c, appmod = _client(d, web=web)
+            for path in BYPASS_PATHS:
+                status, body = _raw_get(c.app, path)
+                assert status == 401, f"{path} -> {status} {body[:80]!r}"
+                assert SENTINEL not in body, f"{path} served the baked file"
+            # the header and cookie still work on the canonical path
+            status, _ = _raw_get(c.app, "/data/app.json", [("x-app-password", "hunter2")])
+            assert status == 404          # gate passed; no app.json on the PVC
+            tok = appmod._issue_token("hunter2")
+            status, _ = _raw_get(c.app, "/data/app.json", [("cookie", f"{appmod.COOKIE}={tok}")])
+            assert status == 404
+    finally:
+        _ungate()
+
+
+def test_the_shell_still_loads_while_locked():
+    # The login form cannot render if the gate eats the assets that draw it.
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            web = _baked_web(d)
+            os.environ["APP_PASSWORD"] = "hunter2"
+            c, _ = _client(d, web=web)
+            for path in ("/", "/index.html", "/_app/app.js", "/manifest.webmanifest",
+                         "/healthz", "//healthz", "/some-spa-route"):
+                status, body = _raw_get(c.app, path)
+                assert status == 200, f"{path} -> {status}"
+                assert SENTINEL not in body
+    finally:
+        _ungate()
+
+
+def test_norm_collapses_every_variant_to_one_string():
+    from server import app as appmod
+    for path in ("//data/app.json", "/data/app.json/", "/./data/app.json",
+                 "/data//app.json", "/x/../data/app.json", "/data/./app.json",
+                 "///data//.//app.json"):
+        assert appmod._norm(path) == "/data/app.json", path
+    assert appmod._norm("/") == "/"
+    assert appmod._norm("//") == "/"
+    assert appmod._norm("/..") == "/"          # cannot climb out
+
+
+def test_the_image_does_not_ship_the_baked_data_dir():
+    """web/static/data/*.json is a local dev fixture; adapter-static copies it into
+    build/data/, which lands inside the public static mount. Nothing else can catch this
+    without building the image, so check the line that removes it."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "Dockerfile"), encoding="utf-8") as fh:
+        dockerfile = fh.read()
+    assert "rm -rf build/data" in dockerfile, "the image would bake web/static/data into web_build"
+    # and it has to happen in the web stage, before the COPY --from=web
+    assert dockerfile.index("rm -rf build/data") < dockerfile.index("COPY --from=web")

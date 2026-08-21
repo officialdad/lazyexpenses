@@ -5,17 +5,25 @@ shadows sibling routes, so the explicit API routes (/healthz, /data/app.json,
 /bills, /ingest) are registered FIRST and the SPA mount LAST. /data/app.json is
 served from the writable PVC (DATA_DIR), never the baked build/ copy, so data and
 code stay decoupled (runtime refresh, no rebuild).
+
+An optional shared-password gate (APP_PASSWORD, #51) covers every API route and nothing
+else - see the block above create_app().
 """
 import asyncio
+import hashlib
+import hmac
 import json
 import os
+import posixpath
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -29,6 +37,103 @@ from server import pipeline
 # which is why parse.py fingerprint-dedups). Everything else — REVIEW, NO_BALANCE,
 # ERROR — means a statement did not reconcile and the caller should know.
 RECON_OK = {"VERIFIED", "DUPLICATE"}
+
+# ---------------------------------------------------------------- password gate (#51)
+# Off unless APP_PASSWORD is set - the same off-unless-configured contract the reminders
+# (TELEGRAM_*) and the mail fetch (GMAIL_*) use, so an existing deployment that sets
+# nothing keeps behaving exactly as it did.
+#
+# When it IS set, a protected request needs one of:
+#   - the session cookie issued by POST /api/login, or
+#   - the password in an X-App-Password header (that is how fetch_mail.py posts to
+#     /ingest, in-process on the loopback or standalone against INGEST_URL).
+# Two things stay open on purpose: /healthz, because the k8s probes call it, and the
+# PWA's own assets, because the browser needs them to render the prompt.
+#
+# ponytail: one shared password, no accounts. One person, one volume - see #51.
+COOKIE = "lx_session"
+SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
+AUTH_PUBLIC = {"/healthz", "/api/login"}
+# Gated by prefix as well as by route, so a file that somehow ends up under these paths
+# inside the static mount is not a way around the routes of the same name.
+AUTH_PREFIXES = ("/data/", "/api/")
+
+
+def _app_password() -> str:
+    return os.environ.get("APP_PASSWORD") or ""
+
+
+def _sign(exp: int, pw: str) -> str:
+    """MAC over the expiry. The key is derived from the password, so sessions need no
+    server-side store (they survive a restart) and changing the password invalidates
+    every outstanding cookie for free."""
+    return hmac.new(hashlib.sha256(pw.encode()).digest(),
+                    str(exp).encode(), hashlib.sha256).hexdigest()
+
+
+def _issue_token(pw: str) -> str:
+    exp = int(time.time()) + SESSION_TTL
+    return f"{exp}.{_sign(exp, pw)}"
+
+
+def _token_ok(token: str, pw: str) -> bool:
+    exp, _, mac = (token or "").partition(".")
+    if not exp.isdigit() or int(exp) < time.time():
+        return False
+    return hmac.compare_digest(mac, _sign(int(exp), pw))
+
+
+def _is_https(request: Request) -> bool:
+    """Behind a reverse proxy the app itself speaks http, so trust the forwarded header
+    when it is there - that is the whole point of terminating TLS in front."""
+    fwd = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return (fwd or request.url.scheme) == "https"
+
+
+def _norm(path: str) -> str:
+    """Collapse `//`, resolve `.` and `..`, drop the trailing slash.
+
+    The gate matches paths as strings, and `//data/app.json`, `/data/app.json/`,
+    `/./data/app.json`, `/data//app.json` and `/x/../data/app.json` all reach the same
+    file - so they have to compare equal to `/data/app.json` or they are five bypasses.
+    (`lstrip` first because posixpath.normpath preserves a leading `//`.)"""
+    return posixpath.normpath("/" + path.lstrip("/"))
+
+
+def _authed(request: Request, pw: str) -> bool:
+    header = request.headers.get("x-app-password")
+    # .encode(): compare_digest rejects non-ASCII str, and a password may well be
+    if header and hmac.compare_digest(header.encode(), pw.encode()):
+        return True
+    return _token_ok(request.cookies.get(COOKIE, ""), pw)
+
+
+def _install_gate(app: FastAPI) -> None:
+    """MIDDLEWARE, NOT A ROUTE DEPENDENCY - this is the whole point.
+
+    A dependency only runs for APIRoutes, so a StaticFiles mount is structurally outside
+    it. The baked PWA build is mounted at "/", so anything the router hands to that mount
+    is public: `//data/app.json` and friends miss the exact `/data/app.json` route, fall
+    through to the mount and get served. Middleware runs BEFORE routing, so it sees mount
+    traffic too - and normalises the path before matching it.
+
+    `protected` is derived from the router rather than hand-listed, so a route added
+    later is gated the day it is added.
+    """
+    protected = {r.path for r in app.routes if isinstance(r, APIRoute)} - AUTH_PUBLIC
+
+    @app.middleware("http")
+    async def gate(request: Request, call_next):
+        pw = _app_password()
+        p = _norm(request.scope["path"])
+        # .lower() on the prefixes only: a case-insensitive filesystem would serve
+        # /DATA/app.json out of the mount. Route names stay case-sensitive, and nothing
+        # under a differently-cased AUTH_PUBLIC path exists to reach.
+        if pw and p not in AUTH_PUBLIC and (p in protected
+                                            or p.lower().startswith(AUTH_PREFIXES)):
+            if not _authed(request, pw):
+                return JSONResponse({"detail": "password required"}, status_code=401)
+        return await call_next(request)
 
 
 class SPAStaticFiles(StaticFiles):
@@ -159,6 +264,22 @@ def create_app() -> FastAPI:
     def healthz():
         return {"ok": True}
 
+    @app.post("/api/login")
+    def login(request: Request, body: dict = Body(...)):
+        """Exchange the shared password for a signed session cookie.
+
+        `auth: false` when no APP_PASSWORD is configured - the PWA never gets here in
+        that case, but a curl user deserves a straight answer rather than a 401."""
+        pw = _app_password()
+        if not pw:
+            return JSONResponse({"ok": True, "auth": False})
+        if not hmac.compare_digest(str(body.get("password") or "").encode(), pw.encode()):
+            raise HTTPException(status_code=401, detail="wrong password")
+        res = JSONResponse({"ok": True, "auth": True})
+        res.set_cookie(COOKIE, _issue_token(pw), max_age=SESSION_TTL, path="/",
+                       httponly=True, samesite="lax", secure=_is_https(request))
+        return res
+
     @app.get("/data/app.json")
     def data_app_json():
         p = _data_dir() / "app.json"
@@ -250,6 +371,7 @@ def create_app() -> FastAPI:
     web = _web_dir()
     if web.exists():
         app.mount("/", SPAStaticFiles(directory=str(web), html=True), name="spa")
+    _install_gate(app)   # after the routes: `protected` is read off the router
     return app
 
 

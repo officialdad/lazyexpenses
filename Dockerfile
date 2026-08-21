@@ -5,6 +5,11 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build   # -> /web/build (vite-pwa SW with NetworkFirst /data/app.json)
+# SECURITY (#51): web/static/data/*.json is a LOCAL dev fixture that adapter-static copies
+# into build/data/. In the container the real data comes off the PVC through the explicit
+# /data/* routes, so a baked copy is at best stale and at worst whatever financial data
+# happened to be in the build context - sitting inside the public static mount. Drop it.
+RUN rm -rf build/data
 
 # ---- python runtime (no node) ----
 FROM python:3.12-slim AS runtime

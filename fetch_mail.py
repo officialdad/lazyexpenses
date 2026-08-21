@@ -15,7 +15,8 @@ failure — or an unknown bank, or a mail with no PDF — stays unread and shows
 next run. That is deliberate: a skipped mail nagging every run is how you notice it.
 
 Env: GMAIL_USER, GMAIL_APP_PASSWORD (app password, needs 2FA), GMAIL_LABEL (CC),
-INGEST_URL (http://localhost:8000/ingest), IMAP_HOST (imap.gmail.com).
+INGEST_URL (http://localhost:8000/ingest), IMAP_HOST (imap.gmail.com),
+APP_PASSWORD (only if the server has its password gate on - sent as X-App-Password).
 """
 import email
 import imaplib
@@ -98,9 +99,15 @@ def ingest(content, bank, url=None, timeout=600):
         f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="{bank}.pdf"\r\n'
         f"Content-Type: application/pdf\r\n\r\n"
     ).encode() + content + f"\r\n--{b}--\r\n".encode()
-    req = urllib.request.Request(
-        url or INGEST_URL, data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={b}"})
+    headers = {"Content-Type": f"multipart/form-data; boundary={b}"}
+    # If the server has its password gate on (APP_PASSWORD set, #51), /ingest needs
+    # either a session cookie or this header. A cookie means a login dance and a cookie
+    # jar; the header means one line and works the same in-process on the loopback and
+    # standalone against a remote INGEST_URL. Unset here = gate off there, so nothing
+    # is sent and nothing changes.
+    if os.environ.get("APP_PASSWORD"):
+        headers["X-App-Password"] = os.environ["APP_PASSWORD"]
+    req = urllib.request.Request(url or INGEST_URL, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 

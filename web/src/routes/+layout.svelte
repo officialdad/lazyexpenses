@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { meta, loadAppData } from '$lib/data';
+  import { meta, loadAppData, login } from '$lib/data';
   import { paid } from '$lib/paid.svelte';
   import { waivers } from '$lib/waivers.svelte';
   import { net, initNet } from '$lib/net.svelte';
@@ -17,6 +17,24 @@
   // Runtime fetch — client-only (onMount never runs during prerender, so the static
   // shell ships the skeleton; data hydrates here).
   onMount(() => { initNet(); loadAppData(); paid.load(); waivers.load(); });
+
+  // Password gate (#51): the server 401s the data routes when APP_PASSWORD is set, and
+  // loadAppData turns that into meta.status === 'auth'. One form, one cookie, no route.
+  let pw = $state('');
+  let pwError = $state('');
+  let busy = $state(false);
+  async function unlock(e: SubmitEvent) {
+    e.preventDefault();
+    busy = true;
+    pwError = '';
+    const ok = await login(pw);
+    busy = false;
+    if (!ok) { pwError = 'Wrong password'; return; }
+    pw = '';
+    await loadAppData();
+    paid.load();
+    waivers.load();
+  }
 </script>
 <svelte:head><meta name="theme-color" content="#000000" /></svelte:head>
 
@@ -43,6 +61,29 @@
     <TopBar />
     <Dashboard />
   </div>
+{:else if meta.status === 'auth'}
+  <main class="mx-auto max-w-md px-4 py-16 text-center">
+    <p class="text-base font-bold">Password required</p>
+    <p class="mt-2 text-sm" style="color:var(--muted)">This app is locked. Enter the password it was set up with.</p>
+    <form class="mt-4 flex flex-col gap-3" onsubmit={unlock}>
+      <label class="sr-only" for="app-password">Password</label>
+      <input
+        id="app-password"
+        type="password"
+        autocomplete="current-password"
+        bind:value={pw}
+        class="px-3 py-2 text-sm"
+        style="background:var(--surface);color:var(--text)"
+      />
+      <button
+        type="submit"
+        disabled={busy}
+        class="px-4 py-2 text-sm font-bold"
+        style="background:var(--surface);color:var(--text)"
+      >{busy ? 'Checking…' : 'Unlock'}</button>
+    </form>
+    {#if pwError}<p class="mt-3 text-sm font-bold" style="color:#f87171">{pwError}</p>{/if}
+  </main>
 {:else if meta.status === 'error'}
   <main class="mx-auto max-w-md px-4 py-16 text-center">
     {#if !net.online}
