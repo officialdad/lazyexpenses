@@ -32,6 +32,12 @@ jobs:
       - run: python test_remind_bills.py
       - run: python test_fetch_mail.py
       - run: python test_llm_cats.py
+
+      # Not a unit test: reads the docs against Dockerfile's COPY list, so a command
+      # the docs tell a hoster to run cannot go missing from the image again (0.9.0
+      # shipped `python llm_cats.py` for a file that was not in there).
+      - run: python test_docs_commands.py
+
       - run: python -m pytest -q server/
 
   # parse.py is the most fragile code here and cannot be tested against real

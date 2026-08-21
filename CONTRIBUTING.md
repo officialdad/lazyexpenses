@@ -60,9 +60,10 @@ python test_parse_password.py    # opening password-protected PDFs
 python test_remind_bills.py      # which bills a reminder run picks
 python test_fetch_mail.py        # bank detection and the mail fetch
 python test_llm_cats.py          # the optional category suggester (no server, no model)
+python test_docs_commands.py     # every `python x.py` in the docs is in the image
 ```
 
-All seven run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
+All eight run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
 
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 
