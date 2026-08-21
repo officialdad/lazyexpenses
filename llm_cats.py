@@ -48,7 +48,12 @@ def default_csv():
 CATEGORIES = [c for c, _ in CATS]          # the 15 names, in CATS order
 
 # One line each. Malaysian merchant strings are opaque abbreviations ("PSS-",
-# "MPC2004"); a bare list of 15 names tells a 0.5B model nothing about what they mean.
+# "MPC2004"); a bare list of 15 names tells a small model nothing about what they mean.
+# CAVEAT, measured 2026-08-21 (#54): the glosses + CATS examples make this block ~717
+# tokens, and that is currently the bottleneck. Gemma 3 1B names these merchants correctly
+# when asked in plain English (4/5) but collapses to one constant category (1/5) once given
+# this block; Qwen2.5-0.5B collapses the same way. Not the grammar, not the system role, not
+# truncation - all three were ablated. Shortening/restructuring this is the next move on #29.
 GLOSS = {
     'Transfers/Payments': "money moved, not spent: card bill payments, DuitNow, IBG, fund transfers",
     'Fees/Charges': "bank fees and interest: service tax, late payment, finance charge, annual fee",
@@ -202,7 +207,7 @@ def suggest(merchants, url=None, model=None):
 def paste_block(proposals):
     """The point of the whole thing: keywords to paste into CATS, grouped by category
     in CATS order, so a merchant the model got right costs zero inference next time."""
-    lines = ["# paste into CATS in parse.py (review first - a 0.5B model guesses):"]
+    lines = ["# paste into CATS in parse.py (REVIEW EVERY LINE - measured 0-1 of 5 right):"]
     for cat in CATEGORIES:
         ms = [p["merchant"] for p in proposals if p["category"] == cat]
         if ms:
