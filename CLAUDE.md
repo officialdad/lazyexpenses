@@ -27,7 +27,11 @@ single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opar
 `k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
 Its `CLAUDE.md` has the conventions.
 
-**n8n is fully retired from the code path** — the Gmail trigger was the last job, and `fetch_mail.py` (#12) replaces it.
+**n8n is fully retired** — the Gmail trigger was the last job, `fetch_mail.py` (#12) replaces it, and
+the workflows were **disabled on 2026-08-21**. The n8n instance itself is still Running in the
+cluster (`k3s/n8n/`, other workflows live there); only the credit-card workflows are off. The
+`CC_PW_*` values still sitting on the n8n PVC are now stale copies — the k8s Secret
+`lazyexpense-secrets` is the source of truth, so clearing them is housekeeping worth doing.
 
 | n8n job | Status |
 |---|---|
@@ -110,6 +114,27 @@ probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
+**Handoff state (2026-08-21).** Prod runs 0.9.1 and everything the pipeline does has now been
+exercised in production at least once — parse, reconcile, ingest, both timers, and the full
+mail-to-VERIFIED path. Nothing is half-finished and nothing is blocked on evidence any more; what
+remains is feature work, and it is a chain rather than a menu:
+
+**#39 → #40 → #44.** #40's notification step needs #39 to exist; #44 says in its own text to wait for
+both or expect a second pass. **#39 is the one to start**, and its one open design question is
+already decided — VAPID signing uses `cryptography` (a 5th server dep, hand-rolled JWT +
+`aes128gcm`), **not** `pywebpush`, because `hashlib`/`hmac` cannot do P-256 and pywebpush would pull
+four packages to save ~80 lines. The "one runtime dependency" rule is about `parse.py`/`pdfplumber`,
+not the server.
+
+Two more are filed but off the critical path: **#51** (the app has no auth, and #40 turns that from
+"reads your spending" into "reconfigures where your statements come from" — decide before #40 ships,
+not after) and **#52** (nothing checks that a documented command exists in the image, which is how
+0.9.0 shipped a `docs/DEPLOY.md` line that could not run).
+
+**Known-unverified, needs hardware not code:** #29's live model path. No `llama-server` has ever
+answered it — only a fake HTTP server in a scratch dir. The 86-statement corpus would double as a
+free labelled eval set for whether a 0.5B is good enough.
+
 The stated goal now is the simplest possible deployment for someone who is not the author. Two
 issues frame it, both filed to be picked up cold:
 
@@ -169,22 +194,29 @@ of the volume, for anyone not running the container.
   `reminder sent: hsbc 2026-08`; `/data/reminded.json` now exists and holds `["hsbc|2026-08"]`, which
   is also the proof that the dedupe survives. Nothing left to exercise here.
 
-### Stirling-PDF — still deployed, now deletable
+### Stirling-PDF — gone (2026-08-21)
 
-The gate was "evidence that a genuinely locked statement flowed end to end". **It is met as of
-2026-08-21.** `grep -la /Encrypt /data/pdfs/*.pdf | wc -l` reads **2 of 86** (it read 0 of 84 while
-this was blocked), and both reconcile to the cent with `parse.py` doing the unlocking:
+Torn down, and this time verified rather than reported: no pods, no service, no ingress object, no
+`stirling-pdf` namespace, and `k3s/stirlingpdf/` deleted. The gate that had blocked it — evidence a
+**genuinely locked** statement flowed end to end — was met the same day; `/Encrypt` matches **2 of
+86** on the volume (it read 0 of 84 while this was blocked) and both reconcile to the cent with
+`parse.py` doing the unlocking:
 
 ```
 cimb_5ae639f1.pdf,cimb,2026-08,11,1005.47,0.0,VERIFIED
 sc_b0d14611.pdf, sc, 2026-08, 8, 165.87,0.0,VERIFIED
 ```
 
-Still deployed though: `kubectl get pods -A | grep stirling` shows it Running, `k3s/stirlingpdf/`
-exists, and `k3s/traefik/ingress-local.yml:136` still routes `pdf.opariffazman.com`.
+**The teardown left two things behind**, worth knowing because the first is the kind that bites
+later: `k3s/traefik/ingress-local.yml` still declared `local-ingress-stirling-pdf` in a namespace
+that no longer existed, so the cluster looked clean only because the object had been deleted
+directly — the next apply of that directory would have tried to recreate it. Removed in
+infrastructure `c6573d3`. The `pdf.opariffazman.com` **DNS record still resolves** to
+192.168.50.220; deleting it is the last step and does not affect anything.
 
-**Teardown (nothing blocks it now):** delete `k3s/stirlingpdf/`, its block in
-`k3s/traefik/ingress-local.yml`, and the `pdf.opariffazman.com` DNS record.
+**Lesson, and it has now happened twice:** a teardown reported as done was not done. Check
+`kubectl get pods,svc,ingress -A | grep <name>` *and* grep the manifests — deleting a live object
+does not delete the file that recreates it.
 
 ### Sharp edges
 
