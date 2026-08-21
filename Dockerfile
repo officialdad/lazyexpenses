@@ -17,7 +17,7 @@ WORKDIR /app
 COPY server/requirements.txt ./server/requirements.txt
 RUN pip install --no-cache-dir -r server/requirements.txt
 # pipeline scripts (run as subprocesses by the runner)
-COPY parse.py insights.py dashboard.py export_data.py remind_bills.py fetch_mail.py llm_cats.py ./
+COPY parse.py insights.py dashboard.py export_data.py remind_bills.py fetch_mail.py llm_cats.py web_push.py ./
 COPY server/ ./server/
 # baked PWA build -> served by StaticFiles
 COPY --from=web /web/build ./web_build

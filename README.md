@@ -133,11 +133,13 @@ Open <http://localhost:8000>. That gets you:
 - **the web app, always on**, so any device on your network can open it;
 - **statements fetched for you** — it watches a Gmail label, and each statement your bank
   emails goes straight in, still locked, without you touching it;
-- **a Telegram message** once a day for any bill due within three days.
+- **a reminder** once a day for any bill due within three days — a notification on your
+  phone, which needs no setup beyond pressing **Remind me** in the app and allowing it
+  (Telegram is still there as a fallback if you prefer it).
 
 No cron and no scheduler: the app is already running, so it does both jobs on its own
-timers. Fill in only the parts you want. No Gmail details means nothing is fetched, no
-Telegram token means nothing is messaged, and neither one breaks anything else.
+timers. Fill in only the parts you want. No Gmail details means nothing is fetched, and
+nobody who has enabled reminders means nothing is sent — neither breaks anything else.
 
 **[docs/DEPLOY.md](docs/DEPLOY.md) is the full guide**: every setting, how to get a Gmail
 app password, how to make the app properly installable from your phone, and the security
@@ -155,7 +157,7 @@ right. [CONTRIBUTING.md](CONTRIBUTING.md) walks through it, and covers the test 
 ## Status
 
 Working, and in daily use on my own statements. The parser, both dashboards, the leak
-finder, bills, fee waivers, the card picker, the Telegram reminders and the mail fetch are
+finder, bills, fee waivers, the card picker, the bill reminders and the mail fetch are
 all done, and my own copy runs as a container behind HTTPS.
 
 It used to lean on two self-hosted services — n8n for the automation and Stirling-PDF just

@@ -30,6 +30,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import fetch_mail
 import parse  # for BANKS — the dispatch list, not a second copy of it
 import remind_bills
+import web_push
 from server import pipeline
 
 # Reconciliation statuses that are NOT a problem. VERIFIED is the goal; DUPLICATE is
@@ -209,7 +210,11 @@ async def _reminder_loop():
     """
     while True:
         try:
-            if datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).hour >= REMIND_HOUR:
+            # transports_configured() is re-checked HERE rather than once in lifespan:
+            # Web Push needs no configuration, so a subscription can arrive hours after
+            # startup. An unconfigured deployment ticks and does nothing, silently.
+            if (datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).hour >= REMIND_HOUR
+                    and remind_bills.transports_configured()):
                 # off-loop: the tick does blocking file IO and a blocking Telegram POST
                 for b in await asyncio.to_thread(_reminder_tick):
                     print(f"reminder sent: {b['bank']} {b['statement_month']}", flush=True)
@@ -243,8 +248,10 @@ async def _fetch_loop():
 @asynccontextmanager
 async def _lifespan(app):
     tasks = []
-    if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
-        tasks.append(asyncio.create_task(_reminder_loop()))
+    # Always started since #39: Web Push is the default transport and needs nothing
+    # configured, so there is no env var to gate on. The loop itself checks per tick
+    # whether any transport exists and stays quiet when none does.
+    tasks.append(asyncio.create_task(_reminder_loop()))
     if os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"):
         tasks.append(asyncio.create_task(_fetch_loop()))
     yield
@@ -318,6 +325,36 @@ def create_app() -> FastAPI:
             tmp.write_text(json.dumps(sorted(keys)), encoding="utf-8")
             os.replace(tmp, p)  # atomic on POSIX
         return JSONResponse(sorted(keys))
+
+    # ------------------------------------------------------------ web push (#39)
+    # Gated by APP_PASSWORD like every other /api route (the gate derives its set from
+    # the router), which is right: a subscription is a place to send this person's
+    # balances to.
+    @app.get("/api/push/key")
+    def push_key():
+        """The VAPID public key the browser subscribes with, made on first call and kept
+        on the volume. Nothing for the user to paste — that is the point of #39."""
+        try:
+            return {"key": web_push.vapid_keys()[1]}
+        except Exception as e:   # no cryptography, read-only volume, ...
+            raise HTTPException(status_code=503, detail=f"push unavailable: {e}")
+
+    @app.post("/api/push/subscribe")
+    async def push_subscribe(body: dict = Body(...)):
+        """Store (or, with no keys, forget) one PushSubscription. Same volume-write
+        shape as /api/paid; the endpoint URL is the identity."""
+        ep = body.get("endpoint")
+        if not isinstance(ep, str) or not ep.startswith("https://"):
+            raise HTTPException(status_code=400, detail="missing endpoint")
+        keys = body.get("keys") or {}
+        async with lock:  # reuse the pipeline lock — serializes the atomic rewrite
+            subs = web_push.load_subs()
+            if keys.get("p256dh") and keys.get("auth"):
+                subs[ep] = {"p256dh": keys["p256dh"], "auth": keys["auth"]}
+            else:
+                subs.pop(ep, None)   # no keys = the UI's off switch
+            web_push.save_subs(subs)
+        return {"subscribed": ep in subs, "count": len(subs)}
 
     @app.get("/data/waivers.json")
     def data_waivers_json():

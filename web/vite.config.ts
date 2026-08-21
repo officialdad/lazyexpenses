@@ -36,6 +36,12 @@ export default defineConfig({
 				]
 			},
 			workbox: {
+				// #39: a generateSW service worker has no `push` listener and you cannot add
+				// one to generated output. importScripts is the seam Workbox leaves for
+				// exactly this - /push-sw.js ships from static/ and holds the two handlers.
+				// Switching to injectManifest instead would mean redoing the hand-wired SW
+				// registration in app.html, which is the fragile part of this build.
+				importScripts: ['/push-sw.js'],
 				globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,json}'],
 				globIgnores: ['**/data/app.json', '**/data/paid.json'],
 				navigateFallback: '/',
