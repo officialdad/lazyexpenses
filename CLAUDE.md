@@ -11,11 +11,11 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 
 The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
 
-## Active work — deployment for beginners (last touched 2026-08-21)
+## Active work — deployment for beginners (last touched 2026-08-22)
 
 **n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
 is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.10.0` on k3s, serving the PWA, re-running
+runs `ghcr.io/officialdad/lazyexpenses/app:0.11.0` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
 reminders itself**. 86 statements on the volume, **82 VERIFIED / 4 DUPLICATE**, 1383 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
@@ -114,19 +114,16 @@ probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
-**Handoff state (2026-08-21, after 0.10.0).** Prod runs 0.10.0 and everything the pipeline does has
-been exercised in production at least once — parse, reconcile, ingest, both timers, and the full
-mail-to-VERIFIED path. Nothing is half-finished and nothing is blocked on evidence any more; what
-remains is feature work, and it is a chain rather than a menu:
+**Handoff state (2026-08-22, after 0.11.0).** Prod runs 0.11.0 and everything the pipeline does has
+been exercised in production at least once — parse, reconcile, ingest, both timers, the full
+mail-to-VERIFIED path, and **now Web Push all the way to a real browser** (see below). Nothing is
+blocked on evidence; what remains is feature work:
 
-**#39 → #40 → #44.** #40's notification step needs #39 to exist; #44 says in its own text to wait for
-both or expect a second pass. **#39 is the one to start**, and its one open design question is
-already decided — VAPID signing uses `cryptography` (a 5th server dep, hand-rolled JWT +
-`aes128gcm`), **not** `pywebpush`, because `hashlib`/`hmac` cannot do P-256 and pywebpush would pull
-four packages to save ~80 lines. The "one runtime dependency" rule is about `parse.py`/`pdfplumber`,
-not the server.
+**Open: #40, #44, #62.** #40 → #44 is a chain — #44 says in its own text to wait for #40 or expect a
+second pass. **#62 is independent of both** (a build arg, one endpoint, one footer line) and is
+therefore the safe parallel partner for a #40 worktree.
 
-**#51, #52 and #58 are done** — #51/#52 shipped in 0.10.0, #58 landed after it, see below.
+**#39, #51, #52 and #58 are done** — #51/#52 in 0.10.0, #58 and #39 in 0.11.0, see below.
 
 **#29's live model path is answered** — a real `llama-server` ran it on 2026-08-21 via #54's compose
 profile, so the "needs hardware not code" caveat is gone. The 86-statement corpus is still the real
@@ -184,6 +181,61 @@ issues frame it, both filed to be picked up cold:
   `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
 
 #20 (tracking) is closed — every issue it tracked is done.
+
+### Shipped in 0.11.0 (rolled out 2026-08-22)
+
+Two issues, built in parallel worktrees and merged the same day. Safe to parallelise because #58
+touches only `llm_cats.py` — the collision zone is `server/app.py` + `web/`, and only #39 was in it.
+
+- **#39 — Web Push is the default bill-reminder transport**, Telegram unchanged as the fallback.
+  `web_push.py` hand-rolls RFC 8291 `aes128gcm` + RFC 8292 VAPID on `cryptography` (a 5th *server*
+  dep — the one-runtime-dependency rule is about `parse.py`/`pdfplumber`; `pywebpush` would pull
+  four packages to save ~80 lines). Its imports are **function-local**, so `remind_bills.py` still
+  runs standalone with only `pdfplumber` on the path.
+  - **The SW was the real blocker, not the crypto.** `web/vite.config.ts` is `strategies:
+    'generateSW'`, and a Workbox-generated service worker cannot be given a `push` handler.
+    Switching to `injectManifest` would have rewritten the whole fragile PWA wiring, so the fix is
+    `workbox.importScripts: ['/push-sw.js']` plus a ~36-line `web/static/push-sw.js`.
+  - **The transport split is in `remind_bills.send()`**, not in the server, so `reminded.json` stays
+    keyed by **bill and not by transport** — both configured is still one message per bill. `send()`
+    raises only when *nothing* got through, which is exactly the case where the bill must not be
+    recorded and the next tick has to retry it.
+  - **The reminder loop no longer has an env gate.** It always starts and calls
+    `transports_configured()` per tick, because Web Push needs no configuration and a browser can
+    subscribe hours after startup. An unconfigured deployment ticks and does nothing.
+  - **`/data/vapid.json` is backup-critical** — generated on first `/api/push/key`, and replacing it
+    silently orphans every stored subscription. `push_subs.json` sits beside it; `404`/`410` from a
+    push service deletes that subscription rather than retrying it forever.
+  - **Proven end to end on a real device, 2026-08-22.** A real browser subscribed through the UI
+    and a push sent from the pod arrived and rendered. The log carries the whole path in order —
+    `GET /push-sw.js` (so the new SW loaded on the device), `GET /api/push/key` 200,
+    `POST /api/push/subscribe` 200 — and the send reported `delivered to 1 browser(s)` with the
+    subscription still stored afterwards, so no `410`. The endpoint was
+    `updates.push.services.mozilla.com`, i.e. **Firefox**; the iOS installed-PWA path is still
+    untested, which is the only gap left here. Also proven offline: `encrypt()` matches RFC 8291's
+    published test vector byte for byte and the VAPID JWT verifies against its own public key.
+  - **How to test it again**, since the timer will not help — `reminded.json` already holds
+    `["hsbc|2026-08"]`, so no real bill will fire until a new statement lands. Send one by hand:
+    `kubectl exec deploy/lazyexpense -- python -c "import web_push; print(web_push.send('t','body'))"`
+    (from `~/repo/infrastructure`, where the `kubectl` mise shim resolves). It returns the number of
+    browsers it reached; `0` means the subscription was dropped and the UI button must be clicked
+    again. **The permission prompt is never shown on load** — it fires only from the "Remind me"
+    button in the Bills due panel (bottom of Overview), which is deliberate: browsers penalise
+    sites that prompt on first paint.
+  - Wire gotcha: `urllib` capitalises header names, so the request carries `Ttl:` and
+    `Content-encoding:`. Case-insensitive, so services accept it — but do not grep for `TTL`.
+
+- **#58 — `llm_cats.py`'s taxonomy block is the category names and nothing else**, which answers
+  #29/#54's open question. See the `llm_cats.py` section below for the measured table.
+
+**The rollout:** `parse.py` untouched, so `PARSE_VER` was unchanged and **the cache survived — no
+reparse warm**, as with 0.10.0 and unlike 0.9.1's 108.9s. Verified on the live host after rollout:
+image digest `sha256:f18cfe0a…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
+transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`, `/healthz` and
+`/data/app.json` both 200. `/api/push/key` returned a real P-256 public key and created
+`/data/vapid.json` (159 bytes, `private` + `public`); `push_subs.json` is still absent, which is
+correct — nothing has subscribed. The fetch loop ticked `CC: 0 unread` on the new image, so IMAP
+came through the rollout too.
 
 ### Shipped in 0.10.0 (rolled out 2026-08-21)
 
