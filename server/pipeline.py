@@ -15,6 +15,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from server import settings
+
 REPO = Path(__file__).resolve().parent.parent  # repo root / /app in the image
 SCRIPTS = ("parse.py", "insights.py", "export_data.py")
 
@@ -27,6 +29,27 @@ def save_pdf(data_dir: "str | Path", bank: str, content: bytes) -> Path:
     if not dest.exists():
         dest.write_bytes(content)
     return dest
+
+
+def needs_password(path: "str | Path", bank: str) -> bool:
+    """Did this statement fail to open because it is encrypted and we lack the key? (#40)
+
+    Asked of the FILE and not of reconciliation.csv on purpose: pdfplumber raises
+    PdfminerException wrapping PDFPasswordIncorrect, and `str()` of that is the empty
+    string — so the ERROR row parse.py writes carries no reason at all. Opening the one
+    file we just received is cheaper than making parse.py's error strings a contract
+    (and editing parse.py would bust the whole parse cache).
+
+    /Encrypt is what separates "locked" from "corrupt": both raise, only one is a
+    question worth asking the user.
+    """
+    import pdfplumber  # local: only reached on the error path, and only in the server
+
+    try:
+        with pdfplumber.open(str(path), password=settings.get(f"CC_PW_{bank.upper()}", "")):
+            return False
+    except Exception:
+        return b"/Encrypt" in Path(path).read_bytes()
 
 
 def recon_summary(data_dir: "str | Path") -> dict:
@@ -46,6 +69,10 @@ def run_pipeline(data_dir: "str | Path") -> dict:
     data_dir = Path(data_dir)
     env = {
         **os.environ,
+        # Statement passwords typed into the UI reach parse.pw_for() the only way it
+        # reads them: as CC_PW_<BANK> in this subprocess's environment (#40). settings.env()
+        # yields only names os.environ does not already define, so the environment wins.
+        **settings.env(),
         "STMT_SRC": str(data_dir / "pdfs"),
         "STMT_OUT": str(data_dir / "app.json"),
         "STMT_CACHE": str(data_dir / "cache"),  # per-PDF parse memo, persists on the PVC

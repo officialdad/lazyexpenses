@@ -242,8 +242,11 @@ def test_reminder_tick_reads_bills_and_paid_from_pvc():
 
 
 def test_fetch_loop_runs_only_when_gmail_is_configured():
-    """The mail fetch is a timer in this process, off unless both GMAIL_* vars are set -
-    same contract as the reminders. IMAP itself is stubbed; no mailbox is touched."""
+    """The mail fetch is a timer in this process that does nothing unless both GMAIL_*
+    values are set - same contract as the reminders. Since #40 the LOOP always starts and
+    the check moved inside the tick (credentials can be typed into the UI while the
+    process runs), so what this pins is the observable half: no credentials, no fetch.
+    IMAP itself is stubbed; no mailbox is touched."""
     import threading
 
     import fetch_mail
@@ -608,8 +611,11 @@ def test_reminder_loop_runs_without_any_configuration_but_stays_quiet():
     import remind_bills
     ticked = threading.Event()
     real_env = {k: os.environ.pop(k, None) for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}
-    real_hour, real_send = None, remind_bills.send
+    real_send = remind_bills.send
     remind_bills.send = lambda t: ticked.set()
+    # #40 made the schedule tick-time config, so the test sets it the way a deployment
+    # does (the environment) instead of poking a module constant that no longer exists.
+    os.environ["REMIND_HOUR"], os.environ["REMIND_POLL"] = "0", "1"
     try:
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "app.json"), "w", encoding="utf-8") as fh:
@@ -617,8 +623,6 @@ def test_reminder_loop_runs_without_any_configuration_but_stays_quiet():
                                       "current_balance": 1.0,
                                       "payment_due_date": "2020-01-01"}]}, fh)
             c, appmod = _client(d)
-            real_hour, appmod.REMIND_HOUR = appmod.REMIND_HOUR, 0
-            appmod.REMIND_POLL = 1
             with c:                                   # entering runs the lifespan
                 assert not ticked.wait(1.0), "sent with no transport configured"
             # a browser subscribes -> the very same loop starts delivering
@@ -626,12 +630,248 @@ def test_reminder_loop_runs_without_any_configuration_but_stays_quiet():
             web_push.save_subs({"https://push.example.net/x": {"p256dh": "B", "auth": "A"}})
             assert remind_bills.transports_configured()
             c, appmod = _client(d)
-            appmod.REMIND_HOUR, appmod.REMIND_POLL = 0, 1
             with c:
                 assert ticked.wait(5), "subscribed, but never reminded"
     finally:
         remind_bills.send = real_send
+        os.environ.pop("REMIND_HOUR", None)
+        os.environ.pop("REMIND_POLL", None)
         for k, v in real_env.items():
             os.environ.pop(k, None)
             if v is not None:
                 os.environ[k] = v
+
+
+# ---------------------------------------------------------------- first-run setup (#40)
+# settings.json on the volume, environment wins, secrets write-only. The security half of
+# this block is the point of the issue: there is no login by default (#65), so a secret
+# that can be read back is a secret that has leaked.
+
+SECRET_VALUES = {
+    "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop",
+    "TELEGRAM_BOT_TOKEN": "123456:AAtotally-secret-bot-token",
+    "CC_PW_CIMB": "cimb-pdf-password",
+    "CC_PW_HSBC": "hsbc-pdf-password",
+}
+
+
+def _clean_settings_env():
+    for k in ("GMAIL_USER", "GMAIL_APP_PASSWORD", "GMAIL_LABEL", "IMAP_HOST", "FETCH_POLL",
+              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "REMIND_HOUR", "REMIND_DAYS",
+              "REMIND_TEMPLATE", "CC_PW_CIMB", "CC_PW_HSBC"):
+        os.environ.pop(k, None)
+
+
+def test_settings_start_empty_and_report_every_secret_as_unconfigured():
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        s = c.get("/api/settings").json()
+        assert s["values"]["GMAIL_USER"] == ""
+        assert s["locked"] == []
+        assert s["banks"] == list(__import__("parse").BANKS)
+        assert set(s["secrets"]) >= {"GMAIL_APP_PASSWORD", "TELEGRAM_BOT_TOKEN", "CC_PW_CIMB"}
+        assert not any(s["secrets"].values())
+
+
+def test_settings_round_trip_through_the_volume():
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        r = c.post("/api/settings", json={"GMAIL_USER": "me@example.com", "GMAIL_LABEL": "CC",
+                                          "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop"})
+        assert r.status_code == 200
+        # written where the other state files live, and readable by the next process
+        assert json.loads(open(os.path.join(d, "settings.json"), encoding="utf-8").read()) == {
+            "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop",
+            "GMAIL_LABEL": "CC", "GMAIL_USER": "me@example.com"}
+        s = c.get("/api/settings").json()
+        assert s["values"]["GMAIL_USER"] == "me@example.com"   # not a secret: shown back
+        assert s["secrets"]["GMAIL_APP_PASSWORD"] is True      # a secret: a bool, no value
+        # "" clears
+        c.post("/api/settings", json={"GMAIL_APP_PASSWORD": ""})
+        assert c.get("/api/settings").json()["secrets"]["GMAIL_APP_PASSWORD"] is False
+
+
+def test_settings_reject_a_name_that_is_not_on_the_whitelist():
+    """These values are merged into the parse.py subprocess environment, so an arbitrary
+    name is arbitrary environment injection. APP_PASSWORD is refused too: the gate must
+    not be settable through the thing it gates."""
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        for bad in ("LD_PRELOAD", "PATH", "PYTHONPATH", "APP_PASSWORD", "cc_pw_cimb"):
+            r = c.post("/api/settings", json={bad: "x"})
+            assert r.status_code == 400, f"{bad} was accepted"
+            assert bad in r.json()["detail"]
+        assert not os.path.exists(os.path.join(d, "settings.json"))
+
+
+def test_no_endpoint_ever_returns_a_secret_value():
+    """THE security contract of #40 (see #65). Every secret is written through the API,
+    then every route the app serves is swept for the value. Not masked, not truncated,
+    not last-four — the string must not appear anywhere in any response.
+
+    Mutation check: make settings.public() emit the value (or a mask of it) and this
+    goes red on the very first sweep.
+    """
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        assert c.post("/api/settings", json=SECRET_VALUES).status_code == 200
+        paths = ["/api/settings", "/data/app.json", "/data/paid.json", "/data/waivers.json",
+                 "/bills", "/healthz", "/", "/index.html"]
+        bodies = [c.post("/api/settings", json={}).text]           # the POST response too
+        bodies += [c.get(p).text for p in paths]
+        for value in SECRET_VALUES.values():
+            for body in bodies:
+                assert value not in body
+                # and no prefix of it either: a "masked" secret is still a leaked one
+                assert value[:6] not in body
+        # ...while the pipeline still gets them, which is the whole point of storing them
+        assert appmod.settings.env()["CC_PW_CIMB"] == SECRET_VALUES["CC_PW_CIMB"]
+
+
+def test_environment_wins_over_settings_json_and_says_so():
+    """An existing .env / k8s-Secret deployment must behave exactly as it did before this
+    file existed — so env is read first, the volume value is never even written over it,
+    and the name comes back `locked` for the UI to grey out."""
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        c.post("/api/settings", json={"GMAIL_USER": "volume@example.com",
+                                      "REMIND_HOUR": "21", "CC_PW_CIMB": "from-the-volume"})
+        assert appmod.settings.get("GMAIL_USER") == "volume@example.com"
+        assert appmod.settings.get_int("REMIND_HOUR", 9) == 21
+
+        os.environ["GMAIL_USER"] = "env@example.com"
+        os.environ["REMIND_HOUR"] = "6"
+        os.environ["CC_PW_CIMB"] = "from-the-env"
+        try:
+            assert appmod.settings.get("GMAIL_USER") == "env@example.com"
+            assert appmod.settings.get_int("REMIND_HOUR", 9) == 6
+            assert appmod._remind_hour() == 6
+            # the parse.py subprocess must not be handed the shadowed volume copy
+            assert "CC_PW_CIMB" not in appmod.settings.env()
+            s = c.get("/api/settings").json()
+            assert s["values"]["GMAIL_USER"] == "env@example.com"
+            assert set(s["locked"]) == {"GMAIL_USER", "REMIND_HOUR", "CC_PW_CIMB"}
+            # a POST to a locked name is ignored, not applied and not silently persisted
+            c.post("/api/settings", json={"GMAIL_USER": "hijack@example.com"})
+            assert appmod.settings.get("GMAIL_USER") == "env@example.com"
+            assert appmod.settings.load()["GMAIL_USER"] == "volume@example.com"
+        finally:
+            _clean_settings_env()
+        # env gone -> the volume value is back, untouched
+        assert appmod.settings.get("GMAIL_USER") == "volume@example.com"
+
+
+def test_settings_survive_a_corrupt_file():
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "settings.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json at all")
+        c, appmod = _client(d)
+        assert c.get("/api/settings").status_code == 200
+        assert appmod.settings.load() == {}
+
+
+def test_settings_routes_are_gated_by_app_password_like_every_other_api_route():
+    _clean_settings_env()
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            c, _ = _gated(d)
+            assert c.get("/api/settings").status_code == 401
+            assert c.post("/api/settings", json={"GMAIL_USER": "x@y.z"}).status_code == 401
+            assert c.post("/api/settings/test-mail").status_code == 401
+            assert c.post("/api/settings/test-reminder").status_code == 401
+        finally:
+            _ungate()
+
+
+def test_test_mail_reports_what_it_found_and_never_marks_anything_seen():
+    """The Test connection button. IMAP is stubbed — the assertion is that it selects
+    READ-ONLY, so testing a connection can never consume a statement mail."""
+    _clean_settings_env()
+    import fetch_mail
+
+    class FakeIMAP:
+        selected = None
+
+        def __init__(self, host):
+            self.host = host
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def login(self, u, p):
+            if p != "right-password":
+                raise RuntimeError("AUTHENTICATIONFAILED")
+
+        def select(self, mailbox, readonly=False):
+            FakeIMAP.selected = (mailbox, readonly)
+
+        def search(self, charset, *criteria):
+            return "OK", [b"1 2 3"]
+
+    real = fetch_mail.imaplib.IMAP4_SSL
+    fetch_mail.imaplib.IMAP4_SSL = FakeIMAP
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _client(d)
+            # nothing configured -> a sentence, not a stack trace
+            r = c.post("/api/settings/test-mail")
+            assert r.status_code == 400 and "app password" in r.json()["detail"]
+            c.post("/api/settings", json={"GMAIL_USER": "me@example.com",
+                                          "GMAIL_APP_PASSWORD": "wrong", "GMAIL_LABEL": "CC"})
+            assert c.post("/api/settings/test-mail").status_code == 400
+            c.post("/api/settings", json={"GMAIL_APP_PASSWORD": "right-password"})
+            body = c.post("/api/settings/test-mail").json()
+            assert body == {"ok": True, "user": "me@example.com", "label": "CC", "unread": 3}
+            assert FakeIMAP.selected == ('"CC"', True), "a connection test must be read-only"
+    finally:
+        fetch_mail.imaplib.IMAP4_SSL = real
+        _clean_settings_env()
+
+
+def test_test_reminder_sends_one_message_and_reports_a_failure_as_one():
+    _clean_settings_env()
+    import remind_bills
+    sent, real = [], remind_bills.send
+    remind_bills.send = lambda t: sent.append(t)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _client(d)
+            assert c.post("/api/settings/test-reminder").json() == {"ok": True}
+            assert sent == [appmod.TEST_REMINDER]
+            # send() raises only when NOTHING got through — that is the reportable case
+            remind_bills.send = lambda t: (_ for _ in ()).throw(
+                RuntimeError("no reminder transport configured"))
+            r = c.post("/api/settings/test-reminder")
+            assert r.status_code == 400 and "no reminder transport" in r.json()["detail"]
+    finally:
+        remind_bills.send = real
+
+
+def test_telegram_and_the_template_come_from_settings_too():
+    """The reminder half of tick-time config: a Telegram pair typed into the UI configures
+    a transport, and a template typed into the UI renders the next message — no restart."""
+    _clean_settings_env()
+    import remind_bills
+    with tempfile.TemporaryDirectory() as d:
+        c, _ = _client(d)
+        assert remind_bills.transports_configured() is False
+        c.post("/api/settings", json={"TELEGRAM_BOT_TOKEN": "1:aa", "TELEGRAM_CHAT_ID": "42"})
+        assert remind_bills.transports_configured() is True
+        bill = {"bank": "cimb", "statement_month": "2026-08", "current_balance": 12.5,
+                "payment_due_date": "2026-08-20"}
+        import datetime as _dt
+        assert "cimb" not in remind_bills.message(bill, _dt.date(2026, 8, 18))
+        c.post("/api/settings", json={"REMIND_TEMPLATE": "{bank} owes {amount} ({when})"})
+        assert remind_bills.message(bill, _dt.date(2026, 8, 18)) == "CIMB owes 12.50 (in 2d)"
+        c.post("/api/settings", json={"REMIND_DAYS": "30"})
+        assert remind_bills.remind_days() == 30
+    _clean_settings_env()

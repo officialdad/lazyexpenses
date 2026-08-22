@@ -67,6 +67,10 @@
     <span class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
       {latestMonth()} · {app.range}
     </span>
+    <!-- #40: the four setup steps are all optional, so they need a way back. -->
+    <a href="/settings" class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)"
+      >Settings</a
+    >
     <SyncStatus />
   </div>
 </header>
