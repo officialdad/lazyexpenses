@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/svelte';
 import BillsDue from './BillsDue.svelte';
 import type { Bill } from '$lib/types';
+import { app } from '$lib/data';
+import { push } from '$lib/push.svelte';
 
 const bill = (bank: string, due: string | null, bal: number | null = 100): Bill => ({
   bank,
@@ -32,5 +34,49 @@ describe('BillsDue', () => {
   it('shows a placeholder when there are no bills', () => {
     const { getByText } = render(BillsDue, { props: { bills: [], today: '2026-06-22' } });
     getByText('No bills yet.');
+  });
+
+  // #64: the control used to be underlined 11px text whose only icon was an emoji.
+  describe('the reminder control', () => {
+    // Pictographic emoji (incl. the old 🔔) live above the BMP or in the misc-symbols block.
+    const NO_EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+    const BELL_OFF = 'M-off';
+    const BELL_ON = 'M-on';
+    beforeEach(() => {
+      app.icons['bell-outline'] = BELL_OFF;
+      app.icons['bell-ring'] = BELL_ON;
+    });
+    afterEach(() => {
+      push.status = 'unknown';
+      push.note = '';
+    });
+
+    const paths = (c: HTMLElement) =>
+      [...c.querySelectorAll('button.remindbtn path')].map((p) => p.getAttribute('d'));
+
+    it('renders a button carrying the MDI bell-outline path, and no emoji anywhere', () => {
+      push.status = 'off';
+      const { container, getByRole } = render(BillsDue, { props: { bills: [], today: '2026-06-22' } });
+      const btn = getByRole('button', { name: /remind me/i });
+      expect(btn.getAttribute('aria-pressed')).toBe('false');
+      expect(paths(container)).toEqual([BELL_OFF]);
+      expect(container.textContent).not.toMatch(NO_EMOJI);
+    });
+
+    it('swaps to bell-ring once on, and stays a pressed toggle', () => {
+      push.status = 'on';
+      const { container, getByRole } = render(BillsDue, { props: { bills: [], today: '2026-06-22' } });
+      expect(getByRole('button', { name: /reminders on/i }).getAttribute('aria-pressed')).toBe('true');
+      expect(paths(container)).toEqual([BELL_ON]);
+      expect(container.textContent).not.toMatch(NO_EMOJI);
+    });
+
+    it('shows the note instead of the button when the browser said no', () => {
+      push.status = 'denied';
+      push.note = 'Notifications are blocked for this site';
+      const { container, getByText } = render(BillsDue, { props: { bills: [], today: '2026-06-22' } });
+      expect(container.querySelector('button.remindbtn')).toBeNull();
+      getByText(/blocked for this site/);
+    });
   });
 });
