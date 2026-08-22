@@ -19,15 +19,24 @@
     <!-- #39: asked HERE, next to the bills, rather than on first paint — the permission
          prompt only makes sense once you can see what it would remind you about. -->
     {#if push.status === 'off' || push.status === 'on' || push.status === 'busy'}
+      {@const on = push.status === 'on'}
+      <!-- #64: a real button, not underlined 11px text. This panel is the last thing on
+           Overview, so the one control that turns reminders on has to be the loudest thing
+           in its header or nobody finds it. Filled while off (the action), outlined once on
+           (a state you can undo). The icon is MDI via Icon.svelte like every other icon —
+           the old bell was the app's only emoji, i.e. the only glyph in a font we don't ship. -->
       <button
         type="button"
-        class="remindbtn text-[11px] underline cursor-pointer bg-transparent border-0 p-0"
-        style="color:{push.status === 'on' ? 'var(--muted)' : 'var(--accent)'}"
-        aria-pressed={push.status === 'on'}
+        class="remindbtn inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-bold cursor-pointer disabled:opacity-60"
+        style={on
+          ? 'background:transparent;border-color:var(--divider2);color:var(--muted)'
+          : 'background:var(--accent);border-color:var(--accent);color:var(--bg)'}
+        aria-pressed={on}
         disabled={push.status === 'busy'}
         onclick={() => togglePush()}
       >
-        {push.status === 'busy' ? '…' : push.status === 'on' ? '🔔 Reminders on' : 'Remind me'}
+        <Icon name={on ? 'bell-ring' : 'bell-outline'} size={14} />
+        {push.status === 'busy' ? 'Working…' : on ? 'Reminders on' : 'Remind me'}
       </button>
     {/if}
   </div>
