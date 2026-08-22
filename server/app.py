@@ -31,13 +31,19 @@ import fetch_mail
 import parse  # for BANKS — the dispatch list, not a second copy of it
 import remind_bills
 import web_push
-from server import pipeline
+from server import pipeline, settings
 
 # Reconciliation statuses that are NOT a problem. VERIFIED is the goal; DUPLICATE is
 # routine (the mail history re-exports the same statement under several filenames,
 # which is why parse.py fingerprint-dedups). Everything else — REVIEW, NO_BALANCE,
 # ERROR — means a statement did not reconcile and the caller should know.
 RECON_OK = {"VERIFIED", "DUPLICATE"}
+
+# What the "Send test message" button sends (#40). Two lines because send_webpush splits
+# on the first newline for title/body, and Telegram HTML renders the <b> — so one string
+# looks right in both transports, exactly like a real reminder does.
+TEST_REMINDER = ("<b>Reminders are working</b>\n\n"
+                 "This is what a bill reminder will look like.")
 
 # ---------------------------------------------------------------- password gate (#51)
 # Off unless APP_PASSWORD is set - the same off-unless-configured contract the reminders
@@ -175,15 +181,25 @@ def _data_dir() -> Path:
 
 # Bill reminders run IN this process rather than as a separate cron/CronJob: the
 # server is already the long-running thing that knows DATA_DIR, so a timer here means
-# one container to deploy instead of two. Off unless both Telegram vars are set.
+# one container to deploy instead of two.
 # remind_bills.py stays runnable standalone for anyone not running the server.
-REMIND_HOUR = int(os.environ.get("REMIND_HOUR", "9"))       # earliest local hour to send
-REMIND_POLL = int(os.environ.get("REMIND_POLL", "1800"))    # seconds between checks
+#
+# READ PER TICK, NOT AT IMPORT (#40). These were module constants, which meant changing
+# REMIND_HOUR or FETCH_POLL needed a container restart — fine when the only way to set
+# them was .env, useless now that the UI can write them to settings.json while the loop
+# is running. settings.get_int() is env-first, so an existing deployment is unaffected.
+def _remind_hour():
+    return settings.get_int("REMIND_HOUR", 9)       # earliest local hour to send
 
-# The mail fetch rides in this process for the same reason, and is off unless the two
-# GMAIL_* vars are set. One container runs the whole pipeline; there is no CronJob and
-# no second compose service.
-FETCH_POLL = int(os.environ.get("FETCH_POLL", "3600"))      # seconds between mail checks
+
+def _remind_poll():
+    return settings.get_int("REMIND_POLL", 1800)    # seconds between checks
+
+
+# The mail fetch rides in this process for the same reason. One container runs the whole
+# pipeline; there is no CronJob and no second compose service.
+def _fetch_poll():
+    return settings.get_int("FETCH_POLL", 3600)     # seconds between mail checks
 
 
 def _reminder_tick():
@@ -197,6 +213,7 @@ def _reminder_tick():
         return []
     bills = json.loads(app_json.read_text(encoding="utf-8")).get("bills", [])
     paid = set(json.loads(paid_json.read_text(encoding="utf-8"))) if paid_json.exists() else set()
+    # days/template left to remind_bills, which resolves both per call through settings (#40)
     return remind_bills.run(bills, paid, state_path=str(d / "reminded.json"))
 
 
@@ -213,14 +230,14 @@ async def _reminder_loop():
             # transports_configured() is re-checked HERE rather than once in lifespan:
             # Web Push needs no configuration, so a subscription can arrive hours after
             # startup. An unconfigured deployment ticks and does nothing, silently.
-            if (datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).hour >= REMIND_HOUR
+            if (datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).hour >= _remind_hour()
                     and remind_bills.transports_configured()):
                 # off-loop: the tick does blocking file IO and a blocking Telegram POST
                 for b in await asyncio.to_thread(_reminder_tick):
                     print(f"reminder sent: {b['bank']} {b['statement_month']}", flush=True)
         except Exception as e:  # a bad token or a Telegram outage must not kill the app
             print(f"reminder failed: {e}", flush=True)
-        await asyncio.sleep(REMIND_POLL)
+        await asyncio.sleep(_remind_poll())
 
 
 async def _fetch_loop():
@@ -234,15 +251,21 @@ async def _fetch_loop():
 
     No state of its own is needed: fetch_mail marks a message \\Seen only once every
     attachment ingested, so anything that failed is simply still unread next tick.
+
+    Like the reminder loop since #39, this always starts and decides PER TICK whether it
+    is configured (#40): the credentials can now arrive from the Settings UI hours after
+    startup, so an import-time gate would mean "configured it, nothing happened, restart".
+    Unconfigured, it wakes up, finds nothing, and says nothing.
     """
     while True:
         try:
-            # off-loop: IMAP and the ingest POST both block, and the POST is answered by
-            # this very event loop
-            await asyncio.to_thread(fetch_mail.main)
+            if settings.get("GMAIL_USER") and settings.get("GMAIL_APP_PASSWORD"):
+                # off-loop: IMAP and the ingest POST both block, and the POST is answered
+                # by this very event loop
+                await asyncio.to_thread(fetch_mail.main)
         except Exception as e:  # a mailbox outage must not kill the app
             print(f"fetch failed: {e}", flush=True)
-        await asyncio.sleep(FETCH_POLL)
+        await asyncio.sleep(_fetch_poll())
 
 
 @asynccontextmanager
@@ -252,8 +275,10 @@ async def _lifespan(app):
     # configured, so there is no env var to gate on. The loop itself checks per tick
     # whether any transport exists and stays quiet when none does.
     tasks.append(asyncio.create_task(_reminder_loop()))
-    if os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"):
-        tasks.append(asyncio.create_task(_fetch_loop()))
+    # Always started since #40, for the same reason the reminder loop is: mail credentials
+    # can be typed into the Settings UI while this process is running. _fetch_loop checks
+    # per tick and no-ops when nothing is configured.
+    tasks.append(asyncio.create_task(_fetch_loop()))
     yield
     for t in tasks:
         t.cancel()
@@ -383,6 +408,46 @@ def create_app() -> FastAPI:
             os.replace(tmp, p)  # atomic on POSIX
         return JSONResponse(m)
 
+    # ------------------------------------------------------------ first-run setup (#40)
+    # Gated by APP_PASSWORD like every other /api route (the gate derives its set from the
+    # router), and write-only for secrets whether the gate is on or not — see
+    # server/settings.py. The case for making that gate the default is filed as #65.
+    @app.get("/api/settings")
+    def read_settings():
+        return settings.public(parse.BANKS)
+
+    @app.post("/api/settings")
+    async def write_settings(body: dict = Body(...)):
+        """Merge a patch into settings.json. "" clears a value; env-locked names are
+        ignored. The response is public() — so a POST can never echo a secret back."""
+        try:
+            async with lock:  # reuse the pipeline lock — serializes the atomic rewrite
+                settings.save(body)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return settings.public(parse.BANKS)
+
+    @app.post("/api/settings/test-mail")
+    async def test_mail():
+        """What the Test connection button calls. Read-only: it logs in, selects the
+        label and counts the unread, so a wrong password or a missing label is a sentence
+        now instead of silence an hour from now."""
+        try:
+            return await asyncio.to_thread(fetch_mail.check)
+        except Exception as e:
+            # str() of an imaplib error is a bytes repr; b'...' in the UI is not an answer
+            raise HTTPException(status_code=400, detail=str(e).strip("b'\" ") or type(e).__name__)
+
+    @app.post("/api/settings/test-reminder")
+    async def test_reminder():
+        """Send one message down every configured transport. remind_bills.send() raises
+        only when NOTHING got through, which is exactly the failure worth reporting."""
+        try:
+            await asyncio.to_thread(remind_bills.send, TEST_REMINDER)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"ok": True}
+
     @app.post("/ingest")
     async def ingest(file: UploadFile, bank: str = Form(...)):
         # Reject before anything touches the volume: `bank` picks the password and the
@@ -395,14 +460,19 @@ def create_app() -> FastAPI:
         data_dir = _data_dir()
         async with lock:
             try:
-                pipeline.save_pdf(data_dir, bank, content)
+                saved = pipeline.save_pdf(data_dir, bank, content)
                 counts = await asyncio.to_thread(pipeline.run_pipeline, data_dir)
             except Exception as e:  # old app.json kept (atomic write); surface failure
                 raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
         # `problems` tells the caller WHICH statuses are bad; `warning` stays a plain
         # bool for backwards compatibility with the existing n8n flow.
         problems = {k: v for k, v in counts.items() if k not in RECON_OK and v}
-        return {"bank": bank, "recon": counts, "problems": problems, "warning": bool(problems)}
+        # `locked` (#40) turns one of those ERRORs into a question the UI can ask in
+        # context — "what is the password for this bank?" — while the covering email is
+        # still open. Only asked when something errored, and only of THIS upload.
+        locked = bool(problems.get("ERROR")) and pipeline.needs_password(saved, bank)
+        return {"bank": bank, "recon": counts, "problems": problems,
+                "warning": bool(problems), "locked": locked}
 
     # SPA catch-all LAST — shadows the explicit routes above if mounted first.
     web = _web_dir()

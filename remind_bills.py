@@ -16,7 +16,10 @@ paid.json/waivers.json — so a second run in the same day sends nothing, and a 
 restart cannot re-send.
 
 Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BILLS_URL, PAID_URL, REMIND_STATE,
-REMIND_DAYS, REMIND_TEMPLATE.
+REMIND_DAYS, REMIND_TEMPLATE. Since #40 everything but the two URLs and REMIND_STATE may
+equally come from the Settings UI (settings.json on the volume) - env first, always - and
+they are read PER CALL rather than at import, so a change takes effect on the next tick
+instead of on the next restart.
 """
 import json
 import os
@@ -29,11 +32,11 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import web_push
+from server import settings
 
 BILLS_URL = os.environ.get("BILLS_URL", "http://localhost:8000/bills")
 PAID_URL = os.environ.get("PAID_URL", "http://localhost:8000/data/paid.json")
 STATE = os.environ.get("REMIND_STATE", "/data/reminded.json")
-REMIND_DAYS = int(os.environ.get("REMIND_DAYS", "3"))
 API = "https://api.telegram.org/bot{}/sendMessage"
 
 # One message per bill, rendered from this template. Telegram HTML is on, so <b>/<code>
@@ -44,7 +47,6 @@ DEFAULT_TEMPLATE = (
     "\U0001f4b3 Pay {bank} statement amount of RM <code>{amount}</code>\n\n"
     "\u231b By {due} to avoid late charges"
 )
-TEMPLATE = os.environ.get("REMIND_TEMPLATE") or DEFAULT_TEMPLATE
 FIELDS = "bank, amount, due, days, when, month"
 
 
@@ -58,11 +60,24 @@ def bill_key(b):
     return f"{b['bank']}|{b['statement_month']}"
 
 
-def due_soon(bills, today, days=REMIND_DAYS, paid=(), sent=()):
+def remind_days():
+    """How far ahead to look. Read per call, not at import (#40): the Settings UI can
+    change it while the server's reminder loop is running."""
+    return settings.get_int("REMIND_DAYS", 3)
+
+
+def template():
+    """The message wording, same story — env first, then settings.json, then the default
+    (which is the message the retired n8n workflow sent)."""
+    return settings.get("REMIND_TEMPLATE") or DEFAULT_TEMPLATE
+
+
+def due_soon(bills, today, days=None, paid=(), sent=()):
     """Bills due within `days` (overdue included), soonest first.
 
     Pure. A null due date or null balance is SKIPPED, never defaulted to today —
     parse.py emits None when it could not find one rather than guessing."""
+    days = remind_days() if days is None else days
     out = []
     for b in bills:
         due, bal = b.get("payment_due_date"), b.get("current_balance")
@@ -77,7 +92,7 @@ def due_soon(bills, today, days=REMIND_DAYS, paid=(), sent=()):
     return [b for _, b in sorted(out, key=lambda p: p[0])]
 
 
-def message(bill, today, template=None):
+def message(bill, today, tmpl=None):
     """Render one bill. Placeholders: bank, amount, due, days, when, month."""
     left = (date.fromisoformat(bill["payment_due_date"]) - today).days
     fields = {
@@ -89,7 +104,7 @@ def message(bill, today, template=None):
         "month": bill["statement_month"],
     }
     try:
-        return (template or TEMPLATE).format_map(fields)
+        return (tmpl or template()).format_map(fields)
     except KeyError as e:
         raise RuntimeError(f"REMIND_TEMPLATE: unknown placeholder {e}; known: {FIELDS}") from None
 
@@ -102,7 +117,7 @@ def _get_json(url):
 def send_telegram(text):
     """Unchanged since it was written, except that an unset token is now "0 sent"
     rather than a KeyError — it is one transport of two now, not the only one."""
-    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    token, chat = settings.get("TELEGRAM_BOT_TOKEN"), settings.get("TELEGRAM_CHAT_ID")
     if not (token and chat):
         return 0
     body = urllib.parse.urlencode(
@@ -135,7 +150,7 @@ def transports_configured():
     """Is anyone listening? Web Push counts the moment a browser subscribes, which can
     happen long after startup — so this is re-checked per tick, not once in lifespan."""
     return bool(web_push.load_subs()) or bool(
-        os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"))
+        settings.get("TELEGRAM_BOT_TOKEN") and settings.get("TELEGRAM_CHAT_ID"))
 
 
 def send(text):
@@ -173,16 +188,16 @@ def save_state(path, keys):
     os.replace(tmp, path)   # atomic on POSIX
 
 
-def run(bills, paid, state_path=None, today=None, days=REMIND_DAYS, dry=False, template=None):
+def run(bills, paid, state_path=None, today=None, days=None, dry=False, tmpl=None):
     """Send one message per bill due within `days` that is not paid or already reminded,
     recording each as it goes. Returns what it reminded about ([] = nothing to do)."""
     state_path = state_path or STATE
     today = today or today_myt()
     sent = load_state(state_path)
-    todo = due_soon(bills, today, days, paid, sent)
+    todo = due_soon(bills, today, remind_days() if days is None else days, paid, sent)
     done = []
     for b in todo:
-        text = message(b, today, template)
+        text = message(b, today, tmpl)
         if dry:
             print(text)
             continue
@@ -199,7 +214,7 @@ def main(dry=False):
     todo = run(_get_json(BILLS_URL), set(_get_json(PAID_URL)), dry=dry)
     print(f"{today_myt()}: "
           + (f"reminded {len(todo)} bill(s)" if todo and not dry
-             else f"nothing due within {REMIND_DAYS}d" if not todo else "dry run"))
+             else f"nothing due within {remind_days()}d" if not todo else "dry run"))
 
 
 if __name__ == "__main__":

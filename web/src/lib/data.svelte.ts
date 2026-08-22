@@ -1,7 +1,7 @@
 import type { AppData } from './types';
 import { monthlySeries, byCategory, topMerchants } from './trends';
 
-export type LoadStatus = 'loading' | 'ready' | 'error' | 'auth';
+export type LoadStatus = 'loading' | 'ready' | 'error' | 'auth' | 'setup';
 
 const EMPTY: AppData = {
   rows: [], months: [], cards: [], cats: [], nonSpend: [],
@@ -49,9 +49,21 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
       meta.status = 'auth';
       return;
     }
+    // 404 = an empty volume: nothing has been ingested yet. That is not a failure either,
+    // it is the state first-run setup exists for (#40) — the old behaviour was a 404 and
+    // a blank page, which told a new user nothing about what to do next.
+    if (res.status === 404) {
+      meta.status = 'setup';
+      return;
+    }
     if (!res.ok) throw new Error(`app.json HTTP ${res.status}`);
     const d = (await res.json()) as AppData;
     Object.assign(app, d);
+    // ...and so is a volume whose pipeline ran over no statements at all.
+    if (!app.rows.length) {
+      meta.status = 'setup';
+      return;
+    }
     agg.monthly = monthlySeries(app.rows, app.months, app.nonSpend);
     agg.byCategory = byCategory(app.rows, null, app.nonSpend);
     agg.topMerchants = topMerchants(app.rows, 20, app.nonSpend);

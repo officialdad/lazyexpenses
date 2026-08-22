@@ -17,6 +17,11 @@ next run. That is deliberate: a skipped mail nagging every run is how you notice
 Env: GMAIL_USER, GMAIL_APP_PASSWORD (app password, needs 2FA), GMAIL_LABEL (CC),
 INGEST_URL (http://localhost:8000/ingest), IMAP_HOST (imap.gmail.com),
 APP_PASSWORD (only if the server has its password gate on - sent as X-App-Password).
+
+Since #40 the first four may equally come from the Settings UI, via settings.json on the
+volume - settings.get() is env-first, so nothing changes for an existing .env deployment.
+They are read PER CALL rather than at import, because the loop in server/app.py runs for
+weeks and the values can be typed in at any point during that.
 """
 import email
 import imaplib
@@ -28,8 +33,8 @@ import urllib.request
 import uuid
 from email import policy
 
-HOST = os.environ.get("IMAP_HOST", "imap.gmail.com")
-LABEL = os.environ.get("GMAIL_LABEL", "CC")
+from server import settings   # stdlib-only; importing it does not make this a daemon
+
 INGEST_URL = os.environ.get("INGEST_URL", "http://localhost:8000/ingest")
 
 # First match wins. Keys are the parser's bank keys (= the statement filename prefix);
@@ -140,15 +145,38 @@ def handle(msg, dry=False, url=None):
     return ok, lines
 
 
+def creds():
+    """(user, app password, label, imap host) — env first, then the Settings UI (#40).
+    Resolved per call: the server's fetch loop runs for weeks and these can be typed in
+    at any point during that, which is the whole point of not reading them at import."""
+    return (settings.get("GMAIL_USER"), settings.get("GMAIL_APP_PASSWORD"),
+            settings.get("GMAIL_LABEL", "CC"), settings.get("IMAP_HOST", "imap.gmail.com"))
+
+
+def check():
+    """Log in, select the label, count the unread — and nothing else (#40).
+
+    This is the Settings "Test connection" button. readonly=True so the server cannot
+    change a flag even if asked: a test must never consume a statement mail."""
+    user, password, label, host = creds()
+    if not (user and password):
+        raise RuntimeError("Gmail address and app password are not set")
+    with imaplib.IMAP4_SSL(host) as M:
+        M.login(user, password)
+        M.select(f'"{label}"', readonly=True)
+        return {"ok": True, "user": user, "label": label,
+                "unread": len(M.search(None, "UNSEEN")[1][0].split())}
+
+
 def main(dry=False):
     # Off unless both are set, same as the reminders: a compose stack with the mail
     # half unconfigured should say so and exit 0, not crash-loop on a KeyError.
-    user, password = os.environ.get("GMAIL_USER"), os.environ.get("GMAIL_APP_PASSWORD")
+    user, password, LABEL, host = creds()
     if not (user and password):
         print("GMAIL_USER / GMAIL_APP_PASSWORD not set - nothing to fetch")
         return
     seen = 0
-    with imaplib.IMAP4_SSL(HOST) as M:
+    with imaplib.IMAP4_SSL(host) as M:
         M.login(user, password)
         # readonly on a dry run: the server cannot change a flag even if we ask.
         M.select(f'"{LABEL}"', readonly=dry)
