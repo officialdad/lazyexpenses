@@ -1,5 +1,14 @@
+# VERSION (#62): one string, two stages. An ARG does NOT cross a stage boundary, so each
+# FROM re-declares it - the shell and the server are separately baked and can legitimately
+# disagree (the PWA caches), which is exactly the thing the UI shows. `dev` is the default
+# so a bare `docker build` is honestly unversioned rather than a stale semver; CI passes
+# --build-arg APP_VERSION=<steps.meta.outputs.version>.
+ARG APP_VERSION=dev
+
 # ---- web build stage (node present only here) ----
 FROM node:22-bookworm-slim AS web
+ARG APP_VERSION
+ENV VITE_APP_VERSION=$APP_VERSION
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -10,9 +19,16 @@ RUN npm run build   # -> /web/build (vite-pwa SW with NetworkFirst /data/app.jso
 # /data/* routes, so a baked copy is at best stale and at worst whatever financial data
 # happened to be in the build context - sitting inside the public static mount. Drop it.
 RUN rm -rf build/data
+# #62: static/healthz is the same kind of dev fixture - it exists so `vite preview` (which
+# serves the built PWA with no API behind it) answers the version probe instead of logging
+# a 404 that audit-responsive.mjs counts as an error. In the container the real /healthz
+# route is registered before the static mount and would shadow it anyway; drop it so there
+# is exactly one answer.
+RUN rm -f build/healthz
 
 # ---- python runtime (no node) ----
 FROM python:3.12-slim AS runtime
+ARG APP_VERSION
 WORKDIR /app
 COPY server/requirements.txt ./server/requirements.txt
 RUN pip install --no-cache-dir -r server/requirements.txt
@@ -21,6 +37,6 @@ COPY parse.py insights.py dashboard.py export_data.py remind_bills.py fetch_mail
 COPY server/ ./server/
 # baked PWA build -> served by StaticFiles
 COPY --from=web /web/build ./web_build
-ENV DATA_DIR=/data WEB_DIR=/app/web_build PYTHONUNBUFFERED=1
+ENV DATA_DIR=/data WEB_DIR=/app/web_build PYTHONUNBUFFERED=1 APP_VERSION=$APP_VERSION
 EXPOSE 8000
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

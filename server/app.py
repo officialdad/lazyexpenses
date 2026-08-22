@@ -39,6 +39,11 @@ from server import pipeline
 # ERROR — means a statement did not reconcile and the caller should know.
 RECON_OK = {"VERIFIED", "DUPLICATE"}
 
+# #62: the build this image was made from. Baked by the Dockerfile (ARG -> ENV, fed from
+# docker.yml's semver tag), NOT configured by a hoster - a bare `docker build` or a
+# `python -m uvicorn` off a checkout honestly says "dev" rather than a stale semver.
+VERSION = os.environ.get("APP_VERSION") or "dev"
+
 # ---------------------------------------------------------------- password gate (#51)
 # Off unless APP_PASSWORD is set - the same off-unless-configured contract the reminders
 # (TELEGRAM_*) and the mail fetch (GMAIL_*) use, so an existing deployment that sets
@@ -269,7 +274,9 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True}
+        # `version` is additive on purpose: this is the k8s liveness probe and the one
+        # unauthenticated endpoint, so the existing {"ok": True} shape must keep working.
+        return {"ok": True, "version": VERSION}
 
     @app.post("/api/login")
     def login(request: Request, body: dict = Body(...)):
