@@ -15,7 +15,7 @@ The handoff between halves is manual: the n8n `compile-cc-statements` workflow z
 
 **n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
 is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.11.0` on k3s, serving the PWA, re-running
+runs `ghcr.io/officialdad/lazyexpenses/app:0.12.0` on k3s, serving the PWA, re-running
 `parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
 reminders itself**. 86 statements on the volume, **82 VERIFIED / 4 DUPLICATE**, 1383 transactions,
 7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
@@ -114,16 +114,21 @@ probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
-**Handoff state (2026-08-22, after 0.11.0).** Prod runs 0.11.0 and everything the pipeline does has
+**Handoff state (2026-08-22, after 0.12.0).** Prod runs 0.12.0 and everything the pipeline does has
 been exercised in production at least once — parse, reconcile, ingest, both timers, the full
-mail-to-VERIFIED path, and **now Web Push all the way to a real browser** (see below). Nothing is
-blocked on evidence; what remains is feature work:
+mail-to-VERIFIED path, and Web Push all the way to a real browser. Nothing is blocked on evidence;
+what remains is feature work:
 
-**Open: #40, #44, #62.** #40 → #44 is a chain — #44 says in its own text to wait for #40 or expect a
-second pass. **#62 is independent of both** (a build arg, one endpoint, one footer line) and is
-therefore the safe parallel partner for a #40 worktree.
+**Open: #44 and #65.** #44 (README) is now unblocked — #40 landed, so the README can finally shrink
+because the product got simpler rather than because the prose moved. It has grown scope: it must
+also document the setup flow, `/api/settings`, and that **`.env` is now optional**. **#65 is new
+and is the one to think about** — #40 closed the credential *read* path (write-only secrets) but
+sharpened the *write* path: anyone who can reach the app can overwrite the Telegram pair or make
+the server dial Gmail. `APP_PASSWORD` is still deliberately absent from `lazyexpense-secrets`, so
+exposure is what it was before, but the case for a login is now concrete rather than theoretical.
 
-**#39, #51, #52 and #58 are done** — #51/#52 in 0.10.0, #58 and #39 in 0.11.0, see below.
+**#39, #51, #52 and #58 are done** — #51/#52 in 0.10.0, #58 and #39 in 0.11.0. **#40, #62 and #64
+are done in 0.12.0**, see below.
 
 **#29's live model path is answered** — a real `llama-server` ran it on 2026-08-21 via #54's compose
 profile, so the "needs hardware not code" caveat is gone. The 86-statement corpus is still the real
@@ -181,6 +186,72 @@ issues frame it, both filed to be picked up cold:
   `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
 
 #20 (tracking) is closed — every issue it tracked is done.
+
+### Shipped in 0.12.0 (rolled out 2026-08-22)
+
+Three issues, built in **three parallel worktrees** under `~/repo/lazyexpenses-wt/` and merged the
+same day. The collision zone was `server/app.py` + `web/`, so each agent got an explicit
+**file-ownership contract** up front. It held: exactly **one** conflict across three branches, and
+it was two independent insertions after `RECON_OK` (keep both). `server/test_app.py` was edited by
+two of them and still auto-merged. **That contract is the reusable part of this wave** — writing
+down who owns which file beforehand is what made three-way parallelism cheap.
+
+- **#40 — first-run setup in the web UI.** All four steps shipped: upload a statement, locked-PDF
+  password in context, mail config with a working Test connection, reminders with a Send test.
+  - **Settings live in `/data/settings.json`, and the ENVIRONMENT ALWAYS WINS.** `settings.get()`
+    reads `os.environ` first, then the file; env-owned names come back in `locked[]`, are disabled
+    in the UI, and **a POST to a locked name is ignored** rather than written — so removing the env
+    var later restores the volume copy instead of finding it silently clobbered.
+  - **Secrets are write-only.** `public()` returns a bool per secret and never a value, **not even
+    masked**. Both leak directions are mutation-tested. Verified live: `/api/settings` on the real
+    host returns `"secrets":{...true}` and no value anywhere.
+  - **Setting names are a whitelist** (`PLAIN` + `CC_PW_[A-Z]+`) because they are merged into the
+    `parse.py` subprocess environment — an arbitrary name is arbitrary env injection (`LD_PRELOAD`,
+    `PYTHONPATH`, `PATH`). **`APP_PASSWORD` is deliberately absent**: the gate must not be settable
+    through the thing it gates.
+  - **`/data/settings.json` is backup-critical**, alongside `vapid.json`. Mode `0600`, not encrypted.
+  - **Loop config is read per tick, not at import** — `REMIND_HOUR/POLL` and `FETCH_POLL` became
+    functions, so a UI edit takes effect without a restart.
+  - **Two bugs only the browser audit caught**, worth remembering because unit tests cannot see
+    them: `/settings` **mounted twice** (both layout subtrees mount at every width, duplicating
+    every `id`/`label for`), and `/settings` was **invisible above 1024px** (the desktop subtree
+    renders `<Dashboard />` and ignores `children()`).
+  - Note `values` still exposes non-secret plain settings (`GMAIL_USER`, `TELEGRAM_CHAT_ID`)
+    unauthenticated. Less sensitive than the transactions already served, but it is new disclosure
+    and part of **#65**'s case.
+
+- **#62 — the image knows its own version.** `ARG APP_VERSION=dev` is **re-declared in both build
+  stages** (an `ARG` does not cross a `FROM`), so the shell and the server are baked separately and
+  can legitimately disagree; the UI renders `0.12.0 · server 0.13.0` when they do, which is the
+  stale-PWA signal. `/healthz` gains an **additive** `version` key — the `{"ok": true}` shape still
+  works, so the liveness probe is untouched. Zero new env vars.
+  - A new `docker.yml` step gates the push on the image reporting the tag it was built with, and
+    greps `web_build/_app/` for it — which is what catches a **missing per-stage `ARG`**. It
+    **passed on its first real run** (v0.12.0).
+  - `web/static/healthz` is a dev fixture: `vite preview` serves the PWA with no API behind it, so
+    the version probe 404'd and `audit-responsive.mjs` counts console errors as failures. The
+    Dockerfile deletes it from the image, and the real route shadows it anyway.
+
+- **#64 — the reminder toggle is a real button with an MDI bell**, replacing 11px underlined text
+  and `🔔`, the only pictographic emoji in the PWA. Placement is unchanged (Bills-due header) —
+  #39 settled that and it is right.
+  - **`Icon.svelte` used to fail silently**: `app.icons[name] ?? ''` rendered an *invisible* icon.
+    Now `|| MISSING` (a hardcoded `square-outline`) — `||` not `??` on purpose, since a stale table
+    yields an empty string, not `undefined`.
+  - **The icon table ships inside `app.json`, which lives on the PVC and is NOT rewritten by a
+    deploy.** New icons stay blank until a pipeline run. This bit exactly as documented and the
+    manual `run_pipeline` below was required.
+
+**The rollout:** `parse.py` untouched → `PARSE_VER` unchanged → **the cache survived**, and the
+in-pod `run_pipeline` took **0.5s** (versus 0.9.1's 108.9s cold). Verified live after rollout:
+digest `sha256:cef59086…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
+transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`. `curl /healthz` →
+`{"ok":true,"version":"0.12.0"}` **matching the manifest tag**, `APP_VERSION=0.12.0` in the pod and
+`0.12.0` present in `/app/web_build/_app/` (both stages). `app.json` regenerated → 38 icons with
+`bell-outline`/`bell-ring` present. `/`, `/data/app.json` and `/settings` all 200. **`settings.json`
+is absent from the volume and every `CC_PW_*`/`GMAIL_*`/`TELEGRAM_*` reports `locked`** — the
+k8s Secret is still the source of truth and prod behaviour is unchanged. The IMAP loop ticked
+`CC: 0 unread` on the new image.
 
 ### Shipped in 0.11.0 (rolled out 2026-08-22)
 
