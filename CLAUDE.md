@@ -119,7 +119,9 @@ been exercised in production at least once — parse, reconcile, ingest, both ti
 mail-to-VERIFIED path, and Web Push all the way to a real browser. Nothing is blocked on evidence;
 what remains is feature work:
 
-**Open: #44 and #65.** #44 (README) is now unblocked — #40 landed, so the README can finally shrink
+**Open: #44, #65, #66, #67.** #66 and #67 are small, independent of everything else and of
+each other (`BottomNav`/`TopBar` vs `app.html`) — the safe parallel pair for another wave.
+#44 (README) is now unblocked — #40 landed, so the README can finally shrink
 because the product got simpler rather than because the prose moved. It has grown scope: it must
 also document the setup flow, `/api/settings`, and that **`.env` is now optional**. **#65 is new
 and is the one to think about** — #40 closed the credential *read* path (write-only secrets) but
@@ -437,6 +439,18 @@ infrastructure `c6573d3`. The `pdf.opariffazman.com` **DNS record still resolves
 does not delete the file that recreates it.
 
 ### Sharp edges
+
+- **A deployed shell can sit stale indefinitely, and #62's version line cannot always tell you**
+  (#67, found on the 0.11.0 → 0.12.0 rollout). `registerType: 'autoUpdate'` configures the
+  generated `registerSW.js` — the thing that *reloads the page* on new content — and that file is
+  **never loaded**, because auto-inject no-ops on this build and the SW is hand-registered in
+  `app.html`. `skipWaiting`/`clientsClaim` really are in the deployed `sw.js`, so the new worker
+  activates and claims clients; but an already-loaded document keeps its old assets, and an
+  installed PWA resumed from the background may never navigate at all. A plain tab self-heals on
+  the next reload; **if the UI looks like the previous release, hard-reload before debugging the
+  server.** Also: **#62's indicator is blind on the first release that introduces it** — a shell
+  predating the version line renders nothing, which reads as "no such feature" rather than "you
+  are stale". It works from 0.12.0 onward.
 
 - **`bank` on `/ingest` is load-bearing — validated since 0.9.0 (#31), but only against the six.**
   It still selects the password, the parser branch, and the filename *permanently*, because
