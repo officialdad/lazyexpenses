@@ -9,554 +9,79 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 1. **n8n workflows** (`*.json`) — cloud automation that pulls statement emails from Gmail (label `CC`), unlocks the password-protected PDF attachments, and (in the original) extracts info via Gemini.
 2. **Local Python parser** (`parse.py`) — deterministic extraction of the unlocked PDFs in `cc-statements/` into transaction/spend CSVs. **No LLM.**
 
-The handoff between halves is manual: the n8n `compile-cc-statements` workflow zips unlocked PDFs and sends them via Telegram; the user downloads/unzips into `cc-statements/`, then runs `parse.py`.
-
-## Active work — deployment for beginners (last touched 2026-08-22)
-
-**n8n and Stirling-PDF are both out of the code path** (#20 closed). The automated refresh pipeline
-is **live in production**, not a plan. `lazyexpense.opariffazman.com`
-runs `ghcr.io/officialdad/lazyexpenses/app:0.12.0` on k3s, serving the PWA, re-running
-`parse.py → insights.py → export_data.py` over a 5Gi PVC on every `/ingest`, **and sending the bill
-reminders itself**. 86 statements on the volume, **82 VERIFIED / 4 DUPLICATE**, 1383 transactions,
-7 cards, 2025-06 → 2026-08. `Recreate` strategy (the volume is RWO).
-
-**Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`
-(`deployment.yml`, `service.yml`, `persistentvolumeclaim.yml`, `secret.yml.example`). Ingress is a
-single shared object — `k3s/traefik/ingress-local.yml`, host `lazyexpense.opariffazman.com` → svc
-`lazyexpense:8000`. Images are digest-pinned for Renovate. Push to `main` auto-deploys changed
-`k3s/` dirs. `kubectl` is a mise shim, so run it **from inside that repo** or it fails to resolve.
-Its `CLAUDE.md` has the conventions.
-
-**n8n is fully retired** — the Gmail trigger was the last job, `fetch_mail.py` (#12) replaces it, and
-the workflows were **disabled on 2026-08-21**. The n8n instance itself is still Running in the
-cluster (`k3s/n8n/`, other workflows live there); only the credit-card workflows are off. The
-`CC_PW_*` values still sitting on the n8n PVC are now stale copies — the k8s Secret
-`lazyexpense-secrets` is the source of truth, so clearing them is housekeeping worth doing.
-
-| n8n job | Status |
-|---|---|
-| Unlock via Stirling-PDF + "set password" Code node | **Dead** since #11 — `parse.py` opens locked PDFs itself |
-| Daily reminder cron (Gemini + Google Tasks + Telegram) | **Replaced** by the in-process reminder, 0.5.0/0.6.0 (#13) |
-| Gmail trigger on label `CC` | **Replaced and proven** — `fetch_mail.py` (#12) took a real statement mail unassisted on 2026-08-21 |
-
-**`fetch_mail.py`** (#12): `imaplib.IMAP4_SSL` → select `GMAIL_LABEL` (`CC`) → `UNSEEN` → `BODY.PEEK[]`
-(a plain FETCH would set `\Seen` itself and defeat the retry) → POST each PDF part to `INGEST_URL` as
-hand-rolled multipart (`urllib`, no `requests`) → `+FLAGS \Seen` **only if every attachment ingested**.
-`detect_bank(text)` is pure (first-match over `BANKS` regexes), called on From, then Subject, then body;
-`None` skips the mail rather than guessing. Skips (unknown bank, no PDF) and `--dry-run`
-(`select(readonly=True)`) never mark seen — so a skipped mail nags every run on purpose. The multipart
-filename is `<bank>.pdf`, **never** the mail's (untrusted, and `pipeline.save_pdf` names by content hash
-anyway). IMAP lives only in `main()`, which is the boundary `test_fetch_mail.py` does not cross.
-Verified end to end against a live server on a synthetic CIMB mail; the IMAP loop itself was smoke-run
-against a fake `IMAP4_SSL` (not committed) — **untested against a real mailbox**.
-
-### Deployment for other people (done — #15)
-
-`compose.yaml` + `.env.example` are the documented path; **the k3s setup stays out of the repo**
-(it is mine, it does not generalise). **One service**, the *published* image, no build. The mail
-fetch is a timer in the web process (`_fetch_loop`, `FETCH_POLL`, default 3600s) for the same reason
-the reminders are — the server is already the long-running thing that knows `DATA_DIR`, so it is one
-container to deploy instead of two. 0.7.0 shipped a second compose service and a k8s CronJob for
-this; **0.8.0 deleted both.** Named volume `data`, not a bind mount. Both halves are
-**off-unless-configured** — the loop only starts when `GMAIL_USER` *and* `GMAIL_APP_PASSWORD` are
-set, exactly like the reminders and `TELEGRAM_*`, and `fetch_mail.main()` additionally no-ops if
-they vanish.
-
-**`_fetch_loop` deliberately goes back out through `/ingest` over the loopback**, unlike
-`_reminder_tick` which reads the PVC directly. Reading a file and running the pipeline are not the
-same problem: `/ingest` holds the lock, saves the PDF and reparses the corpus, so routing through it
-keeps one copy of that. The cost is knowing our own port — that is what `INGEST_URL` is for. `.env` is gitignored; `.env.example` is not.
-
-Docs split by audience: **README = user-facing** (what it is, banks, demo, quick start, one short
-`docker compose up` section), **`docs/DEPLOY.md`** = the whole hosting/automation reference (env
-table, Gmail app-password onboarding, reminder template, secure-context, upgrade/backup,
-troubleshooting), **CONTRIBUTING.md** = adding a bank + the test suite (moved out of README).
-
-Verified locally: `docker build` → `docker compose up -d` → `/healthz` 200, `curl -F` ingest of a
-synthetic HSBC statement → `{"VERIFIED":1}`, `app.json` 200, survives `docker compose restart`,
-`server/test_app.py::test_fetch_loop_runs_only_when_gmail_is_configured` covers the on/off contract
-(mutation-checked: forcing the loop on makes it fail). On the secure-context question `docs/DEPLOY.md` names **no vendor and ships no proxy** —
-`localhost` is the one tested answer, everything past it is "put your own reverse proxy in front",
-because untested instructions for someone else's product are exactly what #15 said not to write.
-
-**Prod as of 0.9.1 (rolled out 2026-08-20).** The bump carried #31's `parse.py` edit, so
-`PARSE_VER` changed and the whole cache was invalidated — the in-pod warm took **108.9s** (the
-~109s the note below predicts), and the run right after it **0.51s**. Corpus came through the
-rollout unchanged: 84 PDFs, 1364 transactions, 80 VERIFIED / 4 DUPLICATE, `reminded.json` still
-`["hsbc|2026-08"]`, 83 cache entries. **#31 confirmed on the live host** — `bank=mybank` returns
-400 naming the six and the volume stays at 84 (that request writes nothing, which is what makes it
-safe to run against prod). `llm_cats.py` is in the image and reports itself off.
-
-**Both timers verified live (2026-08-20):** `GMAIL_*` is in the k8s Secret and
-the fetch loop **has run against the real mailbox**, hourly on the dot, 11 ticks logging
-`CC: 0 unread` / `marked 0 message(s) seen` — so IMAP login, mailbox select and the unread search all
-work in prod. The reminder timer **fired on its own for the first time** the same morning:
-`reminder sent: hsbc 2026-08` at 09:08:55 MYT, with `/data/reminded.json` now holding
-`["hsbc|2026-08"]`. Neither had ever been exercised before.
-
-**The end-to-end is now proven (2026-08-21).** A real CIMB statement mail flowed
-label → IMAP → `/ingest` → VERIFIED with nothing else touching it:
-
-```
-CC: 1 unread
-ingested cimb: 2220260819202608210052170081440.PDF {"VERIFIED": 82, "DUPLICATE": 4}
-marked 1 message(s) seen
-```
-
-4.8s for the whole path, and the attachment was a **genuinely encrypted** CIMB PDF — multi-card,
-`:NN/MM` installment memos, opened with `CC_PW_CIMB` and no Stirling anywhere. n8n had already
-ingested the same mail earlier that day, so this run was **idempotent** and proved it: 86 PDFs and
-md5 `606dc0f7…` identical before and after, because `save_pdf` names by content hash. Re-running
-`fetch_mail.py` on an already-ingested statement is therefore safe.
-
-`kubectl logs deploy/lazyexpense | grep -E 'unread|ingested'` — note the log is mostly healthz
-probes, so `--tail` will hide these; grep the whole thing.
-
-### Next: the deployment has to be beginner-usable
-
-**Handoff state (2026-08-22, after 0.13.0).** Prod runs 0.13.0 and everything the pipeline does has
-been exercised in production at least once — parse, reconcile, ingest, both timers, the full
-mail-to-VERIFIED path, and Web Push all the way to a real browser. Nothing is blocked on evidence.
-
-**Every issue #20 tracked is now closed.** #44, #65, #66 and #67 all shipped in 0.13.0, in a
-**four-way parallel wave** — see below. There is no open issue list at the time of writing; the
-next thing is whatever you decide it is.
-
-**One thing 0.13.0 deliberately did NOT close, and it is the one to pick up first.** #65 asked
-whether the app should be closed by default now that it holds credentials. The answer shipped was
-*the compose path ships closed* (`.env.example` carries `APP_PASSWORD=changeme@123`) — but
-**production still sets no `APP_PASSWORD` at all**, so `_app_password()` is falsy on the live host
-and the gate stays off. `POST /api/settings`, `/api/settings/test-mail` and `/ingest` are still
-reachable unauthenticated at `lazyexpense.opariffazman.com`, which was #65's actual complaint.
-Closing it is one key in `lazyexpense-secrets` and a pod restart. It was left as a deliberate
-decision rather than done silently, because turning the gate on breaks any client that does not
-know the password — including a `fetch_mail.py` run by hand.
-
-**#39, #51, #52 and #58 are done** — #51/#52 in 0.10.0, #58 and #39 in 0.11.0. **#40, #62 and #64
-are done in 0.12.0**, see below.
-
-**#29's live model path is answered** — a real `llama-server` ran it on 2026-08-21 via #54's compose
-profile, so the "needs hardware not code" caveat is gone. The 86-statement corpus is still the real
-eval and still not runnable from this repo (`cc-statements/` is gitignored).
-
-The stated goal now is the simplest possible deployment for someone who is not the author. Two
-issues frame it, both filed to be picked up cold:
-
-- **#39 — Web Push as the default reminder transport**, Telegram demoted to fallback. Kills two
-  secrets and six manual @BotFather steps from the getting-started path. Watch for: Web Push needs a
-  secure context (same gate as PWA install), iOS only allows it for an installed PWA, and VAPID
-  signing may not be doable with stdlib alone — **this repo has one runtime dependency and should
-  stay that way**, so a `pywebpush` would be a deliberate decision.
-- **#40 — first-run setup in the web UI**, so getting started is not "edit `.env` and restart".
-  Upload a statement from the browser, answer for a locked PDF's password in context, configure mail
-  and reminders with test buttons. The crux is where values live: `/data/settings.json` with **env
-  vars taking precedence**, secrets **write-only** over the API. Note this sharpens the no-auth
-  exposure — the app would then hold credentials, and that may finally justify a login.
-
-**Shipped in 0.9.0/0.9.1** (2026-08-20), so the only open issues left are #39, #40 and #44:
-
-- **#31 — `/ingest` validates the bank.** `BANKS` lives in `parse.py` beside the dispatch it
-  mirrors; the server strips + lowercases, then 400s naming the six **before** `file.read()`. A
-  mixed-case `HSBC` works and is stored lowercase, because the filename is what carries the bank
-  forward.
-- **#27 — CI runs the web suite.** A third job, `web`. It deliberately skips `--pdfs`: the suite
-  only needs `app.json`, and `make_demo_data.py` + `export_data.py` are stdlib-only, so the job has
-  **no pip install** and takes 0.02s instead of ~30s to build its data.
-- **#29 — `llm_cats.py --suggest-cats`.** Suggest mode only; the live parse-time fallback was
-  deliberately not built. Off unless `LLM_URL`/`LLM_ENABLED`; byte-identical parse output proven by
-  a cold-cache reparse diff. **The live model path was answered on 2026-08-21 by #54's `llm`
-  compose profile** — a real `llama-server` (Qwen2.5-0.5B Q4_K_M) served it end to end. Two things
-  came out of it. (1) `LLAMA_ARG_MODEL_URL`, which upstream's own compose example still shows, is
-  **silently ignored** by the current `ghcr.io/ggml-org/llama.cpp:server` image: it starts in
-  *router mode*, loads zero models, and `/health` still returns `ok`. `LLAMA_ARG_HF_REPO` is what
-  works. (2) **Quality is bad, and `llm_cats.py`'s prompt is why** — not model size. Measured on
-  the 5 merchants `CATS` failed on (the honest population), deterministic over two runs, `high`
-  confidence on every answer right or wrong:
-
-  | Model | Size | As shipped (0.9.x) | Asked in plain English |
-  |---|---|---|---|
-  | Qwen2.5-0.5B-Instruct Q4_K_M | 469 MB | 0/5 | ~1/5 — really does not know them |
-  | **Gemma 3 1B it Q4_K_M** (now the default) | 806 MB | 1/5 | **4/5 — knows them fine** |
-
-  Gemma free-form calls `K S S OTOMOBIL` an "auto parts supplier" and `DOMINOS MALAYSIA` a "pizza
-  restaurant", then answers `Shopping` for all five once handed the **717-token taxonomy block**;
-  Qwen collapses the same way to `Travel`. **Ablated and ruled out:** the JSON-schema grammar (same
-  collapse without it), Gemma 3's missing `system` role (same collapse folded into the user turn),
-  and truncation (717 tokens in a 4096 window). **#58 finished this** — see below.
-
-- **0.9.1** fixed what testing the published 0.9.0 image found: `llm_cats.py` was missing from
-  `Dockerfile`'s COPY list entirely, and once added, defaulted to a cwd-relative
-  `transactions.csv` — wrong inside a container, where `docker exec` lands in `/app` and the CSVs
-  live on `DATA_DIR`. **Lesson worth keeping: a new root-level module is not in the image unless
-  `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
-
-#20 (tracking) is closed — every issue it tracked is done.
-
-### Shipped in 0.13.0 (rolled out 2026-08-22)
-
-**The rollout.** `parse.py` untouched, so `PARSE_VER` was unchanged and **the cache survived** — the
-in-pod `run_pipeline` took **0.46s** (versus 0.9.1's 108.9s cold). Verified on the live host after
-rollout: digest `sha256:247bbd0e...`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
-transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`. `curl /healthz` ->
-`{"ok":true,"version":"0.13.0"}` **matching the manifest tag**. `/`, `/settings`, `/data/app.json`
-and `/healthz` all 200. The fetch loop ticked `CC: 0 unread` on the new image, so IMAP came through.
-
-**#66's PVC trap fired exactly as documented, and the manual step was required.** Before the
-pipeline run the live `app.json` had **38 icons and no `cog-outline`** — a deploy does not rewrite
-the volume. After it: **39 icons, `cog-outline` present**. Always check this after shipping an icon.
-
-**#67's reloader is in the served shell** (`swUpdateBanner` present) and the push seam survived
-(`importScripts("/push-sw.js")` still in `sw.js`). Per the blind spot above, a browser holding the
-0.12.0 shell still needs one manual reload; the banner works from the *next* release onward.
-
-**The auth posture on the live host, stated precisely because it is easy to misread:**
-`APP_PASSWORD` is **empty** in the pod, so `_app_password()` is falsy and **the gate is off** —
-`/api/settings` answers unauthenticated. `/api/settings` reports `default_password: false`, and
-that is **not** "someone changed it": it is false because there is no password at all. **The
-default-password banner therefore never fires in production, so #65's warning gives no signal about
-prod being open.** The write routes are still reachable by anyone who can reach the host.
-`settings.json` is absent from the volume and every `CC_PW_*`/`GMAIL_*`/`TELEGRAM_*` reports
-`locked`, so the k8s Secret remains the source of truth. `/api/settings` returns a bool per secret
-and **no value anywhere** — the write-only invariant holds in production.
-
-#### What shipped
-
-Four issues, built in **four parallel worktrees** and merged the same day. The
-**file-ownership contract** from the 0.12.0 wave was written down again first, and this time
-**no file appeared in two branches at all** — four conflict-free merges, versus 0.12.0's single
-trivial conflict. That is now twice the technique has paid; keep doing it.
-
-| Issue | Owned | 
-|---|---|
-| #65 | `server/app.py`, `server/settings.py`, `server/test_app.py`, `.env.example`, `docs/DEPLOY.md`, `web/src/routes/settings/+page.svelte` |
-| #66 | `BottomNav.svelte`, `TopBar.svelte`, `Icon.test.ts`, `routes/+layout.svelte`, `dashboard.py` |
-| #67 | `web/src/app.html`, `web/vite.config.ts`, `web/sw-update-check.mjs` |
-| #44 | `README.md`, `docs/img/` |
-
-**The wave's own new trap, and it invalidated two agents' test runs: parallel `vite preview`
-instances silently collide.** `npm run preview -- --port 4173` walks to 4174/4175/4176 without
-failing, and `audit-responsive.mjs` then prints a perfectly green `AUDIT OK` **against a sibling
-agent's build** — one agent's screenshot showed the old UI while its audit passed. Two of the three
-web-touching agents were hit. **Assign ports up front in any parallel web wave**, use
-`npx vite preview --port N --strictPort`, read the port back out of the preview's own log, set
-`AUDIT_BASE` explicitly, and grep the *served* output for a string unique to your change before
-trusting the audit.
-
-- **#65 — the compose path ships closed.** `.env.example` carries `APP_PASSWORD=changeme@123`.
-  This is a **known credential and is published in this repo** — it is a default posture, not a
-  secret, and everything about the design assumes an attacker knows it.
-  - `DEFAULT_PASSWORD` + `_default_password()` in `server/app.py`; a **loud unmissable startup
-    warning** while it is still the default, which does **not** refuse to start (that would break
-    someone mid-setup).
-  - `_settings_view()` wraps `settings.public()` and adds `"default_password": <bool>`.
-    **`settings.public()` itself is untouched**, so its never-return-a-secret invariant keeps
-    knowing nothing about the gate. Mutation-tested in both leak directions.
-  - **`APP_PASSWORD` stays off the settings whitelist** — the gate must not be settable through
-    the thing it gates. Unchanged from #40, and load-bearing.
-  - **Prod is unaffected and still open** — see the handoff note above. That is the follow-up.
-  - Known gap: the banner does **not** render during first-run setup, because `+layout.svelte`
-    renders `<Setup first={true}/>` directly on an empty volume and that file belonged to #66 this
-    wave. The startup log warning covers that window unconditionally.
-
-- **#66 — settings is a real icon control at every breakpoint**, replacing an 11px text link on
-  mobile and a 13px one on desktop. Same shape of fix as #64, and filed for the same reason.
-  - **Mobile got a 6th `BottomNav` tab, measured not guessed** — 65px per slot at 390px, no
-    overflow, the full `SETTINGS` label ships unshortened. A 7th item is the point to re-measure.
-    Chosen over a header icon because the header row scrolls away inside `<main>`; the bottom nav
-    is the only durable chrome a phone user learns.
-  - The MDI path for `cog-outline` was taken **verbatim from `@mdi/js` 7.4.47** (`npm pack` +
-    grep), not typed from memory. A wrong path renders a garbage shape in silence.
-  - **Same PVC trap as #64:** the icon table ships inside `app.json`, which lives on the volume and
-    **is not rewritten by a deploy**. The cog is `Icon.svelte`'s visible `square-outline` fallback
-    until a pipeline run.
-  - New `Icon.test.ts` case asserts every icon name the chrome hardcodes is actually in `MDI` —
-    the loud half of `Icon.svelte`'s deliberately quiet fallback.
-
-- **#67 — a reloader the hand-wired SW registration actually runs.** `registerType: 'autoUpdate'`
-  configures the generated `registerSW.js`, and that file is never loaded here (see Sharp edges).
-  - **A prompt, not an auto-reload.** `/settings` holds credential forms since #40, and reloading
-    a page out from under someone typing an app password is worse than a stale shell. The banner
-    is **inline DOM with inline styles in `app.html`**, not a Svelte component — it has to render
-    when the Svelte shell itself is the stale thing.
-  - **The loop guard improves on the textbook one.** The standard `hadController` flag captured at
-    registration is *frozen*; that means a tab opened in a fresh profile can **never** prompt, and
-    would sit stale forever across a later deploy. This **promotes** the flag instead
-    (`if (hadController) banner(); else hadController = true`), swallowing only the first
-    `controllerchange` from the initial `clients.claim()`.
-  - `reg.update()` on a 1h interval **plus** `visibilitychange`→visible with a 60s floor, which is
-    what reaches the resumed-PWA case where nothing ever navigates.
-  - **`web/sw-update-check.mjs` drives a real Chromium through all four states** and prints
-    `SW67 CHECK OK` — first install does not prompt, a deploy prompts without reloading, Enter on
-    the button reloads once, a second deploy prompts again. Mutation-checked: deleting the guard
-    turns step 1 red. Document loads are counted via `sessionStorage`, because `framenavigated`
-    also fires on SvelteKit's same-document `replaceState` and reads as a phantom reload.
-  - **Trap: `vite preview` holds `sw.js` in memory**, so editing `build/sw.js` on disk is invisible
-    to `reg.update()` and no update can be simulated against it. The check serves `build/` from
-    disk itself. `python3 -m http.server` does not work either — it 301-redirects the extensionless
-    precache entries (`trends`, `cuts`, `settings`) and Workbox's install rejects.
-
-- **#44 — the README is a user document.** 170 → 139 lines, 12 → 3 code blocks,
-  `docker compose up -d` moved from 72% down to **line 16**, and 2 screenshots added
-  (`docs/img/`, generated from the **synthetic** demo corpus — real statements never enter git).
-  Cut: the `CC_PW_*` section, the `<bank>_anything.pdf` filename rule, the parse-cache paragraph,
-  the npm build block. #40 deleted the reason for all of it.
-  - **`test_docs_commands.py` fires in the opposite direction from the one you expect.**
-    `test_dev_only_scripts_do_not_trip_it` asserts `make_demo_data.py` **and** `verify_parity.py`
-    *are* invoked from a fenced block in `README.md` or `docs/DEPLOY.md` — it is the mutation guard
-    on the `DEV_ONLY` allowlist. **Deleting the demo section turns CI red.** A three-line demo block
-    had to stay, which is why `verify_parity.py` appears in a user-facing README. Follow-up: add
-    `CONTRIBUTING.md` to that test's `DOCS` tuple, then the block can shrink.
-
-### Shipped in 0.12.0 (rolled out 2026-08-22)
-
-Three issues, built in **three parallel worktrees** under `~/repo/lazyexpenses-wt/` and merged the
-same day. The collision zone was `server/app.py` + `web/`, so each agent got an explicit
-**file-ownership contract** up front. It held: exactly **one** conflict across three branches, and
-it was two independent insertions after `RECON_OK` (keep both). `server/test_app.py` was edited by
-two of them and still auto-merged. **That contract is the reusable part of this wave** — writing
-down who owns which file beforehand is what made three-way parallelism cheap.
-
-- **#40 — first-run setup in the web UI.** All four steps shipped: upload a statement, locked-PDF
-  password in context, mail config with a working Test connection, reminders with a Send test.
-  - **Settings live in `/data/settings.json`, and the ENVIRONMENT ALWAYS WINS.** `settings.get()`
-    reads `os.environ` first, then the file; env-owned names come back in `locked[]`, are disabled
-    in the UI, and **a POST to a locked name is ignored** rather than written — so removing the env
-    var later restores the volume copy instead of finding it silently clobbered.
-  - **Secrets are write-only.** `public()` returns a bool per secret and never a value, **not even
-    masked**. Both leak directions are mutation-tested. Verified live: `/api/settings` on the real
-    host returns `"secrets":{...true}` and no value anywhere.
-  - **Setting names are a whitelist** (`PLAIN` + `CC_PW_[A-Z]+`) because they are merged into the
-    `parse.py` subprocess environment — an arbitrary name is arbitrary env injection (`LD_PRELOAD`,
-    `PYTHONPATH`, `PATH`). **`APP_PASSWORD` is deliberately absent**: the gate must not be settable
-    through the thing it gates.
-  - **`/data/settings.json` is backup-critical**, alongside `vapid.json`. Mode `0600`, not encrypted.
-  - **Loop config is read per tick, not at import** — `REMIND_HOUR/POLL` and `FETCH_POLL` became
-    functions, so a UI edit takes effect without a restart.
-  - **Two bugs only the browser audit caught**, worth remembering because unit tests cannot see
-    them: `/settings` **mounted twice** (both layout subtrees mount at every width, duplicating
-    every `id`/`label for`), and `/settings` was **invisible above 1024px** (the desktop subtree
-    renders `<Dashboard />` and ignores `children()`).
-  - Note `values` still exposes non-secret plain settings (`GMAIL_USER`, `TELEGRAM_CHAT_ID`)
-    unauthenticated. Less sensitive than the transactions already served, but it is new disclosure
-    and part of **#65**'s case.
-
-- **#62 — the image knows its own version.** `ARG APP_VERSION=dev` is **re-declared in both build
-  stages** (an `ARG` does not cross a `FROM`), so the shell and the server are baked separately and
-  can legitimately disagree; the UI renders `0.12.0 · server 0.13.0` when they do, which is the
-  stale-PWA signal. `/healthz` gains an **additive** `version` key — the `{"ok": true}` shape still
-  works, so the liveness probe is untouched. Zero new env vars.
-  - A new `docker.yml` step gates the push on the image reporting the tag it was built with, and
-    greps `web_build/_app/` for it — which is what catches a **missing per-stage `ARG`**. It
-    **passed on its first real run** (v0.12.0).
-  - `web/static/healthz` is a dev fixture: `vite preview` serves the PWA with no API behind it, so
-    the version probe 404'd and `audit-responsive.mjs` counts console errors as failures. The
-    Dockerfile deletes it from the image, and the real route shadows it anyway.
-
-- **#64 — the reminder toggle is a real button with an MDI bell**, replacing 11px underlined text
-  and `🔔`, the only pictographic emoji in the PWA. Placement is unchanged (Bills-due header) —
-  #39 settled that and it is right.
-  - **`Icon.svelte` used to fail silently**: `app.icons[name] ?? ''` rendered an *invisible* icon.
-    Now `|| MISSING` (a hardcoded `square-outline`) — `||` not `??` on purpose, since a stale table
-    yields an empty string, not `undefined`.
-  - **The icon table ships inside `app.json`, which lives on the PVC and is NOT rewritten by a
-    deploy.** New icons stay blank until a pipeline run. This bit exactly as documented and the
-    manual `run_pipeline` below was required.
-
-**The rollout:** `parse.py` untouched → `PARSE_VER` unchanged → **the cache survived**, and the
-in-pod `run_pipeline` took **0.5s** (versus 0.9.1's 108.9s cold). Verified live after rollout:
-digest `sha256:cef59086…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
-transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`. `curl /healthz` →
-`{"ok":true,"version":"0.12.0"}` **matching the manifest tag**, `APP_VERSION=0.12.0` in the pod and
-`0.12.0` present in `/app/web_build/_app/` (both stages). `app.json` regenerated → 38 icons with
-`bell-outline`/`bell-ring` present. `/`, `/data/app.json` and `/settings` all 200. **`settings.json`
-is absent from the volume and every `CC_PW_*`/`GMAIL_*`/`TELEGRAM_*` reports `locked`** — the
-k8s Secret is still the source of truth and prod behaviour is unchanged. The IMAP loop ticked
-`CC: 0 unread` on the new image.
-
-### Shipped in 0.11.0 (rolled out 2026-08-22)
-
-Two issues, built in parallel worktrees and merged the same day. Safe to parallelise because #58
-touches only `llm_cats.py` — the collision zone is `server/app.py` + `web/`, and only #39 was in it.
-
-- **#39 — Web Push is the default bill-reminder transport**, Telegram unchanged as the fallback.
-  `web_push.py` hand-rolls RFC 8291 `aes128gcm` + RFC 8292 VAPID on `cryptography` (a 5th *server*
-  dep — the one-runtime-dependency rule is about `parse.py`/`pdfplumber`; `pywebpush` would pull
-  four packages to save ~80 lines). Its imports are **function-local**, so `remind_bills.py` still
-  runs standalone with only `pdfplumber` on the path.
-  - **The SW was the real blocker, not the crypto.** `web/vite.config.ts` is `strategies:
-    'generateSW'`, and a Workbox-generated service worker cannot be given a `push` handler.
-    Switching to `injectManifest` would have rewritten the whole fragile PWA wiring, so the fix is
-    `workbox.importScripts: ['/push-sw.js']` plus a ~36-line `web/static/push-sw.js`.
-  - **The transport split is in `remind_bills.send()`**, not in the server, so `reminded.json` stays
-    keyed by **bill and not by transport** — both configured is still one message per bill. `send()`
-    raises only when *nothing* got through, which is exactly the case where the bill must not be
-    recorded and the next tick has to retry it.
-  - **The reminder loop no longer has an env gate.** It always starts and calls
-    `transports_configured()` per tick, because Web Push needs no configuration and a browser can
-    subscribe hours after startup. An unconfigured deployment ticks and does nothing.
-  - **`/data/vapid.json` is backup-critical** — generated on first `/api/push/key`, and replacing it
-    silently orphans every stored subscription. `push_subs.json` sits beside it; `404`/`410` from a
-    push service deletes that subscription rather than retrying it forever.
-  - **Proven end to end on a real device, 2026-08-22.** A real browser subscribed through the UI
-    and a push sent from the pod arrived and rendered. The log carries the whole path in order —
-    `GET /push-sw.js` (so the new SW loaded on the device), `GET /api/push/key` 200,
-    `POST /api/push/subscribe` 200 — and the send reported `delivered to 1 browser(s)` with the
-    subscription still stored afterwards, so no `410`. The endpoint was
-    `updates.push.services.mozilla.com`, i.e. **Firefox**; the iOS installed-PWA path is still
-    untested, which is the only gap left here. Also proven offline: `encrypt()` matches RFC 8291's
-    published test vector byte for byte and the VAPID JWT verifies against its own public key.
-  - **How to test it again**, since the timer will not help — `reminded.json` already holds
-    `["hsbc|2026-08"]`, so no real bill will fire until a new statement lands. Send one by hand:
-    `kubectl exec deploy/lazyexpense -- python -c "import web_push; print(web_push.send('t','body'))"`
-    (from `~/repo/infrastructure`, where the `kubectl` mise shim resolves). It returns the number of
-    browsers it reached; `0` means the subscription was dropped and the UI button must be clicked
-    again. **The permission prompt is never shown on load** — it fires only from the "Remind me"
-    button in the Bills due panel (bottom of Overview), which is deliberate: browsers penalise
-    sites that prompt on first paint.
-  - Wire gotcha: `urllib` capitalises header names, so the request carries `Ttl:` and
-    `Content-encoding:`. Case-insensitive, so services accept it — but do not grep for `TTL`.
-
-- **#58 — `llm_cats.py`'s taxonomy block is the category names and nothing else**, which answers
-  #29/#54's open question. See the `llm_cats.py` section below for the measured table.
-
-**The rollout:** `parse.py` untouched, so `PARSE_VER` was unchanged and **the cache survived — no
-reparse warm**, as with 0.10.0 and unlike 0.9.1's 108.9s. Verified on the live host after rollout:
-image digest `sha256:f18cfe0a…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
-transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`, `/healthz` and
-`/data/app.json` both 200. `/api/push/key` returned a real P-256 public key and created
-`/data/vapid.json` (159 bytes, `private` + `public`); `push_subs.json` is still absent, which is
-correct — nothing has subscribed. The fetch loop ticked `CC: 0 unread` on the new image, so IMAP
-came through the rollout too.
-
-### Shipped in 0.10.0 (rolled out 2026-08-21)
-
-Three independent issues, built **in parallel git worktrees** under `~/repo/lazyexpenses-wt/` and
-merged the same day. That parallelism was only safe because the collision zone was checked first:
-`server/app.py` and `web/` are what #39/#40/#51 all rewrite, so only one of those three could run at
-a time. #52 and #54 touch neither.
-
-- **#51 — optional shared-password gate (`APP_PASSWORD`), off unless set.** The first attempt gated
-  with a global FastAPI **route dependency**, and it was bypassable: a `StaticFiles` mount is not an
-  `APIRoute`, so it never ran, and `web/build/data/` lives inside that mount. `//data/app.json`,
-  `/data/app.json/`, `/./data/app.json`, `/data//app.json`, `/x/../data/app.json` and
-  `/DATA/app.json` all served the data while `/data/app.json` correctly 401'd. **The fix is
-  `@app.middleware("http")`**, which runs before routing and therefore sees mount traffic, plus
-  `posixpath.normpath("/" + path.lstrip("/"))` — the `lstrip` is load-bearing, `normpath` preserves
-  a leading `//`. The protected set is derived from the router rather than hand-listed, so a route
-  added later is gated the day it is added. `Dockerfile` now `rm -rf build/data` before
-  `COPY --from=web`, so a local `docker build` cannot bake real transactions into an image layer.
-  `/healthz` and `/api/login` stay open; `/ingest` takes an `X-App-Password` header so `_fetch_loop`
-  is unaffected. **Testing trap worth keeping: do NOT write this regression test with `TestClient`
-  — httpx normalises 3 of the 5 variants client-side, so it passes with the hole wide open.** The
-  test builds the ASGI scope by hand.
-- **#54 — opt-in `llm` compose profile.** A plain `docker compose up -d` is unchanged (verified: one
-  container, no model pull). `docker compose --profile llm up -d` adds `llama-server` at
-  `http://llm:8080`, which is also the fix for the `host.docker.internal` line that could never work
-  on Linux Docker. **`LLAMA_ARG_MODEL_URL` is silently ignored** by the current image — it starts in
-  router mode with zero models and `/health` still returns `ok`; use `LLAMA_ARG_HF_REPO`, and
-  `LLAMA_CACHE` or the weights land in `/root/.cache` and die with the container.
-- **#52 — CI asserts every documented `python x.py` is in the image.** Greps fenced code blocks in
-  `docs/DEPLOY.md`/`README.md` against `Dockerfile`'s COPY line. Fenced-blocks-only drops `probe.py`
-  on its own; `make_demo_data.py`/`verify_parity.py` need an explicit `DEV_ONLY` list because they
-  appear in exactly the shape a real hoster command does.
-
-**The rollout itself:** `parse.py` was untouched, so `PARSE_VER` was unchanged and the cache survived
-— **no reparse warm needed**, unlike 0.9.1 which cost 108.9s. Verified on the live host after
-rollout: image digest `sha256:73371010…`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**,
-1383 transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`, `/healthz` and
-`/data/app.json` both 200. `_norm` present in the running image and `_app_password()` falsy —
-**the gate shipped dormant on purpose**: `APP_PASSWORD` is deliberately not in `lazyexpense-secrets`,
-so exposure is exactly what it was before. Adding it to the secret is the whole switch.
-
-
-### Shipped after 0.10.0 — #58, the `llm_cats.py` prompt
-
-**The taxonomy block is now the 15 category names and nothing else, and that is load-bearing.**
-Measured against a real `llama-server` (Gemma 3 1B it Q4_K_M, `LLAMA_ARG_CTX_SIZE=4096`,
-temperature 0, every score deterministic over two runs) on the 5 merchants `CATS` gave up on:
-
-| Prompt variant | Score | Prompt tokens |
-|---|---|---|
-| **names only — shipped** | **4/5** | 145 |
-| names + 5 few-shot examples from `CATS` | 4/5 | 309 |
-| names, merchant *after* the reply instruction | 3/5 | 145 |
-| names + examples, no gloss | 2/5 | 511 |
-| two-step: identify the business, then map | 2/5 | 175 (**not deterministic**) |
-| names + gloss, no examples | 1/5 | 349 |
-| names + 26 tokens of category prose in `SYSTEM` | 1/5 | 171 |
-| names + gloss + examples (0.9.x, the baseline) | 1/5 | 715 |
-
-**The variable is prose describing the categories, anywhere in the prompt — not length.** A
-*longer* few-shot prompt still scores 4/5, while one extra sentence in `SYSTEM` re-collapses it to
-`Shopping` 5 times out of 5. Both failed hypotheses from the issue are negative results worth
-keeping: **the merchant is better placed before the instruction, not last** (position was the
-suspect; moving it last made things worse), and **the two-step identify-then-map is both worse and
-the only variant that was non-deterministic**.
-
-**Known cost, measured, accepted.** On a second 10-string probe of bank jargon (`SERVICE TAX`,
-`BALANCE TRANSFER 3M`, `CASHBACK EARNED` — labels are free, they *are* `CATS` keywords) the old
-block scored **6/10** and names-only **4/10**. The gloss really did help there. It is given up
-because `CATS` matches that jargon on fixed strings the banks print and is asked first, so what
-actually reaches the model is merchant names `CATS` failed on. A hybrid was tried and does not
-exist: hints for only the 6 ambiguous categories scored 1/5, and the `SYSTEM`-line version fixed the
-probe (6/10) while destroying the merchants (1/5).
-
-`test_llm_cats.py::test_the_prompt_is_the_category_names_and_nothing_else` is the guard — it fails
-if a gloss, a `CATS` example, or any category name in `SYSTEM` comes back, and if the merchant moves
-after the instruction. **n=5 and n=10, synthetic.** The 86-statement corpus is the real eval and is
-still gitignored, so this is a pilot. Confidence is still decoration: `high` on the wrong answer
-too, and the paste-block header now says so.
-
-
-### Bill reminders (done — #13, shipped 0.5.0/0.6.0)
-
-`remind_bills.py` holds the logic; **`server/app.py` runs it on a timer inside the web process** —
-deliberately not a k8s CronJob or a cron line, because the server is already the long-running thing
-that knows `DATA_DIR`, so this is one container to deploy instead of two. The same file is still
-runnable standalone (`python remind_bills.py --dry-run`), where it reads `/bills` over HTTP instead
-of the volume, for anyone not running the container.
-
-- **Off unless `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set** (both live in
-  `lazyexpense-secrets`, which `envFrom`s into the pod). Loop starts in the FastAPI `lifespan`.
-- **Polls (`REMIND_POLL`, 1800s) and sends once past `REMIND_HOUR` (9) local**, rather than sleeping
-  until 09:00. The per-bill state file `/data/reminded.json` is what prevents duplicates, so an extra
-  tick is a no-op and a restart cannot re-send — that is why the schedule can be this crude.
-- **One message per bill**, recorded immediately after its own send, so a failure partway through
-  keeps what went out and retries only the rest. Wording is `REMIND_TEMPLATE` (Telegram HTML;
-  placeholders `bank/amount/due/days/when/month`), defaulting to the message the n8n workflow sent.
-- Bills marked paid in the PWA (`/data/paid.json`, key `bank|statement_month`) are skipped, as are
-  null `payment_due_date`/`current_balance` — `parse.py` emits `None` rather than guessing.
-- **ponytail: assumes a single instance** (replicas:1 + RWO volume + `Recreate`). Two replicas would
-  each hold their own view of `reminded.json` and could double-send.
-- **Verified end to end in prod on 2026-08-20**: the timer fired by itself at 09:08:55 MYT and sent
-  `reminder sent: hsbc 2026-08`; `/data/reminded.json` now exists and holds `["hsbc|2026-08"]`, which
-  is also the proof that the dedupe survives. Nothing left to exercise here.
-
-### Stirling-PDF — gone (2026-08-21)
-
-Torn down, and this time verified rather than reported: no pods, no service, no ingress object, no
-`stirling-pdf` namespace, and `k3s/stirlingpdf/` deleted. The gate that had blocked it — evidence a
-**genuinely locked** statement flowed end to end — was met the same day; `/Encrypt` matches **2 of
-86** on the volume (it read 0 of 84 while this was blocked) and both reconcile to the cent with
-`parse.py` doing the unlocking:
-
-```
-cimb_5ae639f1.pdf,cimb,2026-08,11,1005.47,0.0,VERIFIED
-sc_b0d14611.pdf, sc, 2026-08, 8, 165.87,0.0,VERIFIED
-```
-
-**The teardown left two things behind**, worth knowing because the first is the kind that bites
-later: `k3s/traefik/ingress-local.yml` still declared `local-ingress-stirling-pdf` in a namespace
-that no longer existed, so the cluster looked clean only because the object had been deleted
-directly — the next apply of that directory would have tried to recreate it. Removed in
-infrastructure `c6573d3`. The `pdf.opariffazman.com` **DNS record still resolves** to
-192.168.50.220; deleting it is the last step and does not affect anything.
-
-**Lesson, and it has now happened twice:** a teardown reported as done was not done. Check
-`kubectl get pods,svc,ingress -A | grep <name>` *and* grep the manifests — deleting a live object
-does not delete the file that recreates it.
-
-### Sharp edges
+The two halves used to be joined by hand through n8n. **They no longer are** — `fetch_mail.py` takes the mail and `/ingest` runs the pipeline, so the flow is automatic end to end. `cc-statements/` is now only for local parser work.
+
+## How it runs today
+
+**Open work lives in GitHub issues, not in this file.** `gh issue list` is the source of truth for
+what is next; this file is for how the thing works and what will bite you. Do not re-add status,
+handoff notes or per-release changelogs here — file an issue or write a release note.
+
+`lazyexpense.opariffazman.com` runs `ghcr.io/officialdad/lazyexpenses/app` on k3s: one container
+serving the PWA, re-running `parse.py → insights.py → export_data.py` over a 5Gi PVC on every
+`/ingest`, fetching statement mail over IMAP on a timer, and sending the bill reminders itself.
+`Recreate` strategy — the volume is RWO and the code **assumes a single instance** (two replicas
+would each hold their own `reminded.json` and could double-send).
+
+**Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`.
+Ingress is a single shared object, `k3s/traefik/ingress-local.yml`. Images are digest-pinned for
+Renovate; push to `main` auto-deploys changed `k3s/` dirs. **`kubectl` is a mise shim, so run it
+from inside that repo** or it fails to resolve. A release is a `v*` tag — `docker.yml` builds,
+gates the push on the image reporting the version it was tagged with, then you bump the digest in
+the infra repo.
+
+**n8n and Stirling-PDF are both out of the code path.** `parse.py` opens locked PDFs itself,
+`fetch_mail.py` replaced the Gmail trigger, and the server's own timer replaced the reminder cron.
+The n8n instance still runs for unrelated workflows; its credit-card workflows are disabled and
+must stay that way or bills get messaged twice.
+
+### The pieces, and why they are shaped that way
+
+- **`fetch_mail.py`** — IMAP → select `GMAIL_LABEL` → `UNSEEN` → **`BODY.PEEK[]`** (a plain FETCH
+  would set `\Seen` itself and defeat the retry) → POST each PDF to `INGEST_URL` as hand-rolled
+  multipart → `+FLAGS \Seen` **only if every attachment ingested**. `detect_bank()` is pure, tried
+  against From, then Subject, then body; `None` skips the mail rather than guessing, so a skipped
+  mail nags every run on purpose. The multipart filename is `<bank>.pdf`, **never** the mail's —
+  it is untrusted, and `pipeline.save_pdf` names by content hash anyway. That hashing is also why
+  re-ingesting an already-seen statement is idempotent and safe.
+- **Both timers live in the web process**, not in a CronJob — the server is already the
+  long-running thing that knows `DATA_DIR`, so it is one container to deploy instead of two. Loop
+  config is read **per tick**, so a settings edit takes effect without a restart.
+- **`_fetch_loop` deliberately goes back out through `/ingest` over the loopback**, unlike
+  `_reminder_tick` which reads the PVC directly. `/ingest` holds the lock, saves the PDF and
+  reparses the corpus; routing through it keeps one copy of that. The cost is knowing our own port,
+  which is what `INGEST_URL` is for.
+- **Reminders**: `remind_bills.py` holds the logic and still runs standalone. Web Push is the
+  default transport and needs no configuration; Telegram is the opt-in fallback. **The split is in
+  `send()`, not in the server**, so `reminded.json` stays keyed by *bill*, not by transport — both
+  configured is still one message per bill. `send()` raises only when *nothing* got through, which
+  is exactly when the bill must not be recorded. The reminder loop has **no env gate**: it always
+  starts and checks `transports_configured()` per tick, because a browser can subscribe hours after
+  startup.
+- **Web Push crypto is hand-rolled** on `cryptography` (RFC 8291 + 8292), function-local imports so
+  `remind_bills.py` still runs with only `pdfplumber`. The one-runtime-dependency rule is about
+  `parse.py`; `pywebpush` would pull four packages to save ~80 lines. The service worker seam is
+  `workbox.importScripts: ['/push-sw.js']` — `generateSW` cannot be given a `push` handler, and
+  switching to `injectManifest` would rewrite the fragile PWA wiring.
+- **Settings** live in `/data/settings.json` and **the environment always wins**. Env-owned names
+  come back in `locked[]` and **a POST to a locked name is ignored** rather than written, so
+  removing the env var later restores the volume copy. **Secrets are write-only** — `public()`
+  returns a bool per secret, never a value, not even masked. Setting names are a **whitelist**
+  because they are merged into the `parse.py` subprocess environment, where an arbitrary name is
+  arbitrary env injection (`LD_PRELOAD`, `PYTHONPATH`). **`APP_PASSWORD` is deliberately absent**:
+  the gate must not be settable through the thing it gates.
+- **Auth** is an optional shared password (`APP_PASSWORD`), off unless set, enforced in
+  `@app.middleware("http")`. `/healthz` and `/api/login` stay open; `/ingest` also accepts an
+  `X-App-Password` header. `.env.example` ships `changeme@123` so the compose path is closed by
+  default, and the server warns loudly at startup while that is still the value.
+- **Docs split by audience**: README is user-facing, `docs/DEPLOY.md` is the hosting and automation
+  reference, `CONTRIBUTING.md` covers adding a bank and the test suite. Keep them that way.
+
+**Backup-critical files on the volume**, none of them regenerable: `settings.json` (mode 0600, not
+encrypted), `vapid.json` (replacing it silently orphans every stored push subscription), and
+`reminded.json`/`paid.json`/`push_subs.json`.
+
+## Sharp edges
 
 - **A deployed shell can sit stale — fixed by #67 in 0.13.0, but never for the release that
   introduces the fix.** `registerType: 'autoUpdate'` configures the generated `registerSW.js`, the
@@ -589,6 +114,47 @@ does not delete the file that recreates it.
   worker must serve `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores` +
   `runtimeCaching`, cache `app-data`). Without it an installed PWA precaches the data cache-first and
   never sees a refresh until a rebuild. Verify by swapping `app.json` on the PVC and reloading.
+- **`app.json` lives on the PVC and a deploy does NOT rewrite it.** The icon table ships inside it,
+  so a newly added MDI icon renders as `Icon.svelte`'s visible `square-outline` fallback in prod
+  until a pipeline run. Two releases in a row needed the manual warm above (#64's bell, #66's cog).
+  Confirm afterwards that the icon count went up and the name is present.
+- **The password gate must be middleware, not a route dependency.** A `StaticFiles` mount is not an
+  `APIRoute`, so a global route dependency never runs for it — and `web/build/data/` lives inside
+  that mount. `//data/app.json`, `/data/app.json/`, `/./data/app.json`, `/data//app.json`,
+  `/x/../data/app.json` and `/DATA/app.json` all served real data while `/data/app.json` correctly
+  401'd. `@app.middleware("http")` runs before routing and sees mount traffic;
+  `posixpath.normpath("/" + path.lstrip("/"))` closes the variants, and the `lstrip` is
+  load-bearing because `normpath` preserves a leading `//`. **Do not write that regression test
+  with `TestClient` — httpx normalises 3 of the 5 variants client-side and it passes with the hole
+  wide open.** Build the ASGI scope by hand.
+- **A new root-level module is not in the image unless `Dockerfile`'s COPY line names it.** 0.9.1
+  shipped a documented command that could not run for exactly this reason. CI now greps fenced code
+  blocks in the docs against that COPY list.
+- **`ARG` does not cross a `FROM`.** The version must be re-declared in *both* build stages, or the
+  shell and the server disagree — which is precisely what the UI's `0.13.0 · server 0.14.0` line
+  exists to reveal.
+- **A teardown reported as done was not done — this has now happened twice.** Check
+  `kubectl get pods,svc,ingress -A | grep <name>` *and* grep the manifests. Deleting a live object
+  does not delete the file that recreates it on the next apply.
+- **Parallel worktrees are cheap only if you write down file ownership first.** Name who owns which
+  file before spawning; the collision zone is `server/app.py` + `web/`. Done that way, a four-way
+  wave merged with zero conflicts. **And assign preview ports** — parallel `npm run preview` walks
+  4173→4174→4175 without failing, so `audit-responsive.mjs` will happily print `AUDIT OK` against a
+  sibling's build. Use `--strictPort`, set `AUDIT_BASE`, and grep the served output for something
+  unique to your change.
+- **`llm_cats.py`'s prompt is the category names and nothing else, and that is load-bearing.** Prose
+  describing the categories — anywhere in the prompt, even one sentence — collapses the model to a
+  single answer; length is not the variable (a *longer* few-shot prompt scores the same). Measured
+  1/5 → 4/5. `test_llm_cats.py::test_the_prompt_is_the_category_names_and_nothing_else` guards it.
+  Confidence is decoration: `high` comes back on wrong answers too.
+- **`urllib` capitalises header names**, so Web Push requests carry `Ttl:` and `Content-encoding:`.
+  Services accept them (headers are case-insensitive), but do not grep for `TTL`.
+- **Internal hosts resolve to a private IP, so off-LAN access needs the tailnet's Split DNS entry**
+  (router `tuf`, 100.65.123.27, restricted to `opariffazman.com`). When it is missing, a foreign
+  network's resolver refuses the private address: Chrome reports "can't find" — a *resolution*
+  failure, not a timeout — while an installed PWA keeps rendering happily from its offline cache and
+  merely looks out of date. **Do not read that as a bad deploy.** Hit `http://192.168.50.220` from
+  the phone: any response, even a 404 from Traefik, proves the route works and isolates it to DNS.
 - **No venv on this machine and `python` is not on PATH** — use `python3`, and `python3 -m venv` is
   broken (no `python3-venv`). `uv venv` works: that is how the `server/` pytest suite gets run.
 - **`docs/superpowers/` is gitignored and absent on this machine.** Earlier specs, plans and the
@@ -671,14 +237,13 @@ The **"LLM polish" is a build-time human-in-the-loop step, not embedded**: after
 - **Installments & balance transfers** (`find_installments`): re-derives structure from the `Installments/BT` rows **plus override merchants** `INSTALLMENT_MERCHANTS = {SENHENG, HOME PRODUCT}` (real installments that SC/maybank print with no marker, so `parse.py` categorized them `Shopping`). Splits **balance transfers** (`_is_bt`: `BALANCE TRANSFER|BAL TRANSFER|BALANCE TFER|SMART MOVE|T/F ER IN`) from **purchase plans**. Drops **principal-memo** rows (`_is_memo`: a `0/NN` zero-numerator ratio, or `T/F ER IN`) so the deferred principal isn't counted as a monthly charge. Groups by **`_plan_key`** (strips `INSTL ` prefix / trailing `:`-segment / ` NN OF MM` / counter — keeps Harvey-Norman-24M vs -36M as distinct plans; do NOT collapse on the override keyword or you merge unrelated plans, e.g. CIMB Grand-Senheng-12M with SC Senheng). Per plan: monthly (= sum of non-memo charges in its latest active month, so concurrent sub-charges add up), term, progress, remaining/end/remaining-balance. **Progress/term come from the bank's printed installment counter** via `_counter`: `:NN/MM` (maybank/cimb/rhb — `parse.py`'s `clean_desc` now **keeps** this ratio in the description so insights can read it) or `NN OF MM` (alliance). The counter is **trusted only when its total (denominator) is constant across the plan's months and current ≤ total** — this rejects reversed `total/current` layouts, stray colon-dates, and other unseen formats, which fall back to the estimate rather than a confident wrong number. **Honesty rule:** exact only where such a counter is printed; otherwise term comes from the `-NNM`/`E36` name suffix and remaining is an `est=True` estimate (`term − distinct-months-seen`) — valid only for a plan that began inside the collected window; one that started earlier reads high (the bug the `:NN/MM` counter fixes). The UI labels estimates `~est` and never shows a fake-precise end date. `_disp` cleans display names (leading `%%`, trailing ` -`).
 
 ### Ranking, savings & the tab
-Subs/creep/one-offs are ranked into `recs` by **annual RM impact** (`severity`); installments/transfers are separate top-level arrays sorted by monthly. **`savingsAnnual` = cancellable subs + creep only** — installments and balance transfers are committed debt, never counted as "savings" (and Akmal-style false subs were the reason the number kept moving during tuning). The tab renders five groups: Subscriptions → Installments → Balance transfers → Creep → One-offs, each card category-badged with click-to-expand drill-down (charge history / merchant-delta / txn detail). Design specs live in `docs/superpowers/specs/2026-06-21-*.md`.
+Subs/creep/one-offs are ranked into `recs` by **annual RM impact** (`severity`); installments/transfers are separate top-level arrays sorted by monthly. **`savingsAnnual` = cancellable subs + creep only** — installments and balance transfers are committed debt, never counted as "savings" (and Akmal-style false subs were the reason the number kept moving during tuning). The tab renders five groups: Subscriptions → Installments → Balance transfers → Creep → One-offs, each card category-badged with click-to-expand drill-down (charge history / merchant-delta / txn detail).
 
 ### Hosted PWA build (web/)
-After `parse.py`: `python export_data.py` regenerates `web/src/lib/data/app.json`,
+After `parse.py`: `python export_data.py` regenerates `web/static/data/app.json` (override with `STMT_OUT`),
 then `cd web && npm run build` produces the static PWA in `web/build/`.
 Full refresh: `python parse.py && python insights.py && python export_data.py && python verify_parity.py && cd web && npm run build`.
 Then gate the build: `npm run preview -- --port 4173 &` and `node audit-responsive.mjs` — must print `AUDIT OK` (no overflow / sub-11px / console errors at 390/834/1440, and `#overview` is the active scroll-spy link at top on desktop).
-(Hosting/auto-deploy = Spec 2, see docs/superpowers/backlog.md.)
 
 **PWA install/SW registration is wired by hand in `src/app.html`** (a `<link rel="manifest">` + a one-line `navigator.serviceWorker.register('/sw.js')`). `@vite-pwa/sveltekit` *generates* `sw.js`/`manifest.webmanifest`/`registerSW.js` fine, but its auto-inject **silently no-ops** on this Vite 8 + SvelteKit build — nothing referenced them, so there was no manifest link and no SW → Chrome/Firefox offered only an "Add to Home screen" shortcut (never **Install**) and the Workbox offline cache never populated. Don't remove those `app.html` lines expecting the plugin to re-inject. Verify after a dep bump: `grep -oE 'rel="manifest"|serviceWorker.register' build/index.html` must hit (the served file is the adapter-static **fallback** `index.html`, which is built from `app.html`). Install needs HTTPS *or* localhost (secure context); a plain-HTTP LAN IP downgrades to a non-installable shortcut even with all of the above correct.
 
@@ -710,22 +275,30 @@ inverse trailing-3-month net-spend share, filtering cards dormant >6 months.
 logic is pure/tested in `cardpick.test.ts`.
 
 ### Refresh loop (adding new statements)
-New statements → run the n8n `compile-cc-statements` workflow (re-exports the **full** label-`CC` history, not just new mail) → unzip into `cc-statements/`, replacing contents (keep the `<bank>_…` filename prefix; the `_N` index is meaningless) → `python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs` → check the reconciliation report stays all-VERIFIED, and that `audit.mjs` prints no ISSUES (overflow / sub-11px text — e.g. a new long card name or category could overflow a chart) (a new `REVIEW` means the bank changed its template — debug with `probe.py`) and skim `recommendations.csv` for new false-positives (a new unseen recurring merchant may need an `INSTALLMENT_MERCHANTS` / category-allowlist tweak). New months/cards surface in all dashboard views automatically.
+In production this is automatic: the mail arrives, `fetch_mail.py` posts it to `/ingest`, and the
+server reparses and republishes. Nothing to run. You can also drag a statement in from the
+settings/setup screen.
+
+**Locally** (`cc-statements/`, for parser work): drop the PDFs in, keeping the `<bank>_…` filename
+prefix — the `_N` index is meaningless but the bank prefix is load-bearing — then
+`python parse.py && python test_insights.py && python insights.py && python dashboard.py && node smoke_dashboard.mjs && node audit.mjs`. Check the reconciliation report stays all-VERIFIED
+(a new `REVIEW` means the bank changed its template — debug with `probe.py`), that `audit.mjs`
+prints no ISSUES (a new long card name or category can overflow a chart), and skim
+`recommendations.csv` for new false-positives (an unseen recurring merchant may need an
+`INSTALLMENT_MERCHANTS` or category-allowlist tweak). New months/cards surface in all dashboard views automatically.
 
 ### Categorization & spend definition
-Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The back-catalogue is hand-mapped to merchant-specific keywords, so `Other` stays small — but it is **not empty**: as of 2026-08-20 the production corpus has **15 rows / RM958** in it, all one-off merchants that appeared after the last hand-mapping pass (`K S S OTOMOBIL`, `Dominos Malaysia`, `Miniso Winky`, …). `Other` is the safety fallback for new/unseen merchants and is meant to be watched — it surfaces in the dashboard donut and during the refresh-loop check. Most entries are a one-line `CATS` addition; `llm_cats.py --suggest-cats` (#29, suggest mode only) drafts those lines with an optional local model. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
+Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The back-catalogue is hand-mapped to merchant-specific keywords, so `Other` stays small — but it is never empty, and is not meant to be: it collects one-off merchants that appeared after the last hand-mapping pass. `Other` is the safety fallback for new/unseen merchants and is meant to be watched — it surfaces in the dashboard donut and during the refresh-loop check. Most entries are a one-line `CATS` addition; `llm_cats.py --suggest-cats` (#29, suggest mode only) drafts those lines with an optional local model. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
 
 **Spend is netted**: in the summaries, consumption categories use signed amounts (debit `+`, credit `−`) so a **refund/reversal** (a credit sitting under a merchant category — e.g. a cancelled `…-REV` booking) subtracts from that category. `NON_SPEND` categories stay debit-only/gross (their credits are bill payments & cashback, not negative spend). The dashboard mirrors this exactly via its `val(r)` helper. Net cells can occasionally go slightly negative (a refund whose original purchase was a different month) — charts guard against it; the reconciliation is unaffected (it nets all debits/credits globally regardless of category).
 
-## n8n workflows
+## n8n workflows — retired
 
-> **Note:** the workflow JSONs (`*-cc-statement*.json`, `reminder-bills.json`) and their tests are **gitignored / kept local for now** — not part of the public repo. Descriptions below document the live local instance.
+The credit-card workflows (`process-cc-statement.json`, `compile-cc-statements.json`,
+`reminder-bills.json`) are **disabled and must stay disabled**, or bills get messaged twice. Every
+job they did is now in this repo: the Stirling-PDF unlock (`parse.py` opens locked PDFs itself), the
+Gmail trigger (`fetch_mail.py`), and the reminder cron (the server's own timer). The JSONs are
+gitignored and kept local; the n8n instance itself still runs for unrelated workflows.
 
-- `process-cc-statement.json` — original: Gmail trigger (unread, label `CC`) → get bank → set password → unlock via Stirling-PDF (`pdf.opariffazman.com`) → split/extract → Gemini info extraction → Google Tasks reminder + Telegram. **Nothing in it is still needed**, and it is **disabled as of 2026-08-21**: the unlock is dead (#11), the reminder is the server's own timer (#13, seen firing on its own), and the Gmail trigger is `fetch_mail.py` (#12, proven on a real mail). Its last act was ingesting the 2026-08 CIMB statement hours before `fetch_mail.py` re-took the same mail idempotently. `reminder-bills.json` must stay disabled too, or the same bill gets messaged twice.
-- `compile-cc-statements.json` — derived: manual trigger → Gmail `getAll` (all label-`CC` mail) → get bank → set password → unlock → combine → zip → Telegram. Stops after unlock; used to bulk-collect the PDFs that `parse.py` consumes.
-
-Passwords stored inside the workflow on the n8n PVC should be cleared as the unlock nodes go — the k8s Secret `lazyexpense-secrets` is the source of truth now.
-
-Both share a per-bank PDF password map (each bank derives its default from cardholder DOB/IC). **Passwords are NOT committed** — the workflow Code node reads them from n8n env vars `CC_PW_<BANK>` (`CC_PW_MAYBANK`, `CC_PW_CIMB`, `CC_PW_SC`, `CC_PW_ALLIANCE`, `CC_PW_HSBC`, `CC_PW_RHB`); set them on the n8n instance. Bank detection keys off the bank name appearing in the email text/PDF.
-
-When editing a workflow JSON, credential references (`credentials.*.id`) point at the live n8n instance — preserve them on import.
+The `CC_PW_*` values still sitting on the n8n PVC are **stale copies** — the k8s Secret
+`lazyexpense-secrets` is the source of truth. Clearing them is housekeeping worth doing.
