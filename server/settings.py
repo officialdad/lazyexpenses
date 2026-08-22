@@ -8,12 +8,12 @@ existing .env / k8s-Secret deployment behaves exactly as it did before this modu
 existed. A name the environment defines is reported as `locked` so the UI can grey it
 out instead of accepting an edit that could never take effect.
 
-SECURITY (#40): this app has NO authentication by default - APP_PASSWORD (#51) is off
-unless set, so anyone who can reach it already sees every transaction. Letting them read
-a *credential* back out is the line we do not cross: every name in SECRET is write-only
+SECURITY (#40): the gate in front of this is APP_PASSWORD (#51), which .env.example now
+ships a placeholder for (#65) - so the documented deployment is closed, while one that
+sets nothing (production, which has no APP_PASSWORD in its Secret) is still wide open.
+Write-only secrets do not lean on that either way: every name in SECRET is write-only
 over the API, and public() reports a bool and never a value, not even a masked one.
-That exposure is the case for a login, which is filed as its own issue (#65) rather than
-built here.
+test_app.py::test_no_endpoint_ever_returns_a_secret_value is the guard.
 
 WHY THE NAMES ARE A WHITELIST and not "whatever the browser posts": these values are
 merged into the environment of the parse.py subprocess (pipeline.run_pipeline), so an
@@ -117,9 +117,13 @@ def public(banks=()) -> dict:
     so this module needs no import of the parser (see the module docstring).
 
     SECURITY (#40): `secrets` is a configured/not-configured BOOLEAN per name. No secret
-    value is ever returned — not truncated, not masked, not last-four. There is no
-    authentication in front of this route by default, so a readable secret is a leaked
-    one. test_app.py::test_no_endpoint_ever_returns_a_secret_value is the guard.
+    value is ever returned — not truncated, not masked, not last-four. Whether a login
+    stands in front of this route is a deployment's choice (#65), so a readable secret
+    would be a leaked one. test_app.py::test_no_endpoint_ever_returns_a_secret_value is
+    the guard.
+
+    The `default_password` flag the browser also reads is added by the caller
+    (server/app.py::_settings_view), not here — this module knows nothing of the gate.
     """
     on_disk = load()
     secrets = sorted(SECRET | {f"CC_PW_{b.upper()}" for b in banks})

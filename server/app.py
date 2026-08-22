@@ -63,6 +63,13 @@ TEST_REMINDER = ("<b>Reminders are working</b>\n\n"
 # PWA's own assets, because the browser needs them to render the prompt.
 #
 # ponytail: one shared password, no accounts. One person, one volume - see #51.
+#
+# #65: .env.example now SHIPS a password, so the documented `docker compose up` path is
+# closed rather than open. A shipped default is a known credential - it is in the repo -
+# so the only thing that makes it safe is being loud: the server warns once at startup
+# and the Settings screen carries a banner until it changes. Production is unaffected
+# (lazyexpense-secrets has no APP_PASSWORD, so the gate stays off there).
+DEFAULT_PASSWORD = "changeme@123"
 COOKIE = "lx_session"
 SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
 AUTH_PUBLIC = {"/healthz", "/api/login"}
@@ -73,6 +80,14 @@ AUTH_PREFIXES = ("/data/", "/api/")
 
 def _app_password() -> str:
     return os.environ.get("APP_PASSWORD") or ""
+
+
+def _default_password() -> bool:
+    """Is the gate still standing on the password the repo publishes? A BOOLEAN — the
+    browser is told the state, never the value, exactly like every secret in
+    settings.public(). Deliberately reads the environment only, like _app_password():
+    APP_PASSWORD is not on the settings whitelist and must not become settable."""
+    return _app_password() == DEFAULT_PASSWORD
 
 
 def _sign(exp: int, pw: str) -> str:
@@ -275,6 +290,14 @@ async def _fetch_loop():
 
 @asynccontextmanager
 async def _lifespan(app):
+    # #65: loud, once, on every boot — and NOT a refusal to start, because the person
+    # seeing this is usually mid-setup and locking them out helps nobody. The value is
+    # printed because it is already public; hiding it would only hide the problem.
+    if _default_password():
+        print(f"{'!' * 20} SECURITY: APP_PASSWORD is still the shipped default "
+              f"{DEFAULT_PASSWORD!r} — it is published in .env.example, so anyone who has "
+              f"seen this repo can open your app. Change it in .env and restart. "
+              f"{'!' * 20}", flush=True)
     tasks = []
     # Always started since #39: Web Push is the default transport and needs nothing
     # configured, so there is no env var to gate on. The loop itself checks per tick
@@ -287,6 +310,14 @@ async def _lifespan(app):
     yield
     for t in tasks:
         t.cancel()
+
+
+def _settings_view() -> dict:
+    """What both /api/settings routes answer with. `default_password` is added HERE and
+    not in settings.public() so that module keeps knowing nothing about the gate — it is
+    the one place with a hard "never returns a secret value" invariant, and a bool about
+    APP_PASSWORD is state, not value."""
+    return {**settings.public(parse.BANKS), "default_password": _default_password()}
 
 
 def _web_dir() -> Path:
@@ -418,10 +449,11 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------ first-run setup (#40)
     # Gated by APP_PASSWORD like every other /api route (the gate derives its set from the
     # router), and write-only for secrets whether the gate is on or not — see
-    # server/settings.py. The case for making that gate the default is filed as #65.
+    # server/settings.py. Since #65 the documented compose path SETS that gate, so these
+    # routes are closed by default there — but write-only secrets do not depend on it.
     @app.get("/api/settings")
     def read_settings():
-        return settings.public(parse.BANKS)
+        return _settings_view()
 
     @app.post("/api/settings")
     async def write_settings(body: dict = Body(...)):
@@ -432,7 +464,7 @@ def create_app() -> FastAPI:
                 settings.save(body)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        return settings.public(parse.BANKS)
+        return _settings_view()
 
     @app.post("/api/settings/test-mail")
     async def test_mail():

@@ -875,3 +875,96 @@ def test_telegram_and_the_template_come_from_settings_too():
         c.post("/api/settings", json={"REMIND_DAYS": "30"})
         assert remind_bills.remind_days() == 30
     _clean_settings_env()
+
+
+# ---------------------------------------------------- shipped default password (#65)
+# .env.example now ships APP_PASSWORD=changeme@123, so the documented `docker compose up`
+# path is CLOSED rather than open. A shipped default is a known credential, so the two
+# things that make it survivable are a loud boot warning and a banner in the UI — both
+# driven by a boolean that never carries the value.
+
+def test_default_password_is_reported_as_a_boolean_and_only_when_it_is_the_default():
+    """Mutation check: return the password instead of the bool from _settings_view(), or
+    drop the `== DEFAULT_PASSWORD` comparison, and this goes red."""
+    _clean_settings_env()
+    _ungate()
+    with tempfile.TemporaryDirectory() as d:
+        # no gate at all -> not the default (there is nothing to change)
+        c, appmod = _client(d)
+        assert c.get("/api/settings").json()["default_password"] is False
+        assert appmod.DEFAULT_PASSWORD == "changeme@123", ".env.example ships this exact value"
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d, password="changeme@123")
+            c.post("/api/login", json={"password": "changeme@123"})
+            for r in (c.get("/api/settings"), c.post("/api/settings", json={})):
+                assert r.json()["default_password"] is True
+        # a real password -> no banner
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _gated(d, password="something-only-i-know")
+            c.post("/api/login", json={"password": "something-only-i-know"})
+            assert c.get("/api/settings").json()["default_password"] is False
+    finally:
+        _ungate()
+        _clean_settings_env()
+
+
+def test_the_app_password_itself_never_comes_back_over_the_api():
+    """The gate's own credential is a secret like any other (#40's contract, #65's default).
+    Log in, then sweep every route for the password — including the session cookie, which
+    is a MAC over the expiry and must not carry the password itself.
+
+    Mutation check: add the password to _settings_view() (or to /api/login's body) and the
+    sweep goes red.
+    """
+    _clean_settings_env()
+    pw = "changeme@123"
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, appmod = _gated(d, password=pw)
+            login = c.post("/api/login", json={"password": pw})
+            assert login.status_code == 200
+            paths = ["/api/settings", "/data/app.json", "/data/paid.json", "/data/waivers.json",
+                     "/bills", "/healthz", "/", "/index.html"]
+            bodies = [login.text, c.post("/api/settings", json={}).text]
+            bodies += [c.get(p).text for p in paths]
+            bodies.append(c.cookies.get(appmod.COOKIE) or "")
+            for body in bodies:
+                assert pw not in body
+                assert pw[:6] not in body      # a masked credential is still a leaked one
+    finally:
+        _ungate()
+        _clean_settings_env()
+
+
+def test_the_default_password_is_warned_about_at_startup_and_does_not_block_boot():
+    """One unmissable line in `docker logs`, and the app still serves — someone mid-setup
+    must not be locked out by the warning about being locked out.
+
+    Mutation check: drop the print (or the _default_password() guard) and this goes red.
+    """
+    _clean_settings_env()
+    import contextlib
+    import io
+
+    def boot(password):
+        os.environ.pop("APP_PASSWORD", None)
+        if password:
+            os.environ["APP_PASSWORD"] = password
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                c, _ = _client(d)
+                with c:                        # entering the context runs the lifespan
+                    assert c.get("/healthz").status_code == 200   # boot was NOT refused
+            return buf.getvalue()
+
+    try:
+        out = boot("changeme@123")
+        assert "APP_PASSWORD" in out and "default" in out
+        assert len([ln for ln in out.splitlines() if "APP_PASSWORD" in ln]) == 1
+        assert boot("something-only-i-know").strip() == ""
+        assert boot(None).strip() == ""
+    finally:
+        _ungate()
+        _clean_settings_env()
