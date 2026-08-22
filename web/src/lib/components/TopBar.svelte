@@ -2,6 +2,7 @@
   import { app, latestMonth } from '$lib/data';
   import { search, MAGNIFY } from '$lib/search.svelte';
   import SyncStatus from '$lib/components/SyncStatus.svelte';
+  import Icon from './Icon.svelte';
 
   const sections = [
     { id: 'overview', label: 'Overview' },
@@ -61,26 +62,27 @@
       {/each}
     </nav>
     <button type="button" onclick={() => (search.open = true)} aria-label="Search transactions"
-      class="searchbtn ml-auto" style="color:var(--muted)">
+      class="iconbtn ml-auto" style="color:var(--muted)">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d={MAGNIFY} /></svg>
     </button>
     <span class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
       {latestMonth()} · {app.range}
     </span>
-    <!-- #40: the four setup steps are all optional, so they need a way back. -->
-    <a href="/settings" class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)"
-      >Settings</a
-    >
+    <!-- #40: the four setup steps are all optional, so they need a way back.
+         #66: an icon button, same cog as the BottomNav tab, so the two read as one feature. -->
+    <a href="/settings" class="iconbtn" aria-label="Settings" title="Settings" style="color:var(--muted)">
+      <Icon name="cog-outline" size={20} />
+    </a>
     <SyncStatus />
   </div>
 </header>
 
 <style>
-  .searchbtn {
+  .iconbtn {
     display: inline-flex;
     padding: 0.25rem;
   }
-  .searchbtn:focus-visible {
+  .iconbtn:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
   }

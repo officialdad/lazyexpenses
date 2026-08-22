@@ -66,9 +66,7 @@
   <div class="lg:hidden">
     <main class="mx-auto px-4 pb-24 pt-4 max-w-md md:max-w-3xl">
       <div class="mb-2 flex items-center justify-end gap-3">
-        <a href="/settings" class="text-[11px] uppercase tracking-wide" style="color:var(--muted)"
-          >Settings</a
-        >
+        <!-- #66: the Settings link that used to sit here is now a BottomNav tab. -->
         <SyncStatus />
       </div>
       {@render children()}
