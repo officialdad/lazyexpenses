@@ -6,7 +6,12 @@
     { href: '/', label: 'Home', icon: 'wallet-outline' },
     { href: '/trends', label: 'Trends', icon: 'chart-line' },
     { href: '/cuts', label: 'Cuts', icon: 'content-cut' },
-    { href: '/fees', label: 'Fees', icon: 'receipt-text-outline' }
+    { href: '/fees', label: 'Fees', icon: 'receipt-text-outline' },
+    // #66: settings is where credentials/mail/reminders live, so it belongs on the one
+    // navigation surface a phone user learns — not a corner of a header that scrolls away.
+    // 6 slots is 65px each at 390px; audit-responsive.mjs says the full label still fits,
+    // so it was not shortened. Adding a 7th would be the point to re-measure.
+    { href: '/settings', label: 'Settings', icon: 'cog-outline' }
   ];
   const path = $derived(page.url.pathname);
 </script>
