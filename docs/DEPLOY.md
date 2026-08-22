@@ -20,10 +20,23 @@ you, it is enough. Nothing below is needed to use the parser or the offline dash
 
 ```bash
 cp .env.example .env    # then open it and fill in what you have
+# change APP_PASSWORD — the value it ships with is a placeholder, not a password
 docker compose up -d
 ```
 
 Open <http://localhost:8000>. That is the whole deployment.
+
+**Change the password first.** `.env.example` ships `APP_PASSWORD=changeme@123` so that a
+fresh install is closed rather than wide open, but that value is printed in a public repo
+and everyone who has read it knows yours. Put anything else in its place before you start
+the container. Leave it and the server says so on every boot —
+
+```
+!!!!!!!!!!!!!!!!!!!! SECURITY: APP_PASSWORD is still the shipped default 'changeme@123' …
+```
+
+— and the Settings screen keeps a banner up until you change it. See
+[Locking it with a password](#locking-it-with-a-password) for what the login covers.
 
 Nothing gets built — [`compose.yaml`](../compose.yaml) uses the image published on every
 release, so no Python, no Node, no toolchain.
@@ -70,7 +83,7 @@ committed copy with placeholders — copy it, do not edit it.
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `8000` | port on the host |
-| `APP_PASSWORD` | — | blank means no login; set it and the app asks for it once per device |
+| `APP_PASSWORD` | `changeme@123` in `.env.example` | the login for the whole app, asked for once per device. **Change it before you start** — the shipped value is printed in a public repo. Blank means no login at all |
 | `CC_PW_MAYBANK` … `CC_PW_RHB` | — | statement passwords, one per bank, named after the filename prefix. Set only the banks you hold |
 | `GMAIL_USER` | — | the mailbox to poll |
 | `GMAIL_APP_PASSWORD` | — | a Google app password, never your login password |
@@ -213,12 +226,16 @@ host's timezone is, so a UTC machine does not fire a day early.
 
 ## Locking it with a password
 
-By default there is no login. Set `APP_PASSWORD` to any password you like and there is
-one:
+There is a login, and `.env.example` turns it on for you — but on a placeholder that is
+public, so the only correct first move is to replace it with a password you choose:
 
 ```
 APP_PASSWORD=something-only-you-know
 ```
+
+Blank it out instead and there is no login at all: anyone who can reach the port sees
+every transaction and balance, and can point your bill reminders at their own chat. That
+is a fine choice on a machine only you can reach, and a bad one anywhere else.
 
 Restart, open the app, and it asks for that password once. It is stored as a cookie your
 browser keeps, so you type it once per device and not again for a month. There are no
