@@ -192,7 +192,34 @@ issues frame it, both filed to be picked up cold:
 
 #20 (tracking) is closed — every issue it tracked is done.
 
-### Shipped in 0.13.0 (2026-08-22)
+### Shipped in 0.13.0 (rolled out 2026-08-22)
+
+**The rollout.** `parse.py` untouched, so `PARSE_VER` was unchanged and **the cache survived** — the
+in-pod `run_pipeline` took **0.46s** (versus 0.9.1's 108.9s cold). Verified on the live host after
+rollout: digest `sha256:247bbd0e...`, pod Running 1/1, **86 PDFs, 82 VERIFIED / 4 DUPLICATE**, 1383
+transactions, 85 cache entries, `reminded.json` still `["hsbc|2026-08"]`. `curl /healthz` ->
+`{"ok":true,"version":"0.13.0"}` **matching the manifest tag**. `/`, `/settings`, `/data/app.json`
+and `/healthz` all 200. The fetch loop ticked `CC: 0 unread` on the new image, so IMAP came through.
+
+**#66's PVC trap fired exactly as documented, and the manual step was required.** Before the
+pipeline run the live `app.json` had **38 icons and no `cog-outline`** — a deploy does not rewrite
+the volume. After it: **39 icons, `cog-outline` present**. Always check this after shipping an icon.
+
+**#67's reloader is in the served shell** (`swUpdateBanner` present) and the push seam survived
+(`importScripts("/push-sw.js")` still in `sw.js`). Per the blind spot above, a browser holding the
+0.12.0 shell still needs one manual reload; the banner works from the *next* release onward.
+
+**The auth posture on the live host, stated precisely because it is easy to misread:**
+`APP_PASSWORD` is **empty** in the pod, so `_app_password()` is falsy and **the gate is off** —
+`/api/settings` answers unauthenticated. `/api/settings` reports `default_password: false`, and
+that is **not** "someone changed it": it is false because there is no password at all. **The
+default-password banner therefore never fires in production, so #65's warning gives no signal about
+prod being open.** The write routes are still reachable by anyone who can reach the host.
+`settings.json` is absent from the volume and every `CC_PW_*`/`GMAIL_*`/`TELEGRAM_*` reports
+`locked`, so the k8s Secret remains the source of truth. `/api/settings` returns a bool per secret
+and **no value anywhere** — the write-only invariant holds in production.
+
+#### What shipped
 
 Four issues, built in **four parallel worktrees** and merged the same day. The
 **file-ownership contract** from the 0.12.0 wave was written down again first, and this time
