@@ -115,9 +115,9 @@ probes, so `--tail` will hide these; grep the whole thing.
 ### Next: the deployment has to be beginner-usable
 
 **Handoff state (2026-08-22, after 0.11.0).** Prod runs 0.11.0 and everything the pipeline does has
-been exercised in production at least once — parse, reconcile, ingest, both timers, and the full
-mail-to-VERIFIED path. **The one exception is the feature 0.11.0 just shipped**: no Web Push
-notification has ever reached a real device (see below). Otherwise what remains is feature work:
+been exercised in production at least once — parse, reconcile, ingest, both timers, the full
+mail-to-VERIFIED path, and **now Web Push all the way to a real browser** (see below). Nothing is
+blocked on evidence; what remains is feature work:
 
 **Open: #40, #44, #62.** #40 → #44 is a chain — #44 says in its own text to wait for #40 or expect a
 second pass. **#62 is independent of both** (a build arg, one endpoint, one footer line) and is
@@ -206,13 +206,22 @@ touches only `llm_cats.py` — the collision zone is `server/app.py` + `web/`, a
   - **`/data/vapid.json` is backup-critical** — generated on first `/api/push/key`, and replacing it
     silently orphans every stored subscription. `push_subs.json` sits beside it; `404`/`410` from a
     push service deletes that subscription rather than retrying it forever.
-  - **Unverified, and it is this feature's own first acceptance criterion:** no notification has
-    reached a real device. Headless Chromium reports `Notification.permission: denied`
-    unconditionally, so `pushManager.subscribe()` against a real push service was never called. What
-    *is* proven: `encrypt()` matches RFC 8291's published test vector byte for byte, the VAPID JWT
-    verifies against its own public key, and a fake TLS push service decrypted a real reminder
-    payload. Prod is HTTPS, so the remaining test is a phone on `lazyexpense.opariffazman.com`.
-    iOS additionally requires the PWA be installed.
+  - **Proven end to end on a real device, 2026-08-22.** A real browser subscribed through the UI
+    and a push sent from the pod arrived and rendered. The log carries the whole path in order —
+    `GET /push-sw.js` (so the new SW loaded on the device), `GET /api/push/key` 200,
+    `POST /api/push/subscribe` 200 — and the send reported `delivered to 1 browser(s)` with the
+    subscription still stored afterwards, so no `410`. The endpoint was
+    `updates.push.services.mozilla.com`, i.e. **Firefox**; the iOS installed-PWA path is still
+    untested, which is the only gap left here. Also proven offline: `encrypt()` matches RFC 8291's
+    published test vector byte for byte and the VAPID JWT verifies against its own public key.
+  - **How to test it again**, since the timer will not help — `reminded.json` already holds
+    `["hsbc|2026-08"]`, so no real bill will fire until a new statement lands. Send one by hand:
+    `kubectl exec deploy/lazyexpense -- python -c "import web_push; print(web_push.send('t','body'))"`
+    (from `~/repo/infrastructure`, where the `kubectl` mise shim resolves). It returns the number of
+    browsers it reached; `0` means the subscription was dropped and the UI button must be clicked
+    again. **The permission prompt is never shown on load** — it fires only from the "Remind me"
+    button in the Bills due panel (bottom of Overview), which is deliberate: browsers penalise
+    sites that prompt on first paint.
   - Wire gotcha: `urllib` capitalises header names, so the request carries `Ttl:` and
     `Content-encoding:`. Case-insensitive, so services accept it — but do not grep for `TTL`.
 
