@@ -37,5 +37,17 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # #62: the only place the version is injected. Both stages read it (see Dockerfile).
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # #62: the half-applied-bump check, limited to what this repo can see - that the
+      # image really carries the version it was tagged with, in BOTH stages (a missing
+      # per-stage ARG is the easy way to get this wrong). Tag <-> deployed-digest agreement
+      # is NOT checkable here: the manifest lives in a separate infrastructure repo.
+      - name: image reports the version it was tagged with
+        env:
+          V: ${{ steps.meta.outputs.version }}
+        run: |
+          docker run --rm -e V="$V" "ghcr.io/${{ github.repository }}/app:$V" sh -c '[ "$APP_VERSION" = "$V" ] && grep -rq "$V" web_build/_app/'

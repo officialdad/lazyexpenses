@@ -4,6 +4,7 @@
   import { net } from '$lib/net.svelte';
   import { ago } from '$lib/fmt';
   import { toast } from '$lib/toast.svelte';
+  import { VERSION, versionLabel } from '$lib/version';
   import Icon from '$lib/components/Icon.svelte';
 
   let { class: cls = '' }: { class?: string } = $props();
@@ -16,6 +17,21 @@
   });
 
   const loading = $derived(meta.status === 'loading');
+
+  // #62: the shell knows its own build at compile time; the server's comes from /healthz,
+  // which is public (AUTH_PUBLIC) and already the liveness probe. Fetched once on mount —
+  // a stale cached PWA against a fresh pod then reads as two numbers on screen instead of
+  // looking identical. Any failure (offline, older server) leaves it '' and shows one.
+  let server = $state('');
+  $effect(() => {
+    (async () => {
+      try {
+        server = ((await (await fetch('/healthz')).json()).version as string) ?? '';
+      } catch {
+        /* keep '' */
+      }
+    })();
+  });
 
   async function refresh() {
     await Promise.all([loadAppData(), paid.load()]);
@@ -38,6 +54,9 @@
   >
     <Icon name="sync" size={16} />
   </button>
+  <span class="tnum" title="App version (shell · server). They differ when a cached PWA is behind the server — reload to pick up the new shell.">
+    {versionLabel(VERSION, server)}
+  </span>
 </div>
 
 <style>

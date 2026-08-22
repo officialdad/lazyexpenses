@@ -24,7 +24,9 @@ def _client(tmp, web=None):
 def test_healthz():
     with tempfile.TemporaryDirectory() as d:
         c, _ = _client(d)
-        assert c.get("/healthz").json() == {"ok": True}
+        # #62: `version` is additive; APP_VERSION is unset here, i.e. exactly a bare
+        # `docker build` / checkout run, which must say "dev" and never a stale semver.
+        assert c.get("/healthz").json() == {"ok": True, "version": "dev"}
 
 
 def test_bills_empty_when_no_app_json():
@@ -70,7 +72,7 @@ def test_prerendered_route_and_spa_fallback():
         r = c.get("/totally-unknown-route")
         assert r.status_code == 200 and "spa" in r.text
         # API routes are matched before the static mount and are unaffected
-        assert c.get("/healthz").json() == {"ok": True}
+        assert c.get("/healthz").json()["ok"] is True
 
 
 def test_ingest_saves_pdf_and_runs_pipeline(monkeypatch):
@@ -324,7 +326,7 @@ def test_healthz_is_reachable_unauthenticated_in_both_modes():
         with tempfile.TemporaryDirectory() as d:
             c, _ = _gated(d)
             assert c.get("/healthz").status_code == 200
-            assert c.get("/healthz").json() == {"ok": True}
+            assert c.get("/healthz").json()["ok"] is True
     finally:
         _ungate()
 
