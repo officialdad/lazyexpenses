@@ -11,13 +11,72 @@
 		     manifest.webmanifest but its auto-inject doesn't land in the static build
 		     output (Vite 8 + SvelteKit), so nothing referenced them → no manifest, no
 		     SW → Chrome offered only a "Add to Home screen" shortcut, never Install,
-		     and the offline cache never populated. sw.js does skipWaiting+clientsClaim
-		     so registerType:'autoUpdate' still applies on reload. -->
+		     and the offline cache never populated.
+
+		     #67: registerType:'autoUpdate' only configures the generated registerSW.js,
+		     which nothing loads either — so nothing ever reloaded. sw.js really does
+		     skipWaiting+clientsClaim, so a new worker activates and claims this client
+		     (→ controllerchange), but the already-loaded document keeps running its old
+		     assets. Hence the reloader below. It PROMPTS rather than reloading itself:
+		     /settings has forms, and yanking the page mid-password is worse than a
+		     stale shell. Inline, with inline styles, on purpose — it has to work when
+		     the Svelte shell is the stale thing. -->
 		<script>
+			function swUpdateBanner() {
+				if (document.getElementById('sw-update')) return;
+				var d = document.createElement('div');
+				d.id = 'sw-update';
+				d.setAttribute('role', 'status');
+				d.style.cssText =
+					'position:fixed;left:50%;bottom:5.5rem;transform:translateX(-50%);z-index:9999;' +
+					'display:flex;gap:.75rem;align-items:center;max-width:calc(100vw - 2rem);' +
+					'background:#111827;color:#fff;border:1px solid #4b5563;border-radius:.5rem;' +
+					'padding:.6rem .75rem;box-shadow:0 4px 20px rgba(0,0,0,.5);' +
+					'font:500 14px/1.3 system-ui,sans-serif';
+				var t = document.createElement('span');
+				t.textContent = 'New version available';
+				var b = document.createElement('button');
+				b.type = 'button';
+				b.textContent = 'Reload';
+				b.style.cssText =
+					'flex:none;background:#fff;color:#111827;border:0;border-radius:.375rem;' +
+					'padding:.35rem .7rem;cursor:pointer;font:600 14px system-ui,sans-serif';
+				b.addEventListener('click', function () {
+					location.reload();
+				});
+				d.append(t, b);
+				document.body.append(d);
+			}
 			if ('serviceWorker' in navigator) {
-				window.addEventListener('load', () =>
-					navigator.serviceWorker.register('/sw.js', { scope: '/' })
-				);
+				window.addEventListener('load', function () {
+					// Null on a first-ever install, where clientsClaim fires controllerchange
+					// with no old assets to replace. Prompting then is noise, reloading a loop.
+					// Promoted rather than frozen: once that first claim is seen, any further
+					// controllerchange in this document IS a new deploy, even though the flag
+					// started false — a tab left open since its first visit still gets told.
+					var hadController = !!navigator.serviceWorker.controller;
+					navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function (reg) {
+						navigator.serviceWorker.addEventListener('controllerchange', function () {
+							if (hadController) swUpdateBanner();
+							else hadController = true;
+						});
+						// An installed PWA resumed from the background may never navigate, so
+						// nothing re-fetches sw.js. Poll, and check on resume; the 60s floor
+						// keeps a tab-switcher from hammering it.
+						var last = 0;
+						var check = function () {
+							if (Date.now() - last < 60000) return;
+							last = Date.now();
+							reg.update().catch(function () {});
+						};
+						setInterval(check, 3600000);
+						document.addEventListener('visibilitychange', function () {
+							if (document.visibilityState === 'visible') check();
+						});
+					})
+					// Insecure context (plain-HTTP LAN IP) rejects; not an error worth logging.
+					.catch(function () {});
+				});
 			}
 		</script>
 		%sveltekit.head%

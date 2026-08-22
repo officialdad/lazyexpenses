@@ -9,6 +9,9 @@ export default defineConfig({
 		tailwindcss(),
 		sveltekit(),
 		SvelteKitPWA({
+			// #67: this only configures the generated registerSW.js, which nothing loads
+			// here. Keep it anyway — it is what puts skipWaiting+clientsClaim in sw.js,
+			// which is the controllerchange the reloader in app.html listens for.
 			registerType: 'autoUpdate',
 			strategies: 'generateSW',
 			scope: '/',
