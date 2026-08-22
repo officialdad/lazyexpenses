@@ -114,20 +114,23 @@ probes, so `--tail` will hide these; grep the whole thing.
 
 ### Next: the deployment has to be beginner-usable
 
-**Handoff state (2026-08-22, after 0.12.0).** Prod runs 0.12.0 and everything the pipeline does has
+**Handoff state (2026-08-22, after 0.13.0).** Prod runs 0.13.0 and everything the pipeline does has
 been exercised in production at least once — parse, reconcile, ingest, both timers, the full
-mail-to-VERIFIED path, and Web Push all the way to a real browser. Nothing is blocked on evidence;
-what remains is feature work:
+mail-to-VERIFIED path, and Web Push all the way to a real browser. Nothing is blocked on evidence.
 
-**Open: #44, #65, #66, #67.** #66 and #67 are small, independent of everything else and of
-each other (`BottomNav`/`TopBar` vs `app.html`) — the safe parallel pair for another wave.
-#44 (README) is now unblocked — #40 landed, so the README can finally shrink
-because the product got simpler rather than because the prose moved. It has grown scope: it must
-also document the setup flow, `/api/settings`, and that **`.env` is now optional**. **#65 is new
-and is the one to think about** — #40 closed the credential *read* path (write-only secrets) but
-sharpened the *write* path: anyone who can reach the app can overwrite the Telegram pair or make
-the server dial Gmail. `APP_PASSWORD` is still deliberately absent from `lazyexpense-secrets`, so
-exposure is what it was before, but the case for a login is now concrete rather than theoretical.
+**Every issue #20 tracked is now closed.** #44, #65, #66 and #67 all shipped in 0.13.0, in a
+**four-way parallel wave** — see below. There is no open issue list at the time of writing; the
+next thing is whatever you decide it is.
+
+**One thing 0.13.0 deliberately did NOT close, and it is the one to pick up first.** #65 asked
+whether the app should be closed by default now that it holds credentials. The answer shipped was
+*the compose path ships closed* (`.env.example` carries `APP_PASSWORD=changeme@123`) — but
+**production still sets no `APP_PASSWORD` at all**, so `_app_password()` is falsy on the live host
+and the gate stays off. `POST /api/settings`, `/api/settings/test-mail` and `/ingest` are still
+reachable unauthenticated at `lazyexpense.opariffazman.com`, which was #65's actual complaint.
+Closing it is one key in `lazyexpense-secrets` and a pod restart. It was left as a deliberate
+decision rather than done silently, because turning the gate on breaks any client that does not
+know the password — including a `fetch_mail.py` run by hand.
 
 **#39, #51, #52 and #58 are done** — #51/#52 in 0.10.0, #58 and #39 in 0.11.0. **#40, #62 and #64
 are done in 0.12.0**, see below.
@@ -188,6 +191,94 @@ issues frame it, both filed to be picked up cold:
   `Dockerfile:15` names it,** and `docs/DEPLOY.md` had shipped a command that could not run.
 
 #20 (tracking) is closed — every issue it tracked is done.
+
+### Shipped in 0.13.0 (2026-08-22)
+
+Four issues, built in **four parallel worktrees** and merged the same day. The
+**file-ownership contract** from the 0.12.0 wave was written down again first, and this time
+**no file appeared in two branches at all** — four conflict-free merges, versus 0.12.0's single
+trivial conflict. That is now twice the technique has paid; keep doing it.
+
+| Issue | Owned | 
+|---|---|
+| #65 | `server/app.py`, `server/settings.py`, `server/test_app.py`, `.env.example`, `docs/DEPLOY.md`, `web/src/routes/settings/+page.svelte` |
+| #66 | `BottomNav.svelte`, `TopBar.svelte`, `Icon.test.ts`, `routes/+layout.svelte`, `dashboard.py` |
+| #67 | `web/src/app.html`, `web/vite.config.ts`, `web/sw-update-check.mjs` |
+| #44 | `README.md`, `docs/img/` |
+
+**The wave's own new trap, and it invalidated two agents' test runs: parallel `vite preview`
+instances silently collide.** `npm run preview -- --port 4173` walks to 4174/4175/4176 without
+failing, and `audit-responsive.mjs` then prints a perfectly green `AUDIT OK` **against a sibling
+agent's build** — one agent's screenshot showed the old UI while its audit passed. Two of the three
+web-touching agents were hit. **Assign ports up front in any parallel web wave**, use
+`npx vite preview --port N --strictPort`, read the port back out of the preview's own log, set
+`AUDIT_BASE` explicitly, and grep the *served* output for a string unique to your change before
+trusting the audit.
+
+- **#65 — the compose path ships closed.** `.env.example` carries `APP_PASSWORD=changeme@123`.
+  This is a **known credential and is published in this repo** — it is a default posture, not a
+  secret, and everything about the design assumes an attacker knows it.
+  - `DEFAULT_PASSWORD` + `_default_password()` in `server/app.py`; a **loud unmissable startup
+    warning** while it is still the default, which does **not** refuse to start (that would break
+    someone mid-setup).
+  - `_settings_view()` wraps `settings.public()` and adds `"default_password": <bool>`.
+    **`settings.public()` itself is untouched**, so its never-return-a-secret invariant keeps
+    knowing nothing about the gate. Mutation-tested in both leak directions.
+  - **`APP_PASSWORD` stays off the settings whitelist** — the gate must not be settable through
+    the thing it gates. Unchanged from #40, and load-bearing.
+  - **Prod is unaffected and still open** — see the handoff note above. That is the follow-up.
+  - Known gap: the banner does **not** render during first-run setup, because `+layout.svelte`
+    renders `<Setup first={true}/>` directly on an empty volume and that file belonged to #66 this
+    wave. The startup log warning covers that window unconditionally.
+
+- **#66 — settings is a real icon control at every breakpoint**, replacing an 11px text link on
+  mobile and a 13px one on desktop. Same shape of fix as #64, and filed for the same reason.
+  - **Mobile got a 6th `BottomNav` tab, measured not guessed** — 65px per slot at 390px, no
+    overflow, the full `SETTINGS` label ships unshortened. A 7th item is the point to re-measure.
+    Chosen over a header icon because the header row scrolls away inside `<main>`; the bottom nav
+    is the only durable chrome a phone user learns.
+  - The MDI path for `cog-outline` was taken **verbatim from `@mdi/js` 7.4.47** (`npm pack` +
+    grep), not typed from memory. A wrong path renders a garbage shape in silence.
+  - **Same PVC trap as #64:** the icon table ships inside `app.json`, which lives on the volume and
+    **is not rewritten by a deploy**. The cog is `Icon.svelte`'s visible `square-outline` fallback
+    until a pipeline run.
+  - New `Icon.test.ts` case asserts every icon name the chrome hardcodes is actually in `MDI` —
+    the loud half of `Icon.svelte`'s deliberately quiet fallback.
+
+- **#67 — a reloader the hand-wired SW registration actually runs.** `registerType: 'autoUpdate'`
+  configures the generated `registerSW.js`, and that file is never loaded here (see Sharp edges).
+  - **A prompt, not an auto-reload.** `/settings` holds credential forms since #40, and reloading
+    a page out from under someone typing an app password is worse than a stale shell. The banner
+    is **inline DOM with inline styles in `app.html`**, not a Svelte component — it has to render
+    when the Svelte shell itself is the stale thing.
+  - **The loop guard improves on the textbook one.** The standard `hadController` flag captured at
+    registration is *frozen*; that means a tab opened in a fresh profile can **never** prompt, and
+    would sit stale forever across a later deploy. This **promotes** the flag instead
+    (`if (hadController) banner(); else hadController = true`), swallowing only the first
+    `controllerchange` from the initial `clients.claim()`.
+  - `reg.update()` on a 1h interval **plus** `visibilitychange`→visible with a 60s floor, which is
+    what reaches the resumed-PWA case where nothing ever navigates.
+  - **`web/sw-update-check.mjs` drives a real Chromium through all four states** and prints
+    `SW67 CHECK OK` — first install does not prompt, a deploy prompts without reloading, Enter on
+    the button reloads once, a second deploy prompts again. Mutation-checked: deleting the guard
+    turns step 1 red. Document loads are counted via `sessionStorage`, because `framenavigated`
+    also fires on SvelteKit's same-document `replaceState` and reads as a phantom reload.
+  - **Trap: `vite preview` holds `sw.js` in memory**, so editing `build/sw.js` on disk is invisible
+    to `reg.update()` and no update can be simulated against it. The check serves `build/` from
+    disk itself. `python3 -m http.server` does not work either — it 301-redirects the extensionless
+    precache entries (`trends`, `cuts`, `settings`) and Workbox's install rejects.
+
+- **#44 — the README is a user document.** 170 → 139 lines, 12 → 3 code blocks,
+  `docker compose up -d` moved from 72% down to **line 16**, and 2 screenshots added
+  (`docs/img/`, generated from the **synthetic** demo corpus — real statements never enter git).
+  Cut: the `CC_PW_*` section, the `<bank>_anything.pdf` filename rule, the parse-cache paragraph,
+  the npm build block. #40 deleted the reason for all of it.
+  - **`test_docs_commands.py` fires in the opposite direction from the one you expect.**
+    `test_dev_only_scripts_do_not_trip_it` asserts `make_demo_data.py` **and** `verify_parity.py`
+    *are* invoked from a fenced block in `README.md` or `docs/DEPLOY.md` — it is the mutation guard
+    on the `DEV_ONLY` allowlist. **Deleting the demo section turns CI red.** A three-line demo block
+    had to stay, which is why `verify_parity.py` appears in a user-facing README. Follow-up: add
+    `CONTRIBUTING.md` to that test's `DOCS` tuple, then the block can shrink.
 
 ### Shipped in 0.12.0 (rolled out 2026-08-22)
 
@@ -440,17 +531,19 @@ does not delete the file that recreates it.
 
 ### Sharp edges
 
-- **A deployed shell can sit stale indefinitely, and #62's version line cannot always tell you**
-  (#67, found on the 0.11.0 → 0.12.0 rollout). `registerType: 'autoUpdate'` configures the
-  generated `registerSW.js` — the thing that *reloads the page* on new content — and that file is
-  **never loaded**, because auto-inject no-ops on this build and the SW is hand-registered in
-  `app.html`. `skipWaiting`/`clientsClaim` really are in the deployed `sw.js`, so the new worker
-  activates and claims clients; but an already-loaded document keeps its old assets, and an
-  installed PWA resumed from the background may never navigate at all. A plain tab self-heals on
-  the next reload; **if the UI looks like the previous release, hard-reload before debugging the
-  server.** Also: **#62's indicator is blind on the first release that introduces it** — a shell
-  predating the version line renders nothing, which reads as "no such feature" rather than "you
-  are stale". It works from 0.12.0 onward.
+- **A deployed shell can sit stale — fixed by #67 in 0.13.0, but never for the release that
+  introduces the fix.** `registerType: 'autoUpdate'` configures the generated `registerSW.js`, the
+  thing that *reloads the page* on new content, and **that file is never loaded**: auto-inject
+  no-ops on this build and the SW is hand-registered in `app.html`. `skipWaiting`/`clientsClaim`
+  really are in the deployed `sw.js`, so the new worker activates and claims clients — but an
+  already-loaded document keeps its old assets, and an installed PWA resumed from the background
+  may never navigate at all. **0.13.0 adds the missing reloader** (a "New version / Reload" banner
+  in `app.html`, plus `reg.update()` on an interval and on resume), so from **0.14.0 onward** an
+  open tab is told. A browser holding a **pre-0.13.0** shell has no reloader in it and still needs
+  one manual reload. Same blind spot as **#62's version line, which cannot render on a shell that
+  predates it** — nothing shown reads as "no such feature", not "you are stale"; that works from
+  0.12.0 onward. **If the UI looks like the previous release, hard-reload before debugging the
+  server.**
 
 - **`bank` on `/ingest` is load-bearing — validated since 0.9.0 (#31), but only against the six.**
   It still selects the password, the parser branch, and the filename *permanently*, because
