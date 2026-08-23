@@ -165,7 +165,9 @@
   {/if}
 {/snippet}
 
-<main class="mx-auto max-w-xl px-4 py-8">
+<!-- #87: the shell owns the content width, so /settings lines up with the dashboard.
+     The first-run mount is rendered by +layout with no shell around it, and keeps its own. -->
+<main class="py-8 {first ? 'mx-auto max-w-xl px-4' : ''}">
   <header class="mb-6">
     <h1 class="text-lg font-extrabold tracking-tight">
       {first ? 'Nothing here yet' : 'Settings'}
