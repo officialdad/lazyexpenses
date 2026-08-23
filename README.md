@@ -104,7 +104,7 @@ see [docs/DEPLOY.md](docs/DEPLOY.md#bill-reminders).
 ## Your data
 
 Everything lives in one Docker volume: the statement PDFs as they arrived, the numbers
-read out of them, and what you typed in Settings. The only network traffic is the mail
+read out of them, and what you typed in Settings. Nothing leaves the box except the mail
 it fetches for you and the reminders you asked it to send.
 
 Anything you set in `.env` wins over the same setting in the app, and shows there as
