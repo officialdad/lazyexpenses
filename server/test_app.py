@@ -303,6 +303,66 @@ def test_ingest_announces_only_a_bill_that_was_not_there_before(monkeypatch):
         assert state == [f"arrived|cimb|{month}"], state
 
 
+def test_a_backfill_records_arrivals_without_sending_any_of_them(monkeypatch):
+    """#91: announce()'s own floor drops anything older than last month, but bills[] is
+    the NEWEST statement per bank — so walking a year of mail ends on a current-month
+    bill per bank, above that floor, and six banks would be a burst of push. During a
+    backfill every arrival is seeded instead: recorded, never sent."""
+    import remind_bills
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        sent = []
+        monkeypatch.setattr(remind_bills, "send", sent.append)
+        month = remind_bills.today_myt().strftime("%Y-%m")
+
+        def fake_run(dd):
+            with open(os.path.join(dd, "app.json"), "w", encoding="utf-8") as fh:
+                json.dump({"bills": [{"bank": "cimb", "statement_month": month,
+                                      "current_balance": 812.5,
+                                      "payment_due_date": "2026-09-05"}]}, fh)
+            return {"VERIFIED": 1}
+
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", fake_run)
+        c.app.state.backfill["running"] = True
+        c.post("/ingest", files={"file": ("s.pdf", b"%PDF-1.4", "application/pdf")},
+               data={"bank": "cimb"})
+        assert sent == [], sent
+        # recorded, so the statement is not announced later either — it is not news then
+        state = json.load(open(os.path.join(d, "reminded.json"), encoding="utf-8"))
+        assert state == [f"arrived|cimb|{month}"], state
+
+
+def test_the_backfill_route_starts_a_run_and_reports_progress(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        # no credentials: a 400 before anything is scheduled
+        assert c.post("/api/settings/backfill").status_code == 400
+        monkeypatch.setattr(appmod.settings, "get",
+                            lambda name, default=None: "set" if name.startswith("GMAIL") else default)
+
+        called = {}
+
+        def fake_main(dry, criteria, stat):
+            called.update(dry=dry, criteria=criteria)
+            stat.update(total=9, done=9, ingested=7, skipped=2, unknown=["Your statement"])
+
+        monkeypatch.setattr(appmod.fetch_mail, "main", fake_main)
+        assert c.post("/api/settings/backfill").json()["running"] is True
+        got = c.get("/api/settings/backfill").json()
+        for _ in range(50):                      # it runs off the request thread
+            if not got["running"]:
+                break
+            got = c.get("/api/settings/backfill").json()
+        # the search is ALL and the run is not a dry run — anything but UNSEEN is readonly
+        # in fetch_mail, which is what keeps \Seen off a year of mail
+        assert called == {"dry": False, "criteria": "ALL"}
+        assert (got["running"], got["ingested"], got["skipped"]) == (False, 7, 2)
+        assert got["unknown"] == ["Your statement"]
+        # a second press while one is going is a 409, not a second walk of the mailbox
+        c.app.state.backfill["running"] = True
+        assert c.post("/api/settings/backfill").status_code == 409
+
+
 def test_reminder_tick_reads_bills_and_paid_from_pvc():
     """The in-process reminder reads the PVC directly (no self-HTTP). Telegram stubbed."""
     import remind_bills

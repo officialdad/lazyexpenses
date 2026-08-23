@@ -8,6 +8,10 @@ import {
 	testReminder,
 	upload,
 	reconLine,
+	backfillLine,
+	startBackfill,
+	backfillStatus,
+	type Backfill,
 	type Ingested
 } from './setup.svelte';
 
@@ -154,5 +158,57 @@ describe('reconLine', () => {
 	it('names the bank when the PDF is locked, because that is the question to ask', () => {
 		expect(reconLine(ing({ bank: 'cimb', recon: { ERROR: 1 }, problems: { ERROR: 1 }, locked: true })))
 			.toBe('That CIMB statement is password-protected.');
+	});
+});
+
+const bf = (over: Partial<Backfill> = {}): Backfill => ({
+	running: false,
+	total: 0,
+	done: 0,
+	ingested: 0,
+	skipped: 0,
+	failed: 0,
+	unknown: [],
+	error: null,
+	...over
+});
+
+describe('backfill (#91)', () => {
+	it('reports progress while it runs and the tally when it stops', () => {
+		expect(backfillLine(bf({ running: true, total: 120, done: 7, ingested: 5 }))).toBe(
+			'Reading mail… 7 of 120, 5 imported.'
+		);
+		expect(backfillLine(bf({ total: 120, done: 120, ingested: 84, skipped: 36 }))).toBe(
+			'Read 120 mail: 84 imported, 36 skipped.'
+		);
+		expect(backfillLine(bf({ total: 3, done: 3, ingested: 2, skipped: 1, failed: 1 }))).toBe(
+			'Read 3 mail: 2 imported, 1 skipped, 1 failed.'
+		);
+		expect(backfillLine(bf())).toBe('Nothing in that label to import.');
+	});
+
+	it('says an unrecognised bank was skipped — a backfill has no unread pile to nag from', () => {
+		expect(
+			backfillLine(bf({ total: 2, done: 2, ingested: 1, skipped: 1, unknown: ['Your statement'] }))
+		).toContain('1 had no recognisable bank');
+	});
+
+	it('shows the server error rather than a stuck progress line', () => {
+		expect(backfillLine(bf({ error: 'AUTHENTICATIONFAILED' }))).toBe(
+			'Import failed: AUTHENTICATIONFAILED'
+		);
+	});
+
+	it('surfaces the 409 when one is already running', async () => {
+		const res = await startBackfill(json({ detail: 'A backfill is already running.' }, 409));
+		expect(res).toEqual({ ok: false, message: 'A backfill is already running.' });
+	});
+
+	it('returns null for a dropped poll instead of inventing a state', async () => {
+		expect(await backfillStatus(json({}, 500))).toBeNull();
+		const offline = (async () => {
+			throw new Error('offline');
+		}) as unknown as typeof fetch;
+		expect(await backfillStatus(offline)).toBeNull();
 	});
 });

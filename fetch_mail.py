@@ -9,10 +9,17 @@ no IDLE, no long-lived connection.
 
   python fetch_mail.py --dry-run    # list what it would fetch, touch nothing
   python fetch_mail.py
+  python fetch_mail.py --all        # one-time backfill: the WHOLE label, read or not
 
 A message is marked \\Seen ONLY after every attachment in it ingested cleanly, so a
 failure — or an unknown bank, or a mail with no PDF — stays unread and shows up again
 next run. That is deliberate: a skipped mail nagging every run is how you notice it.
+
+A BACKFILL (#91) NEVER MARKS ANYTHING SEEN, and selects the mailbox readonly so the
+server would refuse the write even if asked. That flag IS the retry signal above;
+setting it across a year of mail erases it and there is no way to get it back from
+here. A backfill needs no dedupe of its own either — /ingest names what it stores by
+content hash, so re-posting a statement it already holds changes nothing.
 
 Env: GMAIL_USER, GMAIL_APP_PASSWORD (app password, needs 2FA), GMAIL_LABEL (CC),
 INGEST_URL (http://localhost:8000/ingest), IMAP_HOST (imap.gmail.com),
@@ -168,20 +175,36 @@ def check():
                 "unread": len(M.search(None, "UNSEEN")[1][0].split())}
 
 
-def main(dry=False):
+def main(dry=False, criteria="UNSEEN", stat=None):
+    """Fetch every mail matching `criteria` and ingest its PDFs. -> the counts dict.
+
+    `criteria` is the IMAP search: "UNSEEN" is the polling loop, "ALL" is the one-time
+    backfill (#91). Anything other than "UNSEEN" is a backfill and is READONLY — see
+    the module docstring for why that flag must not be written across old mail.
+
+    `stat` is an optional dict to fill in place, so a caller watching from another
+    thread (the server's backfill route) can read progress while this runs. It is the
+    return value either way.
+    """
     # Off unless both are set, same as the reminders: a compose stack with the mail
     # half unconfigured should say so and exit 0, not crash-loop on a KeyError.
     user, password, LABEL, host = creds()
+    stat = {} if stat is None else stat
+    stat.update(total=0, done=0, ingested=0, skipped=0, failed=0, unknown=[])
     if not (user and password):
         print("GMAIL_USER / GMAIL_APP_PASSWORD not set - nothing to fetch")
-        return
+        return stat
+    # readonly on a dry run AND on a backfill: the server cannot change a flag even if
+    # we ask. Only the UNSEEN pass is allowed to consume mail.
+    readonly = dry or criteria != "UNSEEN"
     seen = 0
     with imaplib.IMAP4_SSL(host) as M:
         M.login(user, password)
-        # readonly on a dry run: the server cannot change a flag even if we ask.
-        M.select(f'"{LABEL}"', readonly=dry)
-        nums = M.search(None, "UNSEEN")[1][0].split()
-        print(f"{LABEL}: {len(nums)} unread{' (dry run)' if dry else ''}")
+        M.select(f'"{LABEL}"', readonly=readonly)
+        nums = M.search(None, criteria)[1][0].split()
+        stat["total"] = len(nums)
+        print(f"{LABEL}: {len(nums)} message(s) matching {criteria}"
+              f"{' (dry run)' if dry else ''}")
         for n in nums:
             # PEEK — a plain FETCH sets \Seen by itself, which would defeat the retry.
             raw = M.fetch(n, "(BODY.PEEK[])")[1][0][1]
@@ -189,11 +212,28 @@ def main(dry=False):
             mark, lines = handle(msg, dry)
             for line in lines:
                 print(line, flush=True)
-            if mark:
+                if line.startswith(("ingested", "would ingest")):
+                    stat["ingested"] += 1
+                elif line.startswith("FAILED"):
+                    stat["failed"] += 1
+                else:                       # "skip: ..." — no PDF, or no known bank
+                    stat["skipped"] += 1
+            if any(ln.startswith("skip: bank not recognised") for ln in lines):
+                stat["unknown"].append((msg.get("Subject") or "(no subject)")[:120])
+            stat["done"] += 1
+            if mark and not readonly:
                 M.store(n, "+FLAGS", "\\Seen")
                 seen += 1
+    # A backfill has no unread pile to nag from, so an unrecognised bank is visible
+    # exactly once — here. Print it rather than leave it silently uningested.
+    if stat["unknown"]:
+        print(f"{len(stat['unknown'])} mail(s) with no recognised bank, nothing ingested:")
+        for subj in stat["unknown"]:
+            print(f"  {subj}", flush=True)
     print(f"marked {seen} message(s) seen")
+    return stat
 
 
 if __name__ == "__main__":
-    main(dry="--dry-run" in sys.argv)
+    main(dry="--dry-run" in sys.argv,
+         criteria="ALL" if "--all" in sys.argv else "UNSEEN")
