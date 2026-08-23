@@ -16,6 +16,8 @@ audit-shots/
 /*.csv
 # per-PDF parse cache (reproducible; keyed by content hash)
 cache/
+# local category overrides (#82); the real one lives on the PVC, not in the repo
+/cats.json
 
 # personal financial data — embedded transactions/balances (never commit)
 dashboard.html

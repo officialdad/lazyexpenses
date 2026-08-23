@@ -8,9 +8,12 @@ export interface Bill {
   payment_due_date: string | null;
   minimum_payment: number | null;
 }
+/** A merchant the keyword map could not place — one row of the #82 confirmation UI. */
+export interface OtherMerchant { m: string; n: number; rm: number; }
 export interface AppData {
   rows: Row[]; months: string[]; cards: string[]; cats: string[]; nonSpend: string[];
   colors: Record<string, string>; catIcon: Record<string, string>; icons: Record<string, string>;
   range: string; recs: any[]; installments: any[]; transfers: any[]; committed: Committed;
   cycles: Record<string, number>; bills: Bill[];
+  other: OtherMerchant[]; allCats: string[];
 }

@@ -5,6 +5,7 @@
   import { meta, loadAppData, login } from '$lib/data';
   import { paid } from '$lib/paid.svelte';
   import { waivers } from '$lib/waivers.svelte';
+  import { cats } from '$lib/cats.svelte';
   import { net, initNet } from '$lib/net.svelte';
   import { initPush } from '$lib/push.svelte';
   import BottomNav from '$lib/components/BottomNav.svelte';
@@ -21,7 +22,7 @@
   // shell ships the skeleton; data hydrates here).
   // initPush() here and not in BillsDue: both the mobile and desktop subtrees mount at
   // every width, so the panel renders twice and would probe the browser twice.
-  onMount(() => { initNet(); loadAppData(); paid.load(); waivers.load(); initPush(); });
+  onMount(() => { initNet(); loadAppData(); paid.load(); waivers.load(); cats.load(); initPush(); });
 
   // Password gate (#51): the server 401s the data routes when APP_PASSWORD is set, and
   // loadAppData turns that into meta.status === 'auth'. One form, one cookie, no route.
@@ -43,6 +44,7 @@
     await loadAppData();
     paid.load();
     waivers.load();
+    cats.load();
   }
 </script>
 <svelte:head><meta name="theme-color" content="#000000" /></svelte:head>

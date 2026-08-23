@@ -38,8 +38,41 @@ def test_recon_row_has_due():
     assert meta["due"] is None or meta["due"][:4].isdigit(), f"due not ISO: {meta['due']!r}"
 
 
+def test_overrides_beat_the_keyword_map_and_survive_ref_tokens():
+    """#82: a confirmed merchant wins over CATS, and the key is norm_merchant()'d on both
+    sides — otherwise a trailing reference token makes the same merchant unknown again."""
+    import json
+    import os
+    import tempfile
+    import insights
+    from parse import categorize, load_overrides
+
+    assert categorize("WARUNG ZZQQ") == "Other"      # nothing in CATS matches it
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "cats.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump({"WARUNG ZZQQ 88213": "F&B", "BINGXUE": ""}, fh)
+        ov = load_overrides(p)
+        assert ov[insights.norm_merchant("WARUNG ZZQQ 99")] == "F&B", ov
+        assert "BINGXUE" not in ov      # an empty value is a cleared row, not a category
+        assert load_overrides(os.path.join(d, "absent.json")) == {}
+
+
+def test_every_category_has_a_colour_and_an_icon():
+    """The confirmation dropdown is built from dashboard.COLORS while /api/cats validates
+    against parse.CATS. They must name the same taxonomy, or the UI offers a category the
+    server then refuses."""
+    import dashboard
+    from parse import CATS
+    names = {c for c, _ in CATS} | {"Other"}
+    assert names == set(dashboard.COLORS), names ^ set(dashboard.COLORS)
+    assert names == set(dashboard.CAT_ICON), names ^ set(dashboard.CAT_ICON)
+
+
 if __name__ == "__main__":
     test_due_date_per_bank()
     test_due_date_null_when_absent()
     test_recon_row_has_due()
+    test_overrides_beat_the_keyword_map_and_survive_ref_tokens()
+    test_every_category_has_a_colour_and_an_icon()
     print("OK")

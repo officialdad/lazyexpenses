@@ -149,6 +149,68 @@ def test_run_sends_once_then_records_it():
         remind_bills.send = real
 
 
+# ------------------------------------------------------- a statement arrived (#83)
+def test_arrived_message_says_what_is_missing_rather_than_skipping():
+    b = _bill("cimb", None, bal=None)
+    t = remind_bills.arrived_message(b)
+    assert "CIMB" in t and "2026-08" in t
+    assert "unknown" in t and "?" in t       # no due date, no balance, still announced
+
+
+def test_announce_sends_only_for_a_bill_that_was_not_there_before():
+    sent = []
+    real, remind_bills.send = remind_bills.send, sent.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            old, new = _bill("hsbc", "2026-08-25", month="2026-07"), _bill("cimb", "2026-09-02")
+            known = {bill_key(old)}          # hsbc was already on the volume
+            got = remind_bills.announce([old, new], known, state, TODAY)
+            assert [b["bank"] for b in got] == ["cimb"], got
+            assert len(sent) == 1 and "CIMB" in sent[0]
+            # both recorded — the seeded one silently, so it can never announce later
+            assert remind_bills.load_state(state) == {"arrived|hsbc|2026-07",
+                                                      "arrived|cimb|2026-08"}
+            # a second ingest of the same corpus says nothing
+            assert remind_bills.announce([old, new], known, state, TODAY) == []
+            assert len(sent) == 1
+    finally:
+        remind_bills.send = real
+
+
+def test_announce_is_silent_about_a_backfilled_old_statement():
+    sent = []
+    real, remind_bills.send = remind_bills.send, sent.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            # nothing known, so only the month floor (this month or last) holds it back
+            assert remind_bills.announce([_bill("rhb", "2026-03-20", month="2026-02")],
+                                         (), state, TODAY) == []
+            assert sent == []
+            assert remind_bills.load_state(state) == {"arrived|rhb|2026-02"}
+            assert remind_bills.prev_month(date(2026, 1, 9)) == "2025-12"
+    finally:
+        remind_bills.send = real
+
+
+def test_the_two_events_do_not_share_a_key():
+    """The whole reason for the namespace: announcing a bill must not make the due-date
+    reminder think it has already fired."""
+    sent = []
+    real, remind_bills.send = remind_bills.send, sent.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            state = os.path.join(d, "reminded.json")
+            b = _bill("sc", "2026-08-22")
+            assert len(remind_bills.announce([b], (), state, TODAY)) == 1
+            assert len(remind_bills.run([b], set(), state, TODAY)) == 1
+            assert len(sent) == 2
+            assert remind_bills.load_state(state) == {"arrived|sc|2026-08", "sc|2026-08"}
+    finally:
+        remind_bills.send = real
+
+
 if __name__ == "__main__":
     test_window()
     test_overdue_included_and_sorted_first()
@@ -161,4 +223,8 @@ if __name__ == "__main__":
     test_run_sends_one_message_per_bill()
     test_a_failed_send_does_not_lose_the_ones_already_sent()
     test_send_keeps_the_telegram_description()
+    test_arrived_message_says_what_is_missing_rather_than_skipping()
+    test_announce_sends_only_for_a_bill_that_was_not_there_before()
+    test_announce_is_silent_about_a_backfilled_old_statement()
+    test_the_two_events_do_not_share_a_key()
     print("OK")

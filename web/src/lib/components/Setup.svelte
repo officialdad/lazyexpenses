@@ -6,7 +6,8 @@
   // Deliberately no <Icon>: icons ship inside app.json, which does not exist yet on the
   // volume this screen exists for. Numbers render everywhere.
   import { onMount } from 'svelte';
-  import { loadAppData } from '$lib/data';
+  import { app, loadAppData } from '$lib/data';
+  import { cats } from '$lib/cats.svelte';
   import { push, togglePush } from '$lib/push.svelte';
   import {
     cfg, isLocked, loadSettings, saveSettings, testMail, testReminder, upload, reconLine
@@ -125,6 +126,23 @@
     const r = await testReminder();
     busy = false;
     remindMsg = say(r.ok, r.message);
+  }
+
+  // ---------------------------------------------------------------- 5. categories (#82)
+  // Only ever shown from Settings: on an empty volume there is no app.json, so there is
+  // nothing that fell through into `Other` to ask about.
+  let catMsg = $state<{ ok: boolean; m: string } | null>(null);
+
+  async function saveCat(merchant: string, category: string) {
+    busy = true;
+    catMsg = null;
+    const ok = await cats.set(merchant, category);
+    busy = false;
+    if (!ok) { catMsg = say(false, `Could not save ${merchant}.`); return; }
+    catMsg = say(true, category ? `${merchant} is now ${category}.` : `${merchant} is back in Other.`);
+    // The server re-ran the pipeline before answering, so the new categories — and the
+    // shorter unknown list — are already on the volume. Pick them up.
+    await loadAppData();
   }
 
   const FIELD = 'w-full border px-2 py-1.5 text-sm';
@@ -452,6 +470,41 @@
     </div>
     {@render result(remindMsg)}
   </section>
+
+  <!-- 5 ---------------------------------------------------------------- -->
+  {#if !first && app.other.length}
+    <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s5">
+      <h2 id="s5" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
+        5 · Unknown merchants <span style="color:var(--divider2)">(optional)</span>
+      </h2>
+      <p class="mt-2 text-xs" style="color:var(--muted)">
+        These did not match anything, so they are sitting in <code>Other</code>. Pick a category
+        and it sticks — for every statement, past and future. Biggest spend first.
+      </p>
+      <div class="mt-3 flex flex-col gap-3">
+        {#each app.other as o, i (o.m)}
+          <div>
+            <label class="mb-1 block text-xs" for={'cat-' + i} style="color:var(--muted)">
+              {o.m}
+              <span style="color:var(--divider2)">· {o.n}× · RM {o.rm.toFixed(2)}</span>
+            </label>
+            <select
+              id={'cat-' + i}
+              disabled={busy}
+              class={FIELD}
+              style={FIELD_STYLE}
+              value={cats.category(o.m)}
+              onchange={(e) => saveCat(o.m, e.currentTarget.value)}
+            >
+              <option value="">Leave it in Other</option>
+              {#each app.allCats as c (c)}<option value={c}>{c}</option>{/each}
+            </select>
+          </div>
+        {/each}
+      </div>
+      {@render result(catMsg)}
+    </section>
+  {/if}
 
   {#if first}
     <p class="text-xs" style="color:var(--muted)">

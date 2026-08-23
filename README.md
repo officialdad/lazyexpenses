@@ -40,6 +40,9 @@ to rename files into, and nothing to schedule.
   syncs across your devices.
 - **An annual-fee tracker**, a "use next" card pick, a monthly ceiling with what is
   actually free to spend once committed debt is out, and search across every transaction.
+- **A place to file the merchants it could not name.** Anything unrecognised lands in
+  `Other`; pick its category once under **Settings** and it sticks, for every statement
+  past and future.
 
 ![The leak finder on a phone: subscriptions, installments, balance transfers and creeping categories, each with an annual cost](docs/img/cuts.png)
 
@@ -77,8 +80,8 @@ getting that app password.
 ## Bill reminders
 
 Press **Remind me** next to the bills and allow notifications. That is the entire setup:
-one notification per bill, a few days before it is due, with no accounts or tokens
-anywhere. It needs `https://` or `http://localhost` to work, and on an iPhone the app has
+one notification when a statement lands, saying the amount and the due date, and one more
+a few days before it is due — no accounts or tokens anywhere. It needs `https://` or `http://localhost` to work, and on an iPhone the app has
 to be added to the Home Screen first. Telegram is still there as a fallback for a desktop
 you never install the app on; see
 [docs/DEPLOY.md](docs/DEPLOY.md#bill-reminders).
@@ -92,9 +95,10 @@ mail you asked it to fetch and the reminders you asked it to send.
 Anything you set in `.env` wins over the same setting in the app, and shows there as
 locked. Passwords only ever go in; the app never hands one back, not even masked.
 
-Two files on that volume are worth backing up beyond the PDFs: `settings.json` (what you
-typed in Settings) and `vapid.json` (losing it silently stops every reminder until each
-device presses **Remind me** again). Everything else rebuilds itself from the statements.
+Three files on that volume are worth backing up beyond the PDFs: `settings.json` (what
+you typed in Settings), `vapid.json` (losing it silently stops every reminder until each
+device presses **Remind me** again) and `cats.json` (the merchant categories you
+confirmed). Everything else rebuilds itself from the statements.
 
 One password, no accounts, and no way to lock it down per person. Run it on your own
 machine or a private network, not on the open internet.

@@ -39,6 +39,10 @@ from server import pipeline, settings
 # ERROR — means a statement did not reconcile and the caller should know.
 RECON_OK = {"VERIFIED", "DUPLICATE"}
 
+# The taxonomy a confirmation may name (#82). Taken from parse.CATS, which is the thing
+# that actually assigns categories — not a second list that drifts away from it.
+CATEGORIES = {c for c, _ in parse.CATS}
+
 # #62: the build this image was made from. Baked by the Dockerfile (ARG -> ENV, fed from
 # docker.yml's semver tag), NOT configured by a hoster - a bare `docker build` or a
 # `python -m uvicorn` off a checkout honestly says "dev" rather than a stale semver.
@@ -260,19 +264,27 @@ def _fetch_poll():
     return settings.get_int("FETCH_POLL", 3600)     # seconds between mail checks
 
 
-def _reminder_tick():
-    """One check: read bills + paid state off the PVC and remind about what is due.
+def _bills(data_dir: Path) -> list:
+    """bills[] exactly as app.json currently has it — [] when the pipeline has never run.
 
-    Reads the files directly instead of calling our own /bills over HTTP — same data,
-    no dependency on which port/host uvicorn happens to be bound to."""
-    d = _data_dir()
-    app_json, paid_json = d / "app.json", d / "paid.json"
-    if not app_json.exists():
+    Read off the PVC rather than through our own /bills over HTTP: same data, no
+    dependency on which port/host uvicorn happens to be bound to."""
+    p = Path(data_dir) / "app.json"
+    if not p.exists():
         return []
-    bills = json.loads(app_json.read_text(encoding="utf-8")).get("bills", [])
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get("bills", [])
+    except ValueError:   # a torn/garbage app.json must not stop a reminder tick
+        return []
+
+
+def _reminder_tick():
+    """One check: read bills + paid state off the PVC and remind about what is due."""
+    d = _data_dir()
+    paid_json = d / "paid.json"
     paid = set(json.loads(paid_json.read_text(encoding="utf-8"))) if paid_json.exists() else set()
     # days/template left to remind_bills, which resolves both per call through settings (#40)
-    return remind_bills.run(bills, paid, state_path=str(d / "reminded.json"))
+    return remind_bills.run(_bills(d), paid, state_path=str(d / "reminded.json"))
 
 
 async def _reminder_loop():
@@ -498,6 +510,53 @@ def create_app() -> FastAPI:
             os.replace(tmp, p)  # atomic on POSIX
         return JSONResponse(m)
 
+    # ------------------------------------------------------------ categories (#82)
+    @app.get("/data/cats.json")
+    def data_cats_json():
+        # Human-confirmed merchant -> category. On the PVC next to waivers.json, and
+        # deliberately NOT inside app.json: the pipeline regenerates that file and would
+        # clobber it. Nothing regenerates this one — it is hand-entered knowledge, so it
+        # is backup-critical.
+        p = _data_dir() / "cats.json"
+        if not p.exists():
+            return JSONResponse({})
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+    @app.post("/api/cats")
+    async def set_cat(body: dict = Body(...)):
+        """Confirm — or clear — the category for one merchant, then re-run the pipeline
+        so the answer is on screen immediately.
+
+        The reparse is nearly free BECAUSE parse.py applies overrides after cached_parse:
+        every PDF is a cache hit, so this is the ~0.5s warm run and not the ~110s a
+        parser edit costs. A cleared merchant falls back to whatever CATS says, which is
+        the only way a bad confirmation can be undone."""
+        k = body.get("merchant")
+        if not isinstance(k, str) or not k.strip():
+            raise HTTPException(status_code=400, detail="missing merchant")
+        k = k.strip()
+        cat = body.get("category") or None   # None/"" clears, back to CATS
+        if cat is not None and cat not in CATEGORIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown category {cat!r}; expected one of: {', '.join(sorted(CATEGORIES))}")
+        data_dir = _data_dir()
+        p = data_dir / "cats.json"
+        async with lock:  # reuse the pipeline lock — the rewrite AND the run it triggers
+            m = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            if cat:
+                m[k] = cat
+            else:
+                m.pop(k, None)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(m, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, p)  # atomic on POSIX
+            try:
+                await asyncio.to_thread(pipeline.run_pipeline, data_dir)
+            except Exception as e:  # the override IS saved; only the redraw failed
+                raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
+        return JSONResponse(m)
+
     # ------------------------------------------------------------ first-run setup (#40)
     # Gated by APP_PASSWORD like every other /api route (the gate derives its set from the
     # router), and write-only for secrets whether the gate is on or not — see
@@ -550,11 +609,27 @@ def create_app() -> FastAPI:
         content = await file.read()
         data_dir = _data_dir()
         async with lock:
+            # #83: the bills BEFORE this run, so what appears after it can be announced.
+            # Diffing is why "an upload happened" is not the trigger — save_pdf names by
+            # content hash, so re-posting a statement is idempotent by design and a
+            # fetch_mail retry (or the same PDF under a second filename) must stay silent.
+            before = {remind_bills.bill_key(b) for b in _bills(data_dir)}
             try:
                 saved = pipeline.save_pdf(data_dir, bank, content)
                 counts = await asyncio.to_thread(pipeline.run_pipeline, data_dir)
             except Exception as e:  # old app.json kept (atomic write); surface failure
                 raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
+        # Outside the lock: announce() only reads app.json and posts to the transports,
+        # and a slow push must not hold the pipeline. A failure here is logged, never
+        # raised — the statement IS ingested, which is what the caller asked for.
+        try:
+            announced = await asyncio.to_thread(
+                remind_bills.announce, _bills(data_dir), before,
+                str(data_dir / "reminded.json"))
+            for b in announced:
+                print(f"statement announced: {b['bank']} {b['statement_month']}", flush=True)
+        except Exception as e:
+            print(f"announce failed: {e}", flush=True)
         # `problems` tells the caller WHICH statuses are bad. `warning` stays a plain bool
         # next to it because Setup.svelte reads it directly — the one-glance "did this go
         # wrong?" for a caller that does not want to interpret a status map.

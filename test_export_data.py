@@ -128,6 +128,33 @@ def test_build_bills_handles_null_due():
     assert bills[0]['payment_due_date'] is None
 
 
+def test_build_other_groups_unknown_merchants_and_nets_refunds():
+    """The list the confirmation UI (#82) asks about. Keyed the way parse.py looks an
+    override up, or a confirmed merchant comes straight back as unknown."""
+    rows = [
+        {"c": "sc\u00b70000", "m": "2026-07", "g": "Other", "a": 60.0, "t": 0, "d": "BINGXUE 12345"},
+        {"c": "sc\u00b70000", "m": "2026-08", "g": "Other", "a": 40.0, "t": 0, "d": "BINGXUE 99"},
+        {"c": "sc\u00b70000", "m": "2026-08", "g": "Other", "a": 25.0, "t": 1, "d": "BINGXUE 99"},
+        {"c": "sc\u00b70000", "m": "2026-08", "g": "Other", "a": 90.0, "t": 0, "d": "SEIROCK-YA"},
+        {"c": "sc\u00b70000", "m": "2026-08", "g": "F&B", "a": 500.0, "t": 0, "d": "KFC"},
+    ]
+    got = export_data.build_other(rows)
+    # trailing ref tokens stripped -> one merchant, not three; F&B is not unknown
+    assert [o["m"] for o in got] == ["SEIROCK-YA", "BINGXUE"], got
+    assert got[1]["n"] == 3
+    assert got[1]["rm"] == 75.0, got[1]        # 60 + 40 - 25, netted
+    assert export_data.build_other([r for r in rows if r["g"] != "Other"]) == []
+
+
+def test_payload_offers_every_category_not_only_the_used_ones():
+    rows = [{"c": "sc\u00b70000", "m": "2026-08", "g": "F&B", "a": 10.0, "t": 0, "d": "KFC"}]
+    p = export_data.build_payload(rows, {})
+    assert p["cats"] == ["F&B"]                # only what appears in the data
+    assert "Groceries" in p["allCats"]         # ...the dropdown offers the whole taxonomy
+    assert "Other" not in p["allCats"]         # confirming "Other" would be a no-op
+    assert p["other"] == []
+
+
 if __name__ == "__main__":
     test_build_committed_sums_subs_and_installments()
     test_payload_has_required_keys()
@@ -138,4 +165,6 @@ if __name__ == "__main__":
     test_payload_includes_cycles()
     test_build_bills_picks_newest_non_duplicate_per_bank()
     test_build_bills_handles_null_due()
+    test_build_other_groups_unknown_merchants_and_nets_refunds()
+    test_payload_offers_every_category_not_only_the_used_ones()
     print("OK")
