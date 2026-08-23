@@ -72,7 +72,20 @@ CATEGORIES = [c for c, _ in CATS]          # the 15 names, in CATS order
 # ("SERVICE TAX", "BALANCE TRANSFER 3M"): the old block got 6/10 there, names-only 4/10.
 # Accepted, because CATS matches that jargon on fixed strings the banks print and it is
 # asked first - what actually reaches the model is merchant names CATS failed on.
-# n=5 and n=10, synthetic. The 86-statement corpus is the real eval and is gitignored.
+#
+# MEASURED 2026-08-23 (#77), the real corpus this time: 17 distinct merchants out of the
+# production `Other` bucket, same model and prompt. 6 of the 12 a human could actually
+# judge were right - 50%, not the pilot's 80%. The other 5 are unknowable from the
+# merchant string alone and stay Other, which is correct. Every one of the 17 came back
+# `high`, wrong ones included, so confidence is still decoration.
+#
+# The two failure modes are worth knowing before you trust a proposal:
+#   Groceries as a dump bucket for anything edible - THAI CUISINE, SEIROCK-YA (a
+#     Japanese restaurant), BINGXUE (bubble tea) all landed there instead of F&B.
+#   Fees/Charges for any name carrying SDN. BHD. - DENTARI GLOBAL (dental) went there
+#     instead of Health/Insurance.
+# It also missed Vehicle on a merchant literally named OTOMOBIL, the biggest row in the
+# bucket at RM406. Read every line; the suggest-only design is the point, not caution.
 
 SYSTEM = ("You categorize Malaysian credit-card merchant names into a fixed taxonomy. "
           "Many are abbreviated or truncated. Pick the single best category. "

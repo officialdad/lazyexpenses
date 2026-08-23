@@ -11,6 +11,7 @@ import os
 import urllib.error
 
 import llm_cats
+from parse import categorize
 from llm_cats import (CATEGORIES, enabled, parse_response, paste_block, prompt,
                       response_format, suggest, taxonomy, unmatched)
 
@@ -83,13 +84,18 @@ def test_parse_response_raises_on_anything_it_cannot_trust():
 
 
 def test_unmatched_aggregates_distinct_merchants_by_normalized_name():
-    rows = [_row("MINISO WINKY", "Other", "35.50"),          # first seen, smaller total
-            _row("K S S OTOMOBIL 123456", "Other", "80.00"),
-            _row("K S S OTOMOBIL 998877", "Other", "20.00")]
+    # Fixtures must be merchants CATS genuinely misses, or this test measures nothing.
+    # These two are real leftovers from the #77 pass and stay Other on purpose (nobody
+    # could tell what they sell). Map one in CATS later and the guard below says so.
+    for m in ("KHY SUKA HATI", "HBCT-IOI CITY MALL"):
+        assert categorize(m) == "Other", f"{m} now matches CATS - pick a new fixture"
+    rows = [_row("KHY SUKA HATI", "Other", "35.50"),         # first seen, smaller total
+            _row("HBCT-IOI CITY MALL 123456", "Other", "80.00"),
+            _row("HBCT-IOI CITY MALL 998877", "Other", "20.00")]
     got = {d["merchant"]: (d["n"], d["rm"]) for d in unmatched(rows)}
     # the trailing reference token is noise to a classifier — norm_merchant strips it
-    assert got == {"K S S OTOMOBIL": (2, 100.0), "MINISO WINKY": (1, 35.5)}
-    assert [d["merchant"] for d in unmatched(rows)][0] == "K S S OTOMOBIL"   # biggest RM first
+    assert got == {"HBCT-IOI CITY MALL": (2, 100.0), "KHY SUKA HATI": (1, 35.5)}
+    assert [d["merchant"] for d in unmatched(rows)][0] == "HBCT-IOI CITY MALL"  # biggest RM first
 
 
 def test_cats_wins_first_and_never_generates_a_request():
@@ -98,8 +104,8 @@ def test_cats_wins_first_and_never_generates_a_request():
             # a keyword hit mislabelled Other in the CSV is STILL not asked about:
             # CATS is re-run here and it is the only gate on what reaches the model
             _row("STARBUCKS KLCC", "Other"),
-            _row("DOMINOS MALAYSIA", "Other")]              # the one CATS gave up on
-    assert [d["merchant"] for d in unmatched(rows)] == ["DOMINOS MALAYSIA"]
+            _row("HBCT-IOI CITY MALL", "Other")]           # the one CATS gave up on
+    assert [d["merchant"] for d in unmatched(rows)] == ["HBCT-IOI CITY MALL"]
 
     calls = []
     real = llm_cats.classify
@@ -108,7 +114,7 @@ def test_cats_wins_first_and_never_generates_a_request():
         props, notes = suggest(unmatched(rows))
     finally:
         llm_cats.classify = real
-    assert calls == ["DOMINOS MALAYSIA"], calls      # one request, for one merchant
+    assert calls == ["HBCT-IOI CITY MALL"], calls    # one request, for one merchant
     assert len(calls) == 1 and notes == []
     assert props[0]["category"] == "F&B" and props[0]["confidence"] == "high"
 
