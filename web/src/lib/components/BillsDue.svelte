@@ -48,7 +48,7 @@
   {:else}
     <ul class="text-sm">
       {#each rows as b (b.bank)}
-        {@const over = b.days != null && b.days < 0}
+        {@const over = !b.paid && b.days != null && b.days < 0}
         <li
           class="flex items-center gap-3 py-2 border-b"
           style="border-color:var(--divider); opacity:{b.paid ? 0.45 : 1}"
@@ -64,10 +64,10 @@
             >
               {#if over}
                 <span class="inline-flex" style="color:#f87171"><Icon name="alert-circle" size={13} /></span>Overdue
-              {:else if b.days === 0}
+              {:else if !b.paid && b.days === 0}
                 due today
               {:else if b.payment_due_date}
-                {b.payment_due_date}{#if b.days != null} · {b.days}d{/if}
+                {b.payment_due_date}{#if b.days != null && b.days > 0} · {b.days}d{/if}
               {:else}
                 no due date
               {/if}
