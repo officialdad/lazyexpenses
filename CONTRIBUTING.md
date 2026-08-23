@@ -20,7 +20,7 @@ The bank is read straight from the filename. A file named `maybank_june.pdf` is 
 
 2. See what the parser sees:
    ```bash
-   python probe.py cc-statements/pbb_sample.pdf
+   python dev/probe.py cc-statements/pbb_sample.pdf
    ```
    This prints the rebuilt rows. Look at how one transaction line is laid out: where the date sits, where the amount sits, and whether a credit is marked with a trailing `CR`.
 
@@ -40,7 +40,7 @@ At the end it prints a reconciliation report. Find your statement in it. It need
 
 One rule matters above the rest: your change must not turn any existing `VERIFIED` statement into a `REVIEW`. The bar is to keep every statement that verifies today still verifying while your new bank joins them.
 
-When a statement will not reconcile, go back to `probe.py` and read the rows until you find the line the parser is mishandling.
+When a statement will not reconcile, go back to `dev/probe.py` and read the rows until you find the line the parser is mishandling.
 
 ## Categories
 
@@ -50,17 +50,18 @@ If you would rather not read every unknown merchant yourself, `llm_cats.py --sug
 
 ## Tests
 
-No test runner to install. The root tests are plain asserts that print `OK` when they pass. These run on a fresh clone with no statements:
+No test runner to install. The tests live in `tests/` and are plain asserts that print `OK` when they pass. Run them from the repo root: they import `parse.py` and its neighbours by bare name, and `python tests/x.py` does not put the root on the import path by itself. These run on a fresh clone with no statements:
 
 ```bash
-python test_parse_cache.py       # the per-PDF parse cache
-python test_insights.py          # leak detection
-python test_export_data.py       # the web app's data file
-python test_parse_password.py    # opening password-protected PDFs
-python test_remind_bills.py      # which bills a reminder run picks
-python test_fetch_mail.py        # bank detection and the mail fetch
-python test_llm_cats.py          # the optional category suggester (no server, no model)
-python test_docs_commands.py     # every `python x.py` in the docs is in the image
+export PYTHONPATH=.                   # the tests import parse.py and its neighbours
+python tests/test_parse_cache.py      # the per-PDF parse cache
+python tests/test_insights.py         # leak detection
+python tests/test_export_data.py      # the web app's data file
+python tests/test_parse_password.py   # opening password-protected PDFs
+python tests/test_remind_bills.py     # which bills a reminder run picks
+python tests/test_fetch_mail.py       # bank detection and the mail fetch
+python tests/test_llm_cats.py         # the optional category suggester (no server, no model)
+python tests/test_docs_commands.py    # every `python x.py` in the docs is in the image
 ```
 
 All eight run in CI on every push and pull request. `test_parse_password.py` builds and encrypts its own PDF, so it needs no statements; the encryption cases skip themselves if `pypdf` is not installed.
@@ -68,12 +69,12 @@ All eight run in CI on every push and pull request. `test_parse_password.py` bui
 `parse.py` is tested against statements the repo generates for itself, since real ones can never be committed:
 
 ```bash
-python make_demo_data.py --pdfs   # fake statements, one per bank per month
-python test_demo_pdfs.py          # the parser has to read them all back to the cent
-python parse.py                   # and the reconciliation report has to stay clean
+python dev/make_demo_data.py --pdfs   # fake statements, one per bank per month
+python tests/test_demo_pdfs.py        # the parser has to read them all back to the cent
+python parse.py                       # and the reconciliation report has to stay clean
 ```
 
-`test_demo_pdfs.py` is a round trip: the generator decides what each statement says, prints it at real coordinates, and the parser re-derives the figures from the words on the page. They only agree if every row parsed, every balance label was found, and each bank's quirks were handled. That covers per-bank balance extraction, multi-card attribution, the credit-balance sign flips, installment memo exclusion, the Standard Chartered layout that once filed three statements in the wrong month, and the duplicate fingerprint.
+`tests/test_demo_pdfs.py` is a round trip: the generator decides what each statement says, prints it at real coordinates, and the parser re-derives the figures from the words on the page. They only agree if every row parsed, every balance label was found, and each bank's quirks were handled. That covers per-bank balance extraction, multi-card attribution, the credit-balance sign flips, installment memo exclusion, the Standard Chartered layout that once filed three statements in the wrong month, and the duplicate fingerprint.
 
 With those statements on disk the server's end-to-end test stops skipping itself, and posts one through `/ingest` to `app.json`.
 
@@ -84,10 +85,10 @@ pip install pytest httpx    # httpx is what starlette's TestClient imports
 python -m pytest server/
 ```
 
-The web app's own suite needs an `app.json` to exist, which `make_demo_data.py` is enough to produce:
+The web app's own suite needs an `app.json` to exist, which `dev/make_demo_data.py` is enough to produce:
 
 ```bash
-python make_demo_data.py && python export_data.py
+python dev/make_demo_data.py && python export_data.py
 cd web && npm ci && npm run check && npm test
 ```
 
@@ -95,7 +96,7 @@ Either kind of demo data is enough to check that the offline dashboard and the w
 agree on every figure:
 
 ```bash
-python verify_parity.py
+python dev/verify_parity.py
 ```
 
 The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
@@ -105,7 +106,7 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 ## Before you open a PR
 
 - Your statement reconciles `VERIFIED`, and no existing statement dropped to `REVIEW`.
-- `python test_insights.py` still prints `OK`.
+- `PYTHONPATH=. python tests/test_insights.py` still prints `OK`.
 - No personal data in the diff. Do not commit statement PDFs (the `cc-statements/` folder is gitignored), real passwords (those belong in environment variables, not the code), or the generated CSVs.
 - A short note on which bank you added and where the sample came from, so the next person can retrace it.
 

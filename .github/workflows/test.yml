@@ -8,6 +8,11 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    # The tests live in tests/ (#89) and import parse / insights / web_push by bare
+    # name. `python tests/x.py` puts tests/ on sys.path[0], not the repo root, so the
+    # root has to come in through the environment.
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v7
 
@@ -25,19 +30,19 @@ jobs:
 
       # The commands the README tells contributors to run. All pass with an empty
       # cc-statements/ — they work off fixtures, not the real corpus.
-      - run: python test_parse_cache.py
-      - run: python test_insights.py
-      - run: python test_export_data.py
-      - run: python test_parse_password.py
-      - run: python test_remind_bills.py
-      - run: python test_fetch_mail.py
-      - run: python test_llm_cats.py
-      - run: python test_web_push.py
+      - run: python tests/test_parse_cache.py
+      - run: python tests/test_insights.py
+      - run: python tests/test_export_data.py
+      - run: python tests/test_parse_password.py
+      - run: python tests/test_remind_bills.py
+      - run: python tests/test_fetch_mail.py
+      - run: python tests/test_llm_cats.py
+      - run: python tests/test_web_push.py
 
       # Not a unit test: reads the docs against Dockerfile's COPY list, so a command
       # the docs tell a hoster to run cannot go missing from the image again (0.9.0
       # shipped `python llm_cats.py` for a file that was not in there).
-      - run: python test_docs_commands.py
+      - run: python tests/test_docs_commands.py
 
       - run: python -m pytest -q server/
 
@@ -46,6 +51,8 @@ jobs:
   # drive each bank's actual code path, then makes the parser read them back.
   parser:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v7
 
@@ -58,14 +65,14 @@ jobs:
       - run: pip install -r server/requirements.txt pytest httpx pypdf
 
       - name: Generate synthetic statements
-        run: python make_demo_data.py --pdfs
+        run: python dev/make_demo_data.py --pdfs
 
       # Round trip: reconcile() decides what each statement says, the renderer prints
       # it, parse.py re-derives it from the words on the page. Covers per-bank balance
       # labels, multi-card attribution, the CR sign flips, CIMB-i memo exclusion, the
       # SC due-date-before-statement-date trap and the duplicate fingerprint.
-      - run: python test_demo_pdfs.py
-      - run: python test_parse.py
+      - run: python tests/test_demo_pdfs.py
+      - run: python tests/test_parse.py
 
       # The reconciliation report is the correctness bar the whole repo is judged on,
       # so fail the job if any statement stops reconciling rather than only reading it.
@@ -83,7 +90,7 @@ jobs:
 
       - run: python insights.py
       - run: python export_data.py
-      - run: python verify_parity.py
+      - run: python dev/verify_parity.py
 
       # With statements on disk the server's end-to-end test stops skipping itself:
       # POST a PDF to /ingest, run the real pipeline, assert app.json and /bills.
@@ -118,7 +125,7 @@ jobs:
       # between; export_data.py imports it.)
       - name: Synthetic dataset for the web suite
         run: |
-          python make_demo_data.py
+          python dev/make_demo_data.py
           python export_data.py
 
       - uses: actions/setup-node@v7

@@ -137,7 +137,7 @@ Everything downstream runs on the fake ones exactly as it would on real data, an
 the same invented dataset the screenshots above show:
 
 ```bash
-python make_demo_data.py --pdfs   # obviously fake statements into cc-statements/
+python dev/make_demo_data.py --pdfs   # obviously fake statements into cc-statements/
 python parse.py && python dashboard.py
 ```
 

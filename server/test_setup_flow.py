@@ -22,7 +22,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import make_demo_data  # noqa: E402
+from dev import make_demo_data  # noqa: E402
 
 SETTINGS_ENV = ("CC_PW_MAYBANK", "CC_PW_CIMB", "GMAIL_USER", "GMAIL_APP_PASSWORD")
 

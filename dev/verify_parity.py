@@ -1,5 +1,9 @@
 """Guard: export_data payload matches dashboard.py payload on shared keys."""
-import dashboard, insights, export_data
+import os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import dashboard, insights, export_data  # noqa: E402
 
 
 def main():
