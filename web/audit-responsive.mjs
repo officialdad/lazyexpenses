@@ -24,6 +24,16 @@ const widths = [
 const waitReady = (page) =>
   page.waitForFunction(() => !document.querySelector('[data-loading]'), { timeout: 8000 });
 
+// absent | hidden | ok — a display:none'd subtree measures 0x0, which is how the
+// width-toggled halves of the shell are told apart from a missing element.
+const shown = (page, sel) =>
+  page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) return 'absent';
+    const rc = el.getBoundingClientRect();
+    return rc.width > 0 && rc.height > 0 ? 'ok' : 'hidden';
+  }, sel);
+
 const b = await chromium.launch();
 const issues = [];
 
@@ -36,9 +46,11 @@ async function checkDesktopScrollSpy(b) {
   await waitReady(page);
   await page.waitForTimeout(600); // allow IntersectionObserver + scroll listener to fire
   const result = await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll('header nav a[href^="#"]'));
+    // #86: the hrefs are `/#id`, not `#id`, so a click on a route without that section
+    // navigates home instead of dying.
+    const links = Array.from(document.querySelectorAll('header nav a[href^="/#"]'));
     const active = links.filter(a => a.getAttribute('aria-current') === 'page').map(a => a.getAttribute('href'));
-    const overviewActive = document.querySelector('a[href="#overview"]')?.getAttribute('aria-current') === 'page';
+    const overviewActive = document.querySelector('a[href="/#overview"]')?.getAttribute('aria-current') === 'page';
     return { active, overviewActive };
   });
   await ctx.close();
@@ -111,16 +123,26 @@ for (const vp of widths) {
     if (dupes.length) issues.push(`[${vp.tag}] ${r.name}: DUPLICATE IDS -> ${dupes.join(', ')}`);
 
     if (r.must) {
-      const shown = await page.evaluate((sel) => {
-        const el = document.querySelector(sel);
-        if (!el) return 'absent';
-        const rc = el.getBoundingClientRect();
-        return rc.width > 0 && rc.height > 0 ? 'ok' : 'hidden';
-      }, r.must);
-      if (shown !== 'ok') issues.push(`[${vp.tag}] ${r.name}: ${r.must} is ${shown}`);
+      const s = await shown(page, r.must);
+      if (s !== 'ok') issues.push(`[${vp.tag}] ${r.name}: ${r.must} is ${s}`);
     }
 
+    // #86: /settings rendered outside the shell for two releases, so it had no navigation
+    // at any width — the third time this regresses, this is what catches it. Which nav is
+    // expected depends on the width: BottomNav below 1024px, TopBar above it. The
+    // BottomNav selector cannot be `nav a[href="/settings"]` alone at desktop, because
+    // that element still exists there — it is display:none'd, hence the visibility check.
+    const navSel = vp.width >= 1024 ? 'header nav a[href="/#overview"]' : 'nav a[href="/settings"]';
+    const navShown = await shown(page, navSel);
+    if (navShown !== 'ok') issues.push(`[${vp.tag}] ${r.name}: nav (${navSel}) is ${navShown}`);
+
     await page.screenshot({ path: `audit-shots/${vp.tag}-${r.name}.png`, fullPage: true });
+
+    // #88: the README's five screenshots are these — sourced here so a UI change refreshes
+    // them with one command instead of five hand captures at five different scales. Viewport
+    // height, not fullPage: a phone frame, where the diagnostic shot above wants the whole
+    // scroll. See README.md for the copy step into docs/img/ (audit-shots/ is gitignored).
+    if (vp.tag === 'mobile') await page.screenshot({ path: `audit-shots/readme-${r.name}.png` });
   }
   await ctx.close();
 }
