@@ -10,7 +10,7 @@ own machine. There is no bank login to hand over, and nothing leaves the box.
        AUDIT_BASE=http://localhost:4173 node web/audit-responsive.mjs
        cp web/audit-shots/readme-*.png docs/img/
      audit-responsive.mjs writes readme-<route>.png at 390x844 for the mobile tier, plus
-     readme-merchants.png — the same /trends page scrolled to its merchants table.
+     readme-merchants.png, the same /trends page scrolled to its merchants table.
      audit-shots/ is gitignored, so the copy into docs/img/ is the step that commits them. -->
 <table>
   <tr>
@@ -49,19 +49,32 @@ and there is nothing to schedule.
 
 ## What you get
 
-- **A spending dashboard**, every card and every month, broken down by category.
+- **A spending dashboard**, every card and every month, broken down by category. Spend is
+  netted, so a refund comes off the category it was charged to rather than sitting
+  somewhere as a stray credit.
 - **A leak finder**: subscriptions you forgot about, categories creeping up and big
   one-offs, each ranked by what it costs you per year.
 - **A debt tracker** for installment plans and balance transfers, with the months left on
   each read off the bank's own printed counter, and marked as an estimate where there is
   no counter to read.
-- **Bills**, which turn red when one is due within three days, with a mark-paid toggle
-  that syncs across your devices.
-- **An annual-fee tracker**, a "use next" card pick, a monthly ceiling with what is
-  actually free to spend once committed debt is out, and search across every transaction.
-- **A place to file the merchants it could not name.** Anything unrecognised lands in
-  `Other`; pick its category once under **Settings** and it sticks, for every statement
-  past and future.
+- **Two reminders per bill.** The first arrives with the statement and carries the amount
+  and the due date. The second lands three days before that date, and Settings changes the
+  three. A bill keeps nagging while it is overdue, and the mark-paid toggle that stops it
+  syncs across your devices.
+- **Search across every transaction** from one box: merchant, category, card or amount,
+  newest first. It is plain substring matching, so `groc` finds Groceries and `59.90`
+  finds the charge, but a typo finds nothing.
+- **Categories that learn.** A keyword map names most merchants outright; anything it does
+  not recognise lands in `Other`, and picking a category for it once under **Settings**
+  sticks for every statement past and future. If you run a local model, point the app at
+  it and it drafts those picks for you to confirm. It stays off until you turn it on, and
+  the model runs on your own machine.
+- **One build for every screen.** Install it from the browser and it behaves like an app:
+  a phone gets a bottom nav and one column, a tablet gets two, and a desktop gets the
+  whole dashboard on one scrolling page. It keeps working with no connection, and new
+  statements land without a rebuild.
+- **An annual-fee tracker**, a "use next" card pick, and a monthly ceiling that shows what
+  is actually free to spend once committed debt is out.
 
 ## Which banks
 
@@ -150,7 +163,7 @@ setting, putting it on your network, upgrading and backing up.
 
 1.0, and in daily use on my own statements. The parser opens locked PDFs itself, and the
 mail fetch and the reminders are timers inside the app, so one container is the whole
-deployment — nothing else to host, nothing else to schedule.
+deployment. There is nothing else to host and nothing else to schedule.
 
 ## License
 

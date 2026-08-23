@@ -38,15 +38,15 @@ python parse.py
 ```
 At the end it prints a reconciliation report. Find your statement in it. It needs to say `VERIFIED`, which means previous balance plus debits minus credits matched the printed current balance to within two cents. `REVIEW` means the numbers do not add up yet, usually a missed row or a balance read wrong. `NO_BALANCE` means `recon_balances` could not find the balances at all.
 
-One rule matters above the rest: your change must not turn any existing `VERIFIED` statement into a `REVIEW`. The bar is to keep every statement that verifies today still verifying while your new bank joins them.
+One rule matters above the rest: your change must not turn any existing `VERIFIED` statement into a `REVIEW`. Every statement that verifies today has to still verify once your bank joins them.
 
 When a statement will not reconcile, go back to `dev/probe.py` and read the rows until you find the line the parser is mishandling.
 
 ## Categories
 
-Categories come from `CATS` near the top of `parse.py`, a keyword map checked in order where the first match wins. If a merchant from your statement lands in `Other`, add a keyword for it next to the category it belongs in. `Other` is meant to stay empty, so a merchant showing up there is your cue to add a rule.
+Categories come from `CATS` near the top of `parse.py`, a keyword map checked in order where the first match wins. If a merchant from your statement lands in `Other`, add a keyword for it next to the category it belongs in. `Other` is the catch-all for merchants no keyword names yet, so it is never empty for long, and a familiar name showing up there is your cue to add a rule.
 
-If you would rather not read every unknown merchant yourself, `llm_cats.py --suggest-cats` drafts the keywords for you with a small local model and writes them to `suggested_cats.csv` for review. It is off unless you configure it, the keyword table is still asked first, and nothing edits `parse.py` — see [docs/DEPLOY.md](docs/DEPLOY.md#suggesting-categories-with-a-local-model-optional-off-by-default).
+If you would rather not read every unknown merchant yourself, `llm_cats.py --suggest-cats` drafts the keywords for you with a small local model and writes them to `suggested_cats.csv` for review. It is off unless you configure it, the keyword table is still asked first, and nothing edits `parse.py`. See [docs/DEPLOY.md](docs/DEPLOY.md#suggesting-categories-with-a-local-model-optional-off-by-default).
 
 ## Tests
 
@@ -101,8 +101,6 @@ python dev/verify_parity.py
 
 The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
 
-The bar for any parser change is simple: it must not turn a `VERIFIED` statement into a `REVIEW`.
-
 ## Before you open a PR
 
 - Your statement reconciles `VERIFIED`, and no existing statement dropped to `REVIEW`.
@@ -110,4 +108,4 @@ The bar for any parser change is simple: it must not turn a `VERIFIED` statement
 - No personal data in the diff. Do not commit statement PDFs (the `cc-statements/` folder is gitignored), real passwords (those belong in environment variables, not the code), or the generated CSVs.
 - A short note on which bank you added and where the sample came from, so the next person can retrace it.
 
-Thanks for adding a bank. Each one makes this useful to more people.
+Thanks for adding a bank.
