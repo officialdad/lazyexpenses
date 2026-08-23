@@ -1,0 +1,76 @@
+name: pages
+
+# The public demo: the real PWA, built against the repository's synthetic dataset and
+# served at https://officialdad.github.io/lazyexpenses/.
+#
+# It is the static half only. There is no server behind it, so every POST route
+# (/api/*, /ingest) 404s — Settings, mark-paid and Remind me all fail there on purpose,
+# and +layout.svelte prints a banner saying so. The banner keys off `base` being
+# non-empty, which is exactly what BASE_PATH sets here.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          # No pip install: the same reasoning as test.yml's `web` job. Without --pdfs the
+          # generator writes transactions.csv itself and export_data.py turns it into
+          # app.json, so nothing here ever opens a PDF and pdfplumber is not needed.
+
+      - name: Synthetic dataset
+        run: |
+          python dev/make_demo_data.py
+          python export_data.py
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # BASE_PATH is read by web/svelte.config.js. It has to match the repository name,
+      # because GitHub Pages serves a project site under /<repo>/.
+      - name: Build the PWA under /lazyexpenses
+        run: npm run build
+        working-directory: web
+        env:
+          BASE_PATH: /lazyexpenses
+
+      # build/ contains _app/, which Jekyll would skip.
+      - run: touch web/build/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: web/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

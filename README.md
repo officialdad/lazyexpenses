@@ -1,8 +1,28 @@
-# lazyexpenses
+<p align="center">
+  <img src="docs/img/icon.png" width="128" alt="lazyexpenses">
+</p>
 
-Your banks email you a locked PDF every month and you never open it. lazyexpenses reads
-those PDFs and turns them into a dashboard of what you actually spend. It runs on your
-own machine. There is no bank login to hand over, and nothing leaves the box.
+<h1 align="center">lazyexpenses</h1>
+
+<p align="center">
+  Your banks email you a locked PDF every month and you never open it.<br>
+  lazyexpenses reads those PDFs and turns them into a dashboard of what you actually spend.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/self--hosted-docker-2496ed" alt="Self-hosted with Docker">
+  <img src="https://img.shields.io/badge/PWA-offline--first-5a0fc8" alt="Installable offline-first PWA">
+  <img src="https://img.shields.io/badge/banks-6%20MY-f5a623" alt="Six Malaysian banks">
+  <img src="https://img.shields.io/badge/LLM-optional-6b7280" alt="No LLM at runtime">
+</p>
+
+<p align="center">
+  <a href="https://officialdad.github.io/lazyexpenses/"><b>Try the live demo</b></a>
+</p>
+
+It runs on your own machine. There is no bank login to hand over, and nothing leaves the
+box.
 
 <!-- Refresh these six (#88): they are captured, not hand-shot, so a UI change updates them
      in one pass. From the repo root, with demo data already exported to web/static/data:
@@ -26,7 +46,10 @@ own machine. There is no bank login to hand over, and nothing leaves the box.
 </table>
 
 *Every screenshot runs on the repository's synthetic demo data: invented merchants, `000N`
-card numbers. Real statements never enter this repository.*
+card numbers. Real statements never enter this repository. The
+[live demo](https://officialdad.github.io/lazyexpenses/) is that same build on those same
+invented statements. It is the static half only, so Settings, mark-paid and the reminders
+all need the server and do nothing there.*
 
 ## Start it
 

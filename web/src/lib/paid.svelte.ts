@@ -1,10 +1,11 @@
+import { base } from '$app/paths';
 import { SvelteSet } from 'svelte/reactivity';
 import { toast } from './toast.svelte';
 
 // Server-backed (cross-device) paid-bill state. Persisted in paid.json on the PVC,
 // kept OUT of app.json (the pipeline regenerates app.json and would clobber it).
-const GET = '/data/paid.json'; // served from the PVC in prod; static [] locally
-const POST = '/api/paid';
+const GET = base + '/data/paid.json'; // served from the PVC in prod; static [] locally
+const POST = base + '/api/paid';
 
 const key = (bank: string, sm: string) => `${bank}|${sm}`;
 

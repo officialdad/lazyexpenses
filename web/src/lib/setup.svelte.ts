@@ -5,6 +5,7 @@
 // there is nothing here to read back — a password field starts empty every time, and an
 // empty field means "leave it alone", not "clear it". The case for putting a login in
 // front of all this is filed as #65.
+import { base } from '$app/paths';
 
 export type SettingsView = {
 	/** Non-secret values, echoed back so a field can be pre-filled. */
@@ -94,7 +95,7 @@ function fill(d: SettingsView) {
 
 export async function loadSettings(f: typeof fetch = fetch): Promise<void> {
 	try {
-		const res = await f('/api/settings');
+		const res = await f(base + '/api/settings');
 		if (res.ok) fill((await res.json()) as SettingsView);
 	} catch {
 		/* offline; the forms still render, saving will report the failure */
@@ -109,7 +110,7 @@ export async function saveSettings(
 	f: typeof fetch = fetch
 ): Promise<string> {
 	try {
-		const res = await f('/api/settings', post(patch));
+		const res = await f(base + '/api/settings', post(patch));
 		if (!res.ok) return await detail(res);
 		fill((await res.json()) as SettingsView);
 		return '';
@@ -122,7 +123,7 @@ export async function saveSettings(
  *  point: the alternative is silence and a mailbox that is never read. */
 export async function testMail(f: typeof fetch = fetch): Promise<{ ok: boolean; message: string }> {
 	try {
-		const res = await f('/api/settings/test-mail', post({}));
+		const res = await f(base + '/api/settings/test-mail', post({}));
 		if (!res.ok) return { ok: false, message: await detail(res) };
 		const d = (await res.json()) as { user: string; label: string; unread: number };
 		return {
@@ -166,7 +167,7 @@ export async function startBackfill(
 	f: typeof fetch = fetch
 ): Promise<{ ok: boolean; message: string }> {
 	try {
-		const res = await f('/api/settings/backfill', post({}));
+		const res = await f(base + '/api/settings/backfill', post({}));
 		return res.ok ? { ok: true, message: '' } : { ok: false, message: await detail(res) };
 	} catch (e) {
 		return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -176,7 +177,7 @@ export async function startBackfill(
 /** Poll target. null when the server could not be asked — a dropped poll is not news. */
 export async function backfillStatus(f: typeof fetch = fetch): Promise<Backfill | null> {
 	try {
-		const res = await f('/api/settings/backfill');
+		const res = await f(base + '/api/settings/backfill');
 		return res.ok ? ((await res.json()) as Backfill) : null;
 	} catch {
 		return null;
@@ -187,7 +188,7 @@ export async function testReminder(
 	f: typeof fetch = fetch
 ): Promise<{ ok: boolean; message: string }> {
 	try {
-		const res = await f('/api/settings/test-reminder', post({}));
+		const res = await f(base + '/api/settings/test-reminder', post({}));
 		return res.ok
 			? { ok: true, message: 'Sent — check your notifications.' }
 			: { ok: false, message: await detail(res) };
@@ -211,7 +212,7 @@ export async function upload(
 	body.append('bank', bank);
 	body.append('file', file);
 	try {
-		const res = await f('/ingest', { method: 'POST', body });
+		const res = await f(base + '/ingest', { method: 'POST', body });
 		if (!res.ok) return { ok: false, error: await detail(res) };
 		return { ok: true, result: (await res.json()) as Ingested };
 	} catch (e) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { app, latestMonth } from '$lib/data';
   import { search, MAGNIFY } from '$lib/search.svelte';
   import SyncStatus from '$lib/components/SyncStatus.svelte';
@@ -54,11 +55,11 @@
 
 <header class="sticky top-0 z-20 border-b" style="background:var(--bg);border-color:var(--divider)">
   <div class="max-w-7xl mx-auto px-6 h-14 flex items-center gap-6">
-    <span class="font-extrabold tracking-tight text-lg" style="color:var(--accent)">CC</span>
+    <span class="font-extrabold tracking-tight text-lg" style="color:var(--accent)">lazyexpenses</span>
     <nav class="flex gap-5 text-[13px] uppercase tracking-wide font-bold">
       {#each sections as s}
         <a
-          href={'/#' + s.id}
+          href={base + '/#' + s.id}
           onclick={(e) => go(e, s.id)}
           aria-current={active === s.id ? 'page' : undefined}
           style="color:{active === s.id ? 'var(--accent)' : 'var(--muted)'}"
@@ -74,7 +75,7 @@
     </span>
     <!-- #40: the four setup steps are all optional, so they need a way back.
          #66: an icon button, same cog as the BottomNav tab, so the two read as one feature. -->
-    <a href="/settings" class="iconbtn" aria-label="Settings" title="Settings" style="color:var(--muted)">
+    <a href="{base}/settings" class="iconbtn" aria-label="Settings" title="Settings" style="color:var(--muted)">
       <Icon name="cog-outline" size={20} />
     </a>
     <SyncStatus />

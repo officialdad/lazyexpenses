@@ -5,7 +5,7 @@ import TopBar from './TopBar.svelte';
 describe('TopBar', () => {
   it('renders brand + three anchor links', () => {
     const { getByText, container } = render(TopBar);
-    expect(getByText('CC')).toBeTruthy();
+    expect(getByText('lazyexpenses')).toBeTruthy();
     expect(getByText('Overview')).toBeTruthy();
     expect(getByText('Trends')).toBeTruthy();
     expect(getByText('Cuts')).toBeTruthy();

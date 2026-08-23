@@ -1,3 +1,4 @@
+import { base } from '$app/paths';
 import type { AppData } from './types';
 import { monthlySeries, byCategory, topMerchants } from './trends';
 
@@ -42,7 +43,7 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
   meta.status = 'loading';
   meta.error = '';
   try {
-    const res = await f('/data/app.json');
+    const res = await f(base + '/data/app.json');
     // 401 = the server has APP_PASSWORD set and we have no session cookie. That is not
     // an error to retry, it is a prompt to show — a fourth state, not a fourth screen.
     if (res.status === 401) {
@@ -79,7 +80,7 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
  *  this code never sees it). true on success. `f` injectable for tests; never throws. */
 export async function login(password: string, f: typeof fetch = fetch): Promise<boolean> {
   try {
-    const res = await f('/api/login', {
+    const res = await f(base + '/api/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ password })

@@ -4,9 +4,9 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
-		<link rel="icon" href="/favicon.png" type="image/png" />
-		<link rel="apple-touch-icon" href="/pwa-192x192.png" />
-		<link rel="manifest" href="/manifest.webmanifest" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.png" type="image/png" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/pwa-192x192.png" />
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<!-- ponytail: register the SW by hand. @vite-pwa/sveltekit generates sw.js +
 		     manifest.webmanifest but its auto-inject doesn't land in the static build
 		     output (Vite 8 + SvelteKit), so nothing referenced them → no manifest, no
@@ -55,6 +55,10 @@
 					// controllerchange in this document IS a new deploy, even though the flag
 					// started false — a tab left open since its first visit still gets told.
 					var hadController = !!navigator.serviceWorker.controller;
+					// ponytail: absolute, so this only registers when the app is served at /.
+					// The GitHub Pages demo (base=/lazyexpenses) 404s here and the .catch below
+					// swallows it — the demo loses offline and Install, which a demo does not
+					// need. Make it base-aware if the demo ever has to be installable.
 					navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function (reg) {
 						navigator.serviceWorker.addEventListener('controllerchange', function () {
 							if (hadController) swUpdateBanner();

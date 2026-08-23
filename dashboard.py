@@ -133,7 +133,7 @@ def build():
 PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Credit-Card Spend Dashboard</title>
+<title>lazyexpenses</title>
 <style>
 :root{--bg:#0f1216;--panel:#171c23;--panel2:#1d242d;--line:#2a323d;--ink:#e6edf3;--mut:#8b97a6;--accent:#60a5fa;--red:#f87171;--green:#34d399;--mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace}
 *{box-sizing:border-box}
@@ -251,7 +251,7 @@ tr:hover td{background:var(--panel2)}
 .catchip{display:inline-block;margin-left:8px;font-size:11px;border-radius:999px;padding:1px 8px;vertical-align:middle}
 </style></head>
 <body><div class="wrap">
-<h1>Credit-Card Spend Dashboard</h1>
+<h1>lazyexpenses</h1>
 <div class="sub" id="rangelab"></div>
 
 <div class="bar">

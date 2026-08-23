@@ -1,3 +1,4 @@
+import { base } from '$app/paths';
 import { SvelteMap } from 'svelte/reactivity';
 import { toast } from './toast.svelte';
 
@@ -8,8 +9,8 @@ import { toast } from './toast.svelte';
 // The key is the merchant string app.json's `other[]` carries, which is
 // insights.norm_merchant() output. parse.py normalises the same way before looking an
 // override up, so a trailing reference token cannot split one merchant into two.
-const GET = '/data/cats.json'; // served from the PVC in prod; static {} locally
-const POST = '/api/cats';
+const GET = base + '/data/cats.json'; // served from the PVC in prod; static {} locally
+const POST = base + '/api/cats';
 
 const _map = new SvelteMap<string, string>();
 

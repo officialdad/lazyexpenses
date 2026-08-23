@@ -6,6 +6,10 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({ fallback: 'index.html', precompress: false, strict: true }),
+    // Empty in the real deployment (the container serves the app at /). The GitHub Pages
+    // demo builds with BASE_PATH=/lazyexpenses, so every runtime path has to go through
+    // `base` from $app/paths rather than being written absolute.
+    paths: { base: process.env.BASE_PATH ?? '' },
     alias: { $lib: 'src/lib' }
   }
 };

@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { page } from '$app/state';
+  import { base } from '$app/paths';
   import { meta, loadAppData, login } from '$lib/data';
   import { paid } from '$lib/paid.svelte';
   import { waivers } from '$lib/waivers.svelte';
@@ -29,6 +30,12 @@
   // Routes the desktop Dashboard already renders as anchored sections. Anything else
   // (/settings, #40) is a plain page the shell renders at every width.
   const DASHBOARD_ROUTES = ['/', '/trends', '/cuts', '/fees'];
+  // `base` is '' in the real deployment and '/lazyexpenses' in the GitHub Pages demo, so
+  // page.url.pathname carries it and a bare '/trends' comparison would never match there.
+  const route = $derived(page.url.pathname.slice(base.length) || '/');
+  // A non-empty base means the GitHub Pages demo build (BASE_PATH=/lazyexpenses); the
+  // container serves the real app at /. No second flag to keep in sync with the first.
+  const DEMO = base !== '';
 
   // #87: one content scale, owned by the layout rather than by each leaf. Full-bleed with
   // px-4 on a phone — a 448px cap gutters a 600px window — then a 768px cap that holds all
@@ -57,7 +64,17 @@
     cats.load();
   }
 </script>
-<svelte:head><meta name="theme-color" content="#000000" /></svelte:head>
+<svelte:head><title>lazyexpenses</title><meta name="theme-color" content="#000000" /></svelte:head>
+
+<!-- The GitHub Pages demo is static: every POST route (/api/*, /ingest) 404s there, so
+     Settings, mark-paid and Remind me all fail with a toast. Say so once, up top, rather
+     than letting each one read as broken. -->
+{#if DEMO}
+  <p class="px-4 py-2 text-center text-xs font-bold" style="background:var(--surface);color:var(--muted)">
+    Demo on invented statements. Nothing saves here —
+    <a href="https://github.com/officialdad/lazyexpenses" class="underline" style="color:var(--accent)">run your own</a>
+  </p>
+{/if}
 
 <!-- App-wide overlays, available in every state (loading/error/ready). -->
 <Toast />
@@ -74,7 +91,7 @@
        inert subtree from the accessibility tree. -->
   <div class="hidden lg:block"><TopBar /></div>
 
-  {#if DASHBOARD_ROUTES.includes(page.url.pathname)}
+  {#if DASHBOARD_ROUTES.includes(route)}
     <!-- Desktop renders all four views as anchored sections instead of the routed one, so
          this pair really does mount twice at every width. That is fine for charts (and the
          all-time aggregates are precomputed once in data.svelte.ts, so it costs no

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { meta, loadAppData } from '$lib/data';
   import { paid } from '$lib/paid.svelte';
   import { net } from '$lib/net.svelte';
@@ -26,7 +27,7 @@
   $effect(() => {
     (async () => {
       try {
-        server = ((await (await fetch('/healthz')).json()).version as string) ?? '';
+        server = ((await (await fetch(base + '/healthz')).json()).version as string) ?? '';
       } catch {
         /* keep '' */
       }

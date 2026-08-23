@@ -259,6 +259,27 @@ Then gate the build: `npm run preview -- --port 4173 &` and `node audit-responsi
 
 **PWA install/SW registration is wired by hand in `src/app.html`** (a `<link rel="manifest">` + a one-line `navigator.serviceWorker.register('/sw.js')`). `@vite-pwa/sveltekit` *generates* `sw.js`/`manifest.webmanifest`/`registerSW.js` fine, but its auto-inject **silently no-ops** on this Vite 8 + SvelteKit build — nothing referenced them, so there was no manifest link and no SW → Chrome/Firefox offered only an "Add to Home screen" shortcut (never **Install**) and the Workbox offline cache never populated. Don't remove those `app.html` lines expecting the plugin to re-inject. Verify after a dep bump: `grep -oE 'rel="manifest"|serviceWorker.register' build/index.html` must hit (the served file is the adapter-static **fallback** `index.html`, which is built from `app.html`). Install needs HTTPS *or* localhost (secure context); a plain-HTTP LAN IP downgrades to a non-installable shortcut even with all of the above correct.
 
+**Every runtime path goes through `base` from `$app/paths`, not a leading `/`.** The
+container serves the app at `/` (`BASE_PATH` unset, `base === ''`), but the GitHub Pages
+demo (`.github/workflows/pages.yml`) builds with `BASE_PATH=/lazyexpenses`, so an absolute
+`'/data/app.json'` or `href="/settings"` points outside the site. That covers the four
+`/data/*.json` GETs, every `/api/*` POST, `/ingest`, `/healthz` and every nav href.
+`+layout.svelte` also strips `base` off `page.url.pathname` before matching
+`DASHBOARD_ROUTES`, and its **demo banner keys off `base !== ''`** — there is no second
+flag. In `src/app.html`, which has no import, use `%sveltekit.assets%` instead;
+**`prerender` fails the build** with "does not begin with `base`" if you forget one, which
+is the check. The **service worker registration is deliberately left absolute**, so the
+Pages demo has no offline and no Install — `register()` 404s and the existing `.catch`
+swallows it. `audit-responsive.mjs` gates the `base === ''` build only: its selectors
+hardcode `a[href="/settings"]` and `a[href="/#overview"]`, so it reports those as absent
+against a base build even though the nav is there.
+
+**The demo is the static half only.** No server behind Pages, so `/api/*` and `/ingest`
+404: Settings, mark-paid and Remind me all fail there by design, which is what the banner
+says. It rebuilds on every push to `main` from `dev/make_demo_data.py` (no `--pdfs`) +
+`export_data.py`, the same 0.02s recipe as `test.yml`'s `web` job — no pdfplumber, no
+`parse.py`.
+
 The PWA fetches its data at **runtime**: `data.svelte.ts` (a runed store, re-exported
 through the `data.ts` barrel so `import { app } from '$lib/data'` is unchanged)
 `fetch('/data/app.json')` on mount and fills `app` in place; `+layout.svelte` gates all

@@ -6,6 +6,7 @@
   // Deliberately no <Icon>: icons ship inside app.json, which does not exist yet on the
   // volume this screen exists for. Numbers render everywhere.
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import { app, loadAppData } from '$lib/data';
   import { cats } from '$lib/cats.svelte';
   import { push, togglePush } from '$lib/push.svelte';
@@ -275,7 +276,7 @@
     {@render result(uploaded)}
     {#if done > 0}
       <p class="mt-2 text-xs" style="color:var(--muted)">
-        {done} uploaded this session. <a href="/" class="underline">Go to the dashboard</a> — or add
+        {done} uploaded this session. <a href="{base || '/'}" class="underline">Go to the dashboard</a> — or add
         another above.
       </p>
     {/if}
@@ -558,9 +559,9 @@
   {#if first}
     <p class="text-xs" style="color:var(--muted)">
       Steps 2 to 4 are all optional and all live at
-      <a href="/settings" class="underline">Settings</a> afterwards.
+      <a href="{base}/settings" class="underline">Settings</a> afterwards.
     </p>
   {:else}
-    <p class="text-xs"><a href="/" class="underline">Back to the dashboard</a></p>
+    <p class="text-xs"><a href="{base || '/'}" class="underline">Back to the dashboard</a></p>
   {/if}
 </main>

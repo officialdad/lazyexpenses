@@ -3,6 +3,7 @@
 // Every way this can fail is a sentence, not silence: push needs a secure context, iOS
 // only allows it for an installed PWA, and the permission can be refused outright. The
 // UI shows `note` whenever there is one, so the user learns why nothing happened.
+import { base } from '$app/paths';
 import { toast } from './toast.svelte';
 
 export type PushStatus = 'unknown' | 'unsupported' | 'off' | 'on' | 'denied' | 'busy';
@@ -80,7 +81,7 @@ export async function togglePush(f: typeof fetch = fetch): Promise<void> {
 			// Tell the server first: if unsubscribe() succeeds and the POST does not, the
 			// server would keep pushing to an endpoint the browser has already dropped.
 			if (sub) {
-				await f('/api/push/subscribe', post({ endpoint: sub.endpoint }));
+				await f(base + '/api/push/subscribe', post({ endpoint: sub.endpoint }));
 				await sub.unsubscribe();
 			}
 			push.status = 'off';
@@ -92,14 +93,14 @@ export async function togglePush(f: typeof fetch = fetch): Promise<void> {
 			push.note = BLOCKED;
 			return;
 		}
-		const kr = await f('/api/push/key');
+		const kr = await f(base + '/api/push/key');
 		if (!kr.ok) throw new Error(`key HTTP ${kr.status}`);
 		const { key } = (await kr.json()) as { key: string };
 		const sub = await reg.pushManager.subscribe({
 			userVisibleOnly: true,
 			applicationServerKey: keyBytes(key)
 		});
-		const saved = await f('/api/push/subscribe', post(sub.toJSON()));
+		const saved = await f(base + '/api/push/subscribe', post(sub.toJSON()));
 		if (!saved.ok) throw new Error(`subscribe HTTP ${saved.status}`);
 		push.status = 'on';
 		push.note = '';

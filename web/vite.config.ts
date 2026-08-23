@@ -17,8 +17,8 @@ export default defineConfig({
 			scope: '/',
 			base: '/',
 			manifest: {
-				name: 'Credit-Card Spend',
-				short_name: 'CC Spend',
+				name: 'lazyexpenses',
+				short_name: 'lazyexpenses',
 				description: 'Lazy credit-card overview — am I overcommitting?',
 				theme_color: '#000000',
 				background_color: '#000000',

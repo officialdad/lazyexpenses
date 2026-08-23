@@ -1,10 +1,11 @@
+import { base } from '$app/paths';
 import { SvelteMap } from 'svelte/reactivity';
 import { toast } from './toast.svelte';
 
 // Server-backed (cross-device) waiver status. Persisted in waivers.json on the PVC,
 // kept OUT of app.json (the pipeline regenerates app.json and would clobber it).
-const GET = '/data/waivers.json'; // served from the PVC in prod; static {} locally
-const POST = '/api/waivers';
+const GET = base + '/data/waivers.json'; // served from the PVC in prod; static {} locally
+const POST = base + '/api/waivers';
 
 export type WaiverStatus = 'tocall' | 'requested' | 'waived';
 const ORDER: WaiverStatus[] = ['tocall', 'requested', 'waived'];
