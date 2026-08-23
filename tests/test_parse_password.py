@@ -4,7 +4,7 @@ Builds a tiny PDF by hand (no reportlab), encrypts it with pypdf, and asserts th
 locked file reads identically to its unlocked twin. pypdf is test-only: without it
 the encryption cases are skipped and the rest still runs.
 
-Run: python test_parse_password.py   ->  OK
+Run: python tests/test_parse_password.py   ->  OK
 """
 import io, os, tempfile, parse
 

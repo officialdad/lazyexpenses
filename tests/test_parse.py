@@ -1,4 +1,4 @@
-"""Plain-assert tests for parse.py due-date extraction. Run: python test_parse.py"""
+"""Plain-assert tests for parse.py due-date extraction. Run: python tests/test_parse.py"""
 from parse import due_date
 
 

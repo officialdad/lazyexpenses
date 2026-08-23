@@ -33,8 +33,9 @@ DEV_ONLY = {"make_demo_data.py", "probe.py", "verify_parity.py"}
 def documented():
     """Every `<name>.py` invoked from a fenced code block in the docs.
 
-    Fenced blocks only: prose mentions a file to explain it (README points at
-    `python probe.py <file.pdf>` mid-sentence), a code block tells you to run it."""
+    Fenced blocks only: prose mentions a file to explain it (DEPLOY.md points at
+    `python dev/probe.py <file>` inside a table cell), a code block tells you to
+    run it."""
     found = set()
     for doc in DOCS:
         fenced = False
