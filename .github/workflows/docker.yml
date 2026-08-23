@@ -51,3 +51,30 @@ jobs:
           V: ${{ steps.meta.outputs.version }}
         run: |
           docker run --rm -e V="$V" "ghcr.io/${{ github.repository }}/app:$V" sh -c '[ "$APP_VERSION" = "$V" ] && grep -rq "$V" web_build/_app/'
+
+  # The release itself, kept behind `needs: build` so a tag whose image reports the wrong
+  # version publishes nothing. Notes are generated from the PRs merged since the previous
+  # tag; .github/release-header.md is PREPENDED above them as the fixed part a changelog
+  # cannot know — how to run it and what the one required setting is.
+  release:
+    needs: build
+    # workflow_dispatch fires on a branch, where there is no tag to release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The header names a pullable tag, so the bare version is substituted in.
+          sed "s/VERSION/${TAG#v}/" .github/release-header.md > /tmp/notes.md
+          gh release create "$TAG" \
+            --title "lazyexpenses ${TAG#v}" \
+            --verify-tag \
+            --generate-notes \
+            --notes-file /tmp/notes.md
