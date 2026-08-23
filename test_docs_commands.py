@@ -13,14 +13,18 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).parent
-DOCS = ("docs/DEPLOY.md", "README.md")
+# CONTRIBUTING.md is in here for the same reason the other two are: it hands out
+# `python <name>.py` lines, and a contributor running them inside the container hits the
+# same missing-module wall v0.9.0 shipped. It is also where the dev-only scripts are
+# documented properly, which is what keeps README free to be a user document (#73).
+DOCS = ("docs/DEPLOY.md", "README.md", "CONTRIBUTING.md")
 
 # Optional leading path covers the crontab block's `python /path/to/fetch_mail.py`.
 CMD = re.compile(r"\bpython3?\s+(?:[\w./-]*/)?(\w+\.py)\b")
 
 # Dev-only scripts the docs mention but that no hoster ever runs against the container.
-# There is no structural tell to lean on: README's demo blocks invoke make_demo_data.py
-# and verify_parity.py in exactly the shape DEPLOY.md invokes llm_cats.py — a bare
+# There is no structural tell to lean on: the demo blocks invoke make_demo_data.py and
+# verify_parity.py in exactly the shape DEPLOY.md invokes llm_cats.py — a bare
 # `python x.py` inside a fenced bash block. The only thing separating the two kinds is
 # what they are for, so the list is written out. test_*.py is a prefix rule because
 # there are nine of them and there will be more.
@@ -28,7 +32,7 @@ DEV_ONLY = {"make_demo_data.py", "probe.py", "verify_parity.py"}
 
 
 def documented():
-    """Every `<name>.py` invoked from a fenced code block in the hoster-facing docs.
+    """Every `<name>.py` invoked from a fenced code block in the docs.
 
     Fenced blocks only: prose mentions a file to explain it (README points at
     `python probe.py <file.pdf>` mid-sentence), a code block tells you to run it."""
@@ -76,6 +80,11 @@ def test_dev_only_scripts_do_not_trip_it():
     # These two really are invoked from fenced blocks and really are absent from the
     # image, so the exclusion above is load-bearing, not decoration. If one of them
     # ever gets shipped, drop it from DEV_ONLY rather than leaving a lie here.
+    #
+    # Both live in CONTRIBUTING.md, which is why that file is in DOCS. Before #73 this
+    # assertion pinned them to README, so deleting the README demo block turned CI red
+    # and verify_parity.py — a parity checker no user will ever run — had to stay in a
+    # document aimed at someone who just wants a dashboard.
     demo = {"make_demo_data.py", "verify_parity.py"}
     assert demo <= documented(), sorted(demo - documented())
     assert not demo & copied(), sorted(demo & copied())

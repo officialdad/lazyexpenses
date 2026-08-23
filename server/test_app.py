@@ -54,6 +54,43 @@ def test_spa_served_at_root():
         assert "spa" in r.text
 
 
+def test_release_critical_static_files_revalidate_and_hashed_assets_do_not():
+    """#75: starlette's StaticFiles sets an ETag but no Cache-Control, so the correctness
+    of the update path rested on a browser default we never set — in sw.js, the file by
+    which every client learns a release happened.
+
+    `no-cache` is revalidate-every-time, NOT `no-store`: the ETag still turns an unchanged
+    file into a 304. Mutation check: swap it for max-age, or drop the immutable branch,
+    and this goes red."""
+    with tempfile.TemporaryDirectory() as d:
+        web = os.path.join(d, "web_build")
+        c, _ = _client(d, web=web)
+        os.makedirs(os.path.join(web, "_app", "immutable", "chunks"), exist_ok=True)
+        files = {"sw.js": "self.addEventListener('push',()=>{})",
+                 "manifest.webmanifest": "{}",
+                 "_app/immutable/chunks/abc123.js": "export const x=1"}
+        for name, body in files.items():
+            with open(os.path.join(web, *name.split("/")), "w", encoding="utf-8") as fh:
+                fh.write(body)
+
+        for name in ("sw.js", "manifest.webmanifest"):
+            r = c.get("/" + name)
+            assert r.status_code == 200, name
+            assert r.headers["cache-control"] == "no-cache", name
+        # the SPA shell is a stable url whose bytes change every release, same rule
+        assert c.get("/").headers["cache-control"] == "no-cache"
+        assert c.get("/nope").headers["cache-control"] == "no-cache"   # fallback path too
+
+        # content-addressed: the filename changes when the bytes do, so cache it forever
+        r = c.get("/_app/immutable/chunks/abc123.js")
+        assert r.status_code == 200
+        assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+        # no-cache, not no-store — an unchanged sw.js must still 304 rather than re-send
+        etag = c.get("/sw.js").headers["etag"]
+        assert c.get("/sw.js", headers={"if-none-match": etag}).status_code == 304
+
+
 def test_prerendered_route_and_spa_fallback():
     # Extensionless prerendered routes (/trends) must resolve to <route>.html, and any
     # unknown path must fall back to the SPA shell — without this the Workbox precache
@@ -963,8 +1000,40 @@ def test_the_default_password_is_warned_about_at_startup_and_does_not_block_boot
         out = boot("changeme@123")
         assert "APP_PASSWORD" in out and "default" in out
         assert len([ln for ln in out.splitlines() if "APP_PASSWORD" in ln]) == 1
+        # #72: no password is its OWN warning, and it used to be the silent case — the
+        # one deployment actually exposed produced the quietest log. One or the other,
+        # never both: a missing password is not a default password.
+        none = boot(None)
+        assert "NO login" in none and "default" not in none
+        assert len([ln for ln in none.splitlines() if "APP_PASSWORD" in ln]) == 1
+        assert "NO login" not in out
         assert boot("something-only-i-know").strip() == ""
-        assert boot(None).strip() == ""
+    finally:
+        _ungate()
+        _clean_settings_env()
+
+
+def test_an_unauthenticated_deployment_says_so_over_the_api():
+    """#72: `default_password` answers False with no password set, which reads as "it was
+    changed" and is backwards — it is False because there is nothing to change. So the
+    open deployment needs its own flag, or the UI cannot tell the good state from the
+    worst one.
+
+    Mutation check: drop `unauthenticated` from _settings_view(), or derive it from
+    DEFAULT_PASSWORD instead of from "is anything set", and this goes red."""
+    _clean_settings_env()
+    _ungate()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _client(d)                 # no gate: the state #72 is about
+            body = c.get("/api/settings").json()
+            assert body["unauthenticated"] is True
+            assert body["default_password"] is False       # and this is why it needs a flag
+        for pw in ("changeme@123", "something-only-i-know"):
+            with tempfile.TemporaryDirectory() as d:
+                c, _ = _gated(d, password=pw)
+                c.post("/api/login", json={"password": pw})
+                assert c.get("/api/settings").json()["unauthenticated"] is False
     finally:
         _ungate()
         _clean_settings_env()

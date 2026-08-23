@@ -91,7 +91,12 @@ python make_demo_data.py && python export_data.py
 cd web && npm ci && npm run check && npm test
 ```
 
-`python verify_parity.py` (both dashboards agreeing) runs after `parse.py` on either kind of demo data.
+Either kind of demo data is enough to check that the offline dashboard and the web app
+agree on every figure:
+
+```bash
+python verify_parity.py
+```
 
 The built dashboards have their own checks: `node smoke_dashboard.mjs` after `dashboard.py`, and `node web/audit-responsive.mjs` against a built and served PWA.
 

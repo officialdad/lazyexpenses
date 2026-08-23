@@ -7,7 +7,9 @@ const VIEW = {
 	values: { GMAIL_USER: '', GMAIL_LABEL: '' },
 	secrets: { GMAIL_APP_PASSWORD: false, TELEGRAM_BOT_TOKEN: false },
 	locked: [] as string[],
-	banks: ['maybank', 'cimb', 'sc', 'alliance', 'hsbc', 'rhb']
+	banks: ['maybank', 'cimb', 'sc', 'alliance', 'hsbc', 'rhb'],
+	default_password: false,
+	unauthenticated: false
 };
 
 function stubFetch(view = VIEW) {
@@ -19,7 +21,11 @@ function stubFetch(view = VIEW) {
 
 describe('Setup', () => {
 	beforeEach(() => {
+		// `cfg` is module state shared across tests, so the security flags have to be
+		// reset too or one banner test leaks a banner into every later assertion.
 		cfg.locked = [];
+		cfg.default_password = false;
+		cfg.unauthenticated = false;
 		stubFetch();
 	});
 
@@ -77,5 +83,51 @@ describe('Setup', () => {
 			// the only hint it may carry is that something is already stored
 			expect(el.placeholder).toBe('unchanged');
 		}
+	});
+});
+
+// ---------------------------------------------------------------- #65 / #72 / #74
+// The banner used to live on the /settings route, which does not mount on an empty
+// volume — so it was missing from first-run setup, the one moment someone is standing at
+// a fresh deployment on a published credential. It lives in <Setup> now, which is what
+// both paths render.
+describe('Setup security banner', () => {
+	beforeEach(() => {
+		cfg.locked = [];
+		cfg.default_password = false;
+		cfg.unauthenticated = false;
+	});
+
+	const alerts = (c: HTMLElement) => [...c.querySelectorAll('[role="alert"]')];
+
+	it('warns during FIRST RUN, not only on the settings route', async () => {
+		stubFetch({ ...VIEW, default_password: true });
+		const { container } = render(Setup, { props: { first: true } });
+		await waitFor(() => expect(alerts(container).length).toBe(1));
+		expect(alerts(container)[0].textContent).toContain('changeme@123');
+	});
+
+	it('says NO PASSWORD rather than nothing when the gate is off entirely', async () => {
+		// #72: default_password is false here too, and reads as "the password was
+		// changed". It is false because there is no password. Without its own flag the
+		// worst deployment is the quietest one.
+		stubFetch({ ...VIEW, unauthenticated: true, default_password: false });
+		const { container } = render(Setup, { props: { first: true } });
+		await waitFor(() => expect(alerts(container).length).toBe(1));
+		expect(alerts(container)[0].textContent).toContain('no password');
+	});
+
+	it('shows one banner, not two, and picks the worse one', async () => {
+		stubFetch({ ...VIEW, unauthenticated: true, default_password: true });
+		const { container } = render(Setup, { props: { first: true } });
+		await waitFor(() => expect(alerts(container).length).toBe(1));
+		expect(alerts(container)[0].textContent).toContain('no password');
+	});
+
+	it('stays quiet on a properly configured deployment', async () => {
+		stubFetch();
+		const { container } = render(Setup, { props: { first: false } });
+		await waitFor(() => expect(cfg.loaded).toBe(true));
+		expect(alerts(container).length).toBe(0);
 	});
 });

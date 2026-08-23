@@ -67,8 +67,12 @@ TEST_REMINDER = ("<b>Reminders are working</b>\n\n"
 # #65: .env.example now SHIPS a password, so the documented `docker compose up` path is
 # closed rather than open. A shipped default is a known credential - it is in the repo -
 # so the only thing that makes it safe is being loud: the server warns once at startup
-# and the Settings screen carries a banner until it changes. Production is unaffected
-# (lazyexpense-secrets has no APP_PASSWORD, so the gate stays off there).
+# and the Settings screen carries a banner until it changes.
+#
+# #72: "production is unaffected" was the wrong read. lazyexpense-secrets sets no
+# APP_PASSWORD, so the gate is OFF on the live host — the one deployment that is actually
+# reachable is the one with no login. The fix is a secret in the infrastructure repo, not
+# code; what code owes is not being quiet about it, which is _unauthenticated().
 DEFAULT_PASSWORD = "changeme@123"
 COOKIE = "lx_session"
 SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
@@ -80,6 +84,17 @@ AUTH_PREFIXES = ("/data/", "/api/")
 
 def _app_password() -> str:
     return os.environ.get("APP_PASSWORD") or ""
+
+
+def _unauthenticated() -> bool:
+    """No APP_PASSWORD at all, so the gate in _install_gate() never fires. #72: this is
+    the state `default_password` cannot describe. With no password set it answers False,
+    which reads as "the password was changed" and is exactly backwards — it is False
+    because there is nothing to change. The write path is what is open: POST
+    /api/settings can overwrite the Gmail app password or repoint the Telegram pair, and
+    POST /ingest takes a statement from anyone. So this is reported and warned about
+    rather than left to be inferred from a bool that means something else."""
+    return not _app_password()
 
 
 def _default_password() -> bool:
@@ -163,6 +178,18 @@ def _install_gate(app: FastAPI) -> None:
         return await call_next(request)
 
 
+IMMUTABLE = "_app/immutable/"
+
+
+def _cache_control(path: str) -> str:
+    """`_app/immutable/*` is content-addressed — the filename changes when the bytes do,
+    so it can be cached for a year and never revalidated. Everything else (sw.js,
+    index.html, manifest.webmanifest, the icons) is a STABLE url whose contents change on
+    every release, so it must revalidate or a client can sit on last month's shell."""
+    return ("public, max-age=31536000, immutable"
+            if path.replace("\\", "/").startswith(IMMUTABLE) else "no-cache")
+
+
 class SPAStaticFiles(StaticFiles):
     """try_files: exact file -> "<path>.html" (prerendered route) -> SPA shell index.html.
 
@@ -174,6 +201,17 @@ class SPAStaticFiles(StaticFiles):
     """
 
     async def get_response(self, path, scope):
+        res = await self._resolve(path, scope)
+        # #75: starlette's StaticFiles sets an ETag and Last-Modified but no Cache-Control,
+        # so every one of these files was relying on browser defaults. sw.js is the one
+        # that matters — it is the mechanism by which every client learns a release
+        # happened, and #67's reload banner is built on top of it. `no-cache` is
+        # revalidate-every-time, NOT `no-store`: the ETag still turns an unchanged file
+        # into a 304 with no body.
+        res.headers["cache-control"] = _cache_control(path)
+        return res
+
+    async def _resolve(self, path, scope):
         # Starlette may raise HTTPException(404) (html=True, no 404.html) OR return a 404
         # response depending on version — handle both.
         # StaticFiles raises starlette's HTTPException (fastapi's is a subclass), so catch
@@ -298,6 +336,14 @@ async def _lifespan(app):
               f"{DEFAULT_PASSWORD!r} — it is published in .env.example, so anyone who has "
               f"seen this repo can open your app. Change it in .env and restart. "
               f"{'!' * 20}", flush=True)
+    # #72: same volume, same reason, louder gap — no password means the gate never fires
+    # at all, and until now that state was the QUIET one. It is the deployment actually
+    # exposed, so it gets the same treatment and still does not block boot.
+    elif _unauthenticated():
+        print(f"{'!' * 20} SECURITY: no APP_PASSWORD is set, so this app has NO login. "
+              f"Anyone who can reach it can upload statements, read your spending, and "
+              f"overwrite your mail and reminder credentials. Set APP_PASSWORD and "
+              f"restart. {'!' * 20}", flush=True)
     tasks = []
     # Always started since #39: Web Push is the default transport and needs nothing
     # configured, so there is no env var to gate on. The loop itself checks per tick
@@ -313,11 +359,17 @@ async def _lifespan(app):
 
 
 def _settings_view() -> dict:
-    """What both /api/settings routes answer with. `default_password` is added HERE and
+    """What both /api/settings routes answer with. The two gate flags are added HERE and
     not in settings.public() so that module keeps knowing nothing about the gate — it is
     the one place with a hard "never returns a secret value" invariant, and a bool about
-    APP_PASSWORD is state, not value."""
-    return {**settings.public(parse.BANKS), "default_password": _default_password()}
+    APP_PASSWORD is state, not value.
+
+    They are separate bools, not one tri-state, because they are separate warnings with
+    separate fixes: `default_password` says change a known credential, `unauthenticated`
+    says there is no credential. Both false is the only good answer."""
+    return {**settings.public(parse.BANKS),
+            "default_password": _default_password(),
+            "unauthenticated": _unauthenticated()}
 
 
 def _web_dir() -> Path:
@@ -503,8 +555,9 @@ def create_app() -> FastAPI:
                 counts = await asyncio.to_thread(pipeline.run_pipeline, data_dir)
             except Exception as e:  # old app.json kept (atomic write); surface failure
                 raise HTTPException(status_code=500, detail=f"pipeline failed: {e}")
-        # `problems` tells the caller WHICH statuses are bad; `warning` stays a plain
-        # bool for backwards compatibility with the existing n8n flow.
+        # `problems` tells the caller WHICH statuses are bad. `warning` stays a plain bool
+        # next to it because Setup.svelte reads it directly — the one-glance "did this go
+        # wrong?" for a caller that does not want to interpret a status map.
         problems = {k: v for k, v in counts.items() if k not in RECON_OK and v}
         # `locked` (#40) turns one of those ERRORs into a question the UI can ask in
         # context — "what is the password for this bank?" — while the covering email is

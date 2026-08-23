@@ -31,6 +31,18 @@ const ing = (over: Partial<Ingested> = {}): Ingested => ({
 });
 
 describe('settings view', () => {
+	it('carries the two gate flags, defaulting both to false when the fetch says nothing', async () => {
+		// #74: they live on the shared store so <Setup> can read them during first run,
+		// when the /settings route is not mounted. Defaulting false is deliberate — a
+		// server that answered nothing must not invent a security warning.
+		await loadSettings(json({ ...VIEW, unauthenticated: true }));
+		expect(cfg.unauthenticated).toBe(true);
+		expect(cfg.default_password).toBe(false);
+		await loadSettings(json(VIEW));
+		expect(cfg.unauthenticated).toBe(false);
+		expect(cfg.default_password).toBe(false);
+	});
+
 	it('fills the store and reports env-owned names as locked', async () => {
 		await loadSettings(json(VIEW));
 		expect(cfg.loaded).toBe(true);
@@ -43,10 +55,18 @@ describe('settings view', () => {
 	// SECURITY (#40): the server only ever sends a bool per secret. Nothing in this module
 	// may turn that into a value, and nothing may keep one around after it is posted.
 	it('holds no secret value anywhere — only configured booleans', async () => {
-		await loadSettings(json(VIEW));
-		expect(cfg.secrets.GMAIL_APP_PASSWORD).toBe(true);
+		// A server that wrongly echoed the value would send it in exactly this shape.
+		await loadSettings(
+			json({ ...VIEW, secrets: { ...VIEW.secrets, GMAIL_APP_PASSWORD: 'hunter2-abcd' } })
+		);
 		expect(typeof cfg.secrets.GMAIL_APP_PASSWORD).toBe('boolean');
-		expect(JSON.stringify(cfg)).not.toContain('password');
+		expect(cfg.secrets.GMAIL_APP_PASSWORD).toBe(true);
+
+		// Scans VALUES, not the serialized store: `default_password` is a bool whose NAME
+		// contains "password" (#74), and matching on that is a false positive, not a leak.
+		const strings = (v: unknown): string[] =>
+			typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
+		for (const s of strings(cfg)) expect(s.toLowerCase()).not.toContain('hunter2');
 	});
 
 	it('posts a patch and refreshes from the response', async () => {

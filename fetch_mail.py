@@ -1,8 +1,8 @@
 """Fetch statement mail over IMAP and POST each PDF attachment to /ingest.
 
-This is the last thing n8n was still doing: watch Gmail for statement mail and hand
-the attachment onward. Gmail exposes labels as IMAP mailboxes, so the `CC` label is
-just a mailbox to select, and `imaplib` + `email` are both stdlib — no dependency.
+Watch Gmail for statement mail and hand the attachment onward. Gmail exposes labels as
+IMAP mailboxes, so the `CC` label is a mailbox to select, and `imaplib` + `email` are
+both stdlib — no dependency.
 
 Run it on a schedule (cron, a k8s CronJob, whatever). It is a script, not a daemon:
 no IDLE, no long-lived connection.

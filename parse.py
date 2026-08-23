@@ -506,9 +506,9 @@ def main():
                               prev=None, cur=None, debit=0, credit=0, expected=None, diff=None,
                               status='ERROR', n=0))
             continue
-        # Drop duplicate statements. The n8n compile workflow re-exports the FULL label-CC history
-        # every run, so the same statement can arrive under several filenames (the _N index is
-        # meaningless). Two files with identical (bank, statement date, balances, debit/credit, txn
+        # Drop duplicate statements. The same statement arrives under several filenames — a bank
+        # re-sends it, or an earlier bulk export wrote it twice (the _N index is meaningless, it is
+        # a collision suffix). Two files with identical (bank, statement date, balances, debit/credit, txn
         # count) are the same statement -> keep the first, skip the rest, else everything double-counts.
         fp = (meta['bank'], meta['sdate'], meta['prev'], meta['cur'],
               meta['debit'], meta['credit'], meta['n'])

@@ -1,4 +1,4 @@
-"""Bill reminders without n8n: which bills are due soon, and who to tell about them.
+"""Bill reminders: which bills are due soon, and who to tell about them.
 
 Two ways in, same logic:
   - `python remind_bills.py` — standalone, reads /bills over HTTP, for cron or a
@@ -67,8 +67,7 @@ def remind_days():
 
 
 def template():
-    """The message wording, same story — env first, then settings.json, then the default
-    (which is the message the retired n8n workflow sent)."""
+    """The message wording, same story — env first, then settings.json, then the default."""
     return settings.get("REMIND_TEMPLATE") or DEFAULT_TEMPLATE
 
 
