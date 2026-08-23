@@ -163,6 +163,18 @@ def _install_gate(app: FastAPI) -> None:
         return await call_next(request)
 
 
+IMMUTABLE = "_app/immutable/"
+
+
+def _cache_control(path: str) -> str:
+    """`_app/immutable/*` is content-addressed — the filename changes when the bytes do,
+    so it can be cached for a year and never revalidated. Everything else (sw.js,
+    index.html, manifest.webmanifest, the icons) is a STABLE url whose contents change on
+    every release, so it must revalidate or a client can sit on last month's shell."""
+    return ("public, max-age=31536000, immutable"
+            if path.replace("\\", "/").startswith(IMMUTABLE) else "no-cache")
+
+
 class SPAStaticFiles(StaticFiles):
     """try_files: exact file -> "<path>.html" (prerendered route) -> SPA shell index.html.
 
@@ -174,6 +186,17 @@ class SPAStaticFiles(StaticFiles):
     """
 
     async def get_response(self, path, scope):
+        res = await self._resolve(path, scope)
+        # #75: starlette's StaticFiles sets an ETag and Last-Modified but no Cache-Control,
+        # so every one of these files was relying on browser defaults. sw.js is the one
+        # that matters — it is the mechanism by which every client learns a release
+        # happened, and #67's reload banner is built on top of it. `no-cache` is
+        # revalidate-every-time, NOT `no-store`: the ETag still turns an unchanged file
+        # into a 304 with no body.
+        res.headers["cache-control"] = _cache_control(path)
+        return res
+
+    async def _resolve(self, path, scope):
         # Starlette may raise HTTPException(404) (html=True, no 404.html) OR return a 404
         # response depending on version — handle both.
         # StaticFiles raises starlette's HTTPException (fastapi's is a subclass), so catch
