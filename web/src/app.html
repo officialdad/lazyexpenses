@@ -7,6 +7,24 @@
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" type="image/png" />
 		<link rel="apple-touch-icon" href="%sveltekit.assets%/pwa-192x192.png" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+
+		<!-- Link previews. These are for the public demo, so the URLs are the demo's and
+		     absolute: an unfurl bot resolves og:image against nothing, and %sveltekit.assets%
+		     is a relative path here. A self-hosted instance serves these too and points at
+		     the demo's card, which costs it nothing — it sits behind a password on a private
+		     network, so no crawler ever reads them. The image is web/static/og.png, the same
+		     file to upload under the repository's Settings > Social preview, which GitHub
+		     takes by upload only and never reads from a path. -->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="lazyexpenses" />
+		<meta property="og:title" content="lazyexpenses" />
+		<meta property="og:description" content="Reads the locked statement PDFs your Malaysian banks email you and turns them into a dashboard of what you actually spend. Runs on your own machine." />
+		<meta property="og:url" content="https://officialdad.github.io/lazyexpenses/" />
+		<meta property="og:image" content="https://officialdad.github.io/lazyexpenses/og.png" />
+		<meta property="og:image:width" content="1280" />
+		<meta property="og:image:height" content="640" />
+		<meta property="og:image:alt" content="lazyexpenses: what you spend, by category, a leak finder and bills due" />
+		<meta name="twitter:card" content="summary_large_image" />
 		<!-- ponytail: register the SW by hand. @vite-pwa/sveltekit generates sw.js +
 		     manifest.webmanifest but its auto-inject doesn't land in the static build
 		     output (Vite 8 + SvelteKit), so nothing referenced them → no manifest, no

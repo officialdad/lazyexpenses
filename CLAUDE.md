@@ -274,6 +274,13 @@ swallows it. `audit-responsive.mjs` gates the `base === ''` build only: its sele
 hardcode `a[href="/settings"]` and `a[href="/#overview"]`, so it reports those as absent
 against a base build even though the nav is there.
 
+**The social card is `web/static/og.png`**, served at `/og.png` and pointed at by absolute
+`og:`/`twitter:` meta in `app.html` (absolute because an unfurl bot has no page to resolve a
+relative URL against). Those URLs name the demo, so a self-hosted instance advertises the
+demo's card, which no crawler ever reads behind its password. **GitHub's repository social
+preview is a separate thing and takes an upload only** — it never reads a path, so changing
+this file does not change what a link to the repo unfurls.
+
 **The demo is the static half only.** No server behind Pages, so `/api/*` and `/ingest`
 404: Settings, mark-paid and Remind me all fail there by design, which is what the banner
 says. It rebuilds on every push to `main` from `dev/make_demo_data.py` (no `--pdfs`) +
