@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Tooling for the generated dashboard.html — Playwright visual audit and DOM smoke test. The app itself is Python; the web PWA has its own package.json in web/.",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "audit": "node audit.mjs",
     "smoke": "node smoke_dashboard.mjs"

@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A personal pipeline for processing Malaysian credit-card e-statements (6 banks: maybank, cimb, sc/Standard Chartered, alliance, hsbc, rhb). It has **two loosely-coupled halves**:
+A personal pipeline for processing Malaysian credit-card e-statements (6 banks: maybank, cimb, sc/Standard Chartered, alliance, hsbc, rhb). One deployment does the whole thing end to end:
 
-1. **n8n workflows** (`*.json`) — cloud automation that pulls statement emails from Gmail (label `CC`), unlocks the password-protected PDF attachments, and (in the original) extracts info via Gemini.
-2. **Local Python parser** (`parse.py`) — deterministic extraction of the unlocked PDFs in `cc-statements/` into transaction/spend CSVs. **No LLM.**
+1. **`fetch_mail.py`** — IMAP over the Gmail label `CC`, POSTing each password-protected PDF attachment to `/ingest`.
+2. **`parse.py`** — deterministic extraction of those PDFs (it opens the locked ones itself) into transaction/spend CSVs. **No LLM.**
 
-The two halves used to be joined by hand through n8n. **They no longer are** — `fetch_mail.py` takes the mail and `/ingest` runs the pipeline, so the flow is automatic end to end. `cc-statements/` is now only for local parser work.
+`/ingest` chains `parse.py → insights.py → export_data.py`, so a statement that arrives in the mailbox is on the dashboard without anyone touching it. `cc-statements/` is the local corpus for parser work only.
 
 ## How it runs today
 
@@ -29,11 +29,6 @@ Renovate; push to `main` auto-deploys changed `k3s/` dirs. **`kubectl` is a mise
 from inside that repo** or it fails to resolve. A release is a `v*` tag — `docker.yml` builds,
 gates the push on the image reporting the version it was tagged with, then you bump the digest in
 the infra repo.
-
-**n8n and Stirling-PDF are both out of the code path.** `parse.py` opens locked PDFs itself,
-`fetch_mail.py` replaced the Gmail trigger, and the server's own timer replaced the reminder cron.
-The n8n instance still runs for unrelated workflows; its credit-card workflows are disabled and
-must stay that way or bills get messaged twice.
 
 ### The pieces, and why they are shaped that way
 
@@ -214,7 +209,7 @@ There is no build/lint/test suite — these are standalone scripts. CI has three
 - **Bank-specific balance extraction** (`recon_balances`) is where most fragility lives — each bank labels previous/current balance differently and reading-order text varies (e.g. HSBC has no spaces: `YourPreviousStatementBalance`; maybank interleaves the address between label and value). Multi-card banks sum per-card balances.
 - **Statement month** comes from the PDF's statement date, NOT the filename (the `_N` suffix is meaningless). `stmt_month` is **ordered**: (1) tight `Statement Date` label + `dd Mon yyyy`, (2) alliance Malay `Tarikh Penyata dd/mm/yy`, (3) loose first-`dd Mon yyyy` after the word "Statement", (4) alliance English numeric, (5) first-`dd Mon yyyy` anywhere. The tight label anchor (1) matters because **some SC templates print the Payment Due Date *before* the statement date** — a loose anchor grabbed the due date and landed the statement in the wrong month (this silently mis-bucketed 3 SC statements until fixed).
 - **Payment due date** (`due_date`, per-bank like `recon_balances`): emits ISO `due` on each reconciliation row. sc/hsbc are inline after the label; alliance/rhb are `dd/mm/yy(yy)`; maybank/cimb print statement-date then due-date as two adjacent `dd Mon` tokens (due = 2nd). `None` if not found — never guessed.
-- **Duplicate statements** are dropped in `main()` by a content fingerprint `(bank, sdate, prev, cur, debit, credit, n)` — keep first, mark the rest `DUPLICATE`, exclude their transactions. The n8n compile workflow re-exports the **full** label-CC history each run, so the same statement routinely arrives under several filenames; without dedup every chart double/triple-counts those months (per-file reconciliation still shows VERIFIED, hiding it).
+- **Duplicate statements** are dropped in `main()` by a content fingerprint `(bank, sdate, prev, cur, debit, credit, n)` — keep first, mark the rest `DUPLICATE`, exclude their transactions. The same statement routinely arrives under several filenames (a whole-label backfill re-imports mail that was already ingested, and `save_pdf` names by content hash, not by the mail's filename); without dedup every chart double/triple-counts those months (per-file reconciliation still shows VERIFIED, hiding it).
 - **Synthetic statements** (`dev/make_demo_data.py --pdfs`) are the only way `parse.py` is tested — real statements can never enter the repo or CI. `_pdf()` places text at absolute coordinates (a generalisation of `test_parse_password.py::_minimal_pdf`, still zero-dependency), and one renderer per bank reproduces the quirk that makes that branch exist: Alliance's date-above-the-row, HSBC's run-together labels, CIMB's per-card summary + separate detail page + `:0/MM` memo, SC's due-date-above-statement-date and masked card number, RHB's due date on the line below its label, Maybank's interleaved address. Amounts are written 1pt off the shared baseline so `rows_of` has to use its y-tolerance rather than an exact match. Balances come from `reconcile()`, so a generated statement reconciles for the same reason a real one does. **When you add a bank or change a layout rule, add/extend its renderer** — `test_demo_pdfs.py` is a round trip and will not catch a rule that nothing prints. It was mutation-tested: 12 deliberate breaks of `parse.py` (each per-bank balance label, the CR sign flips, multi-card tracking, `ytol`, alliance adjacency, `find_amount`'s rightmost rule, `clean_desc`'s `:NN/MM`, the `:0/MM` exclusion, `main()`'s dedup) all turn it red.
 - **Per-file parse cache** (`cached_parse`, wraps `parse_statement` in the `main()` loop). `parse_statement` is pure given the PDF bytes, so its `(meta, txns)` is memoized to `<STMT_CACHE>/<sha256-of-bytes>.json` (env `STMT_CACHE`, default `cache/`; the runner points it at `<pvc>/cache`). On a miss it parses + writes (atomic `os.replace`); on a hit it loads and **re-derives `file` from the current path** (same bytes can arrive under a different filename — `source_file`/dedup must follow this run). This makes ingest O(1) in corpus size: adding 1 statement to an N-PDF volume reparses only the new file (~1.5 s vs ~100 s full reparse — see issue #1). **Cache-busting:** `PARSE_VER` = sha256 of `parse.py` itself is stored in each entry; any edit to `parse.py` invalidates the whole cache (one full reparse next run), so a parser-rule change never serves stale rows. Corrupt/missing/old-version entries silently reparse. Keyed by content hash, **not** the filename's `sha8` (the local `cc-statements/` corpus isn't content-addressed). Dedup/ordering/CSV output are unchanged → `app.json` stays byte-identical to a full rebuild (`cache/` is gitignored; tested by `tests/test_parse_cache.py`).
 
@@ -331,14 +326,3 @@ Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The ba
 **Confirming one in the UI is the other way in (#82).** Settings step 5 lists what fell into `Other` (`app.json`'s `other[]`, from `export_data.build_other`) with a dropdown of the whole taxonomy (`allCats`); a pick writes `{merchant: category}` to `cats.json` on the PVC via `POST /api/cats`, which then re-runs the pipeline so the answer is on screen. **The apply point is `parse.py`'s `main()` loop, AFTER `cached_parse` — never inside `categorize()`.** `categorize()` runs inside `parse_statement`, which is memoized per PDF and keyed on `PARSE_VER`; an override read from in there would not bust that cache, so a confirmation would silently do nothing until something else edited the parser. Applied after the cache boundary it lands on the next run with **no reparse at all** (~0.5s warm). Keys are `insights.norm_merchant()` on **both** sides, or a trailing ref token makes one merchant two. An **override beats `CATS`** (a human confirmed it), so a later `CATS` keyword cannot correct a bad one — clearing the row in the UI is the only undo. `t['inst']` still beats both: that is printed structure, not a guess. The dropdown is built from `dashboard.COLORS` while `/api/cats` validates against `parse.CATS`; `test_parse.py::test_every_category_has_a_colour_and_an_icon` is what keeps those two the same taxonomy. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
 
 **Spend is netted**: in the summaries, consumption categories use signed amounts (debit `+`, credit `−`) so a **refund/reversal** (a credit sitting under a merchant category — e.g. a cancelled `…-REV` booking) subtracts from that category. `NON_SPEND` categories stay debit-only/gross (their credits are bill payments & cashback, not negative spend). The dashboard mirrors this exactly via its `val(r)` helper. Net cells can occasionally go slightly negative (a refund whose original purchase was a different month) — charts guard against it; the reconciliation is unaffected (it nets all debits/credits globally regardless of category).
-
-## n8n workflows — retired
-
-The credit-card workflows (`process-cc-statement.json`, `compile-cc-statements.json`,
-`reminder-bills.json`) are **disabled and must stay disabled**, or bills get messaged twice. Every
-job they did is now in this repo: the Stirling-PDF unlock (`parse.py` opens locked PDFs itself), the
-Gmail trigger (`fetch_mail.py`), and the reminder cron (the server's own timer). The JSONs are
-gitignored and kept local; the n8n instance itself still runs for unrelated workflows.
-
-The `CC_PW_*` values still sitting on the n8n PVC are **stale copies** — the k8s Secret
-`lazyexpense-secrets` is the source of truth. Clearing them is housekeeping worth doing.

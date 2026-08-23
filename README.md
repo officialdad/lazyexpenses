@@ -4,23 +4,24 @@ Your banks email you a locked PDF every month and you never open it. lazyexpense
 those PDFs and turns them into a dashboard of what you actually spend. It runs on your
 own machine. There is no bank login to hand over, and nothing leaves the box.
 
-<!-- Refresh these five (#88): they are captured, not hand-shot, so a UI change updates them
+<!-- Refresh these six (#88): they are captured, not hand-shot, so a UI change updates them
      in one pass. From the repo root, with demo data already exported to web/static/data:
        cd web && npm run build && npm run preview -- --port 4173 --strictPort &
        AUDIT_BASE=http://localhost:4173 node web/audit-responsive.mjs
        cp web/audit-shots/readme-*.png docs/img/
-     audit-responsive.mjs writes readme-<route>.png at 390x844 for the mobile tier.
+     audit-responsive.mjs writes readme-<route>.png at 390x844 for the mobile tier, plus
+     readme-merchants.png — the same /trends page scrolled to its merchants table.
      audit-shots/ is gitignored, so the copy into docs/img/ is the step that commits them. -->
 <table>
   <tr>
     <td align="center" width="33%"><img src="docs/img/readme-home.png" width="240" alt="Home: what is free to spend this month against the ceiling, which card to reach for next, and the bills coming due"><br><sub><b>Home</b>: free to spend, use-next card, bills due</sub></td>
     <td align="center" width="33%"><img src="docs/img/readme-trends.png" width="240" alt="Trends: monthly spend as a bar per month, and a category donut with the yearly total per category"><br><sub><b>Trends</b>: month by month, and by category</sub></td>
-    <td align="center" width="33%"><img src="docs/img/readme-cuts.png" width="240" alt="Cuts: subscriptions, installments, balance transfers and creeping categories, each with an annual cost"><br><sub><b>Cuts</b>: the leak finder, ranked by yearly cost</sub></td>
+    <td align="center" width="33%"><img src="docs/img/readme-merchants.png" width="240" alt="Merchants: every merchant ranked by what it took, with a bar per merchant, filtered by the month or category picked above"><br><sub><b>Merchants</b>: who actually took the money</sub></td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/img/readme-cuts.png" width="240" alt="Cuts: subscriptions, installments, balance transfers and creeping categories, each with an annual cost"><br><sub><b>Cuts</b>: the leak finder, ranked by yearly cost</sub></td>
     <td align="center"><img src="docs/img/readme-fees.png" width="240" alt="Fees and waivers: every card with its annual fee, late-fee and interest charges"><br><sub><b>Fees</b>: annual fees and what to call the bank about</sub></td>
     <td align="center"><img src="docs/img/readme-settings.png" width="240" alt="Settings: upload a statement, store statement passwords, and turn on the hourly Gmail fetch"><br><sub><b>Settings</b>: the screen a new install opens on</sub></td>
-    <td></td>
   </tr>
 </table>
 
@@ -147,11 +148,11 @@ setting, putting it on your network, upgrading and backing up.
 
 ## Status
 
-Working, and in daily use on my own statements. The parser opens locked PDFs itself,
-and the mail fetch and the reminders are timers inside the app, so one container is the
-whole deployment. It used to lean on two self-hosted services, n8n for the automation
-and Stirling-PDF just to strip statement passwords. Both are gone.
+1.0, and in daily use on my own statements. The parser opens locked PDFs itself, and the
+mail fetch and the reminders are timers inside the app, so one container is the whole
+deployment — nothing else to host, nothing else to schedule.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Do what you like with it.
+GNU GPL v3. See [LICENSE](LICENSE). Use it, change it, run it. Anything you hand on
+to someone else stays under the same license and ships its source with it.

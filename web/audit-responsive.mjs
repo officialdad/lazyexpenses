@@ -3,7 +3,11 @@ import { chromium } from 'playwright';
 const base = process.env.AUDIT_BASE || 'http://localhost:4173';
 const routes = [
   { name: 'home', url: '/' },
-  { name: 'trends', url: '/trends' },
+  // `shot` is an extra README capture from the same page: /trends is two screens on a
+  // phone, and the merchants table is the half that never fits in the viewport shot.
+  // Scrolled by heading text rather than an id — TrendsView mounts in BOTH layout
+  // subtrees at every width, so any id it carried would trip the duplicate-id check.
+  { name: 'trends', url: '/trends', shot: { name: 'merchants', to: 'main h2', text: /Merchants/ } },
   { name: 'cuts', url: '/cuts' },
   { name: 'fees', url: '/fees' },
   // #74: /settings was never audited, and it is where #40 shipped two real bugs —
@@ -142,7 +146,21 @@ for (const vp of widths) {
     // them with one command instead of five hand captures at five different scales. Viewport
     // height, not fullPage: a phone frame, where the diagnostic shot above wants the whole
     // scroll. See README.md for the copy step into docs/img/ (audit-shots/ is gitignored).
-    if (vp.tag === 'mobile') await page.screenshot({ path: `audit-shots/readme-${r.name}.png` });
+    if (vp.tag === 'mobile') {
+      await page.screenshot({ path: `audit-shots/readme-${r.name}.png` });
+      if (r.shot) {
+        // scrollIntoView, not scrollIntoViewIfNeeded — the latter no-ops here and leaves
+        // the shot identical to the route's own. Scroll the whole card, not its heading,
+        // so the frame starts at the card border rather than mid-way through the one above.
+        await page
+          .locator(r.shot.to, { hasText: r.shot.text })
+          .first()
+          .evaluate((e) => (e.closest('.border') ?? e).scrollIntoView({ block: 'start' }));
+        await page.waitForTimeout(500); // the bars animate in on first view (use:inview)
+        await page.screenshot({ path: `audit-shots/readme-${r.shot.name}.png` });
+        await page.evaluate(() => window.scrollTo(0, 0));
+      }
+    }
   }
   await ctx.close();
 }
