@@ -120,7 +120,6 @@ same invented dataset the screenshots above show:
 ```bash
 python make_demo_data.py --pdfs   # obviously fake statements into cc-statements/
 python parse.py && python dashboard.py
-python verify_parity.py           # the offline dashboard and the web app agree
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) has the rest — the tests, the demo data generator, and
