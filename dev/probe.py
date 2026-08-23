@@ -1,5 +1,8 @@
-import sys, pdfplumber
-from parse import pw_for
+import os, sys, pdfplumber
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from parse import pw_for  # noqa: E402
 
 def rows(pdf_path, ytol=3):
     out = []

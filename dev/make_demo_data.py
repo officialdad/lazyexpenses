@@ -6,7 +6,7 @@ and then gets out of the way: insights.py, dashboard.py and export_data.py all r
 those files and run completely unchanged. That is deliberate. The generator feeds the
 existing pipeline; it is not a second code path through it.
 
-    python make_demo_data.py
+    python dev/make_demo_data.py
     python insights.py && python export_data.py && python dashboard.py
 
 EVERYTHING HERE IS INVENTED. Merchants, cards, amounts, the cardholder — none of it
@@ -35,7 +35,7 @@ RNG, so a given --seed reproduces byte-for-byte within a day.
 --pdfs writes statement PDFs instead, into cc-statements/, and lets parse.py produce
 the CSVs itself:
 
-    python make_demo_data.py --pdfs && python parse.py
+    python dev/make_demo_data.py --pdfs && python parse.py
 
 Same data, one layer lower. That is the only way parse.py — six banks of layout rules,
 where a misread becomes confidently wrong money — gets any automated coverage, because

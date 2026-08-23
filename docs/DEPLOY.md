@@ -497,7 +497,7 @@ change must never serve rows from the old rules.
 |---|---|
 | Page loads, no data | `/data/app.json` does not exist yet — nothing has been ingested |
 | A statement shows `ERROR` | locked PDF, and its `CC_PW_<BANK>` is unset or wrong |
-| A statement shows `REVIEW` | the bank changed its layout; `python probe.py <file>` shows what the parser sees |
+| A statement shows `REVIEW` | the bank changed its layout; `python dev/probe.py <file>` shows what the parser sees |
 | the log says "nothing to fetch" | `GMAIL_USER` / `GMAIL_APP_PASSWORD` are blank in `.env` |
 | Notification reminders never arrive | is the page on HTTPS or localhost? On iPhone, is the app installed to the Home Screen and opened from there? The **Remind me** button says which is missing |
 | Notifications stopped after a restore | `vapid.json` was not restored with the rest of the volume — press **Remind me** again on each device |

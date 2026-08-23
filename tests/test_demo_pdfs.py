@@ -9,7 +9,7 @@ the renderer prints it, and parse.py re-derives previous/debit/credit/current fr
 words on the page. They have to agree, which they only can if every transaction row
 parsed, every balance label was found, and every bank-specific quirk was handled.
 
-Run from the repo root: python test_demo_pdfs.py   ->  OK
+Run from the repo root: PYTHONPATH=. python tests/test_demo_pdfs.py   ->  OK
 """
 import csv
 import os
@@ -17,8 +17,8 @@ import subprocess
 import sys
 import tempfile
 
-import make_demo_data as demo
 import parse
+from dev import make_demo_data as demo
 
 MONTHS = 8
 

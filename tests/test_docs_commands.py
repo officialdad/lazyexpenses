@@ -6,28 +6,27 @@ was added to the repo and the docs but not to Dockerfile's explicit COPY list. T
 is the grep that would have caught it: no Docker daemon, no image build, just the
 docs read against that one line.
 
-The COPY list stays explicit on purpose — `COPY *.py ./` would drag in the demo
-generator, probe.py and nine test files. The list is not the problem; nothing
-checking it was."""
+The COPY list stays explicit on purpose — `COPY *.py ./` would drag in whatever
+lands at the root next. The list is not the problem; nothing checking it was."""
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).parent
+ROOT = pathlib.Path(__file__).parent.parent   # this file lives in tests/
 # CONTRIBUTING.md is in here for the same reason the other two are: it hands out
 # `python <name>.py` lines, and a contributor running them inside the container hits the
 # same missing-module wall v0.9.0 shipped. It is also where the dev-only scripts are
 # documented properly, which is what keeps README free to be a user document (#73).
 DOCS = ("docs/DEPLOY.md", "README.md", "CONTRIBUTING.md")
 
-# Optional leading path covers the crontab block's `python /path/to/fetch_mail.py`.
+# Optional leading path covers the crontab block's `python /path/to/fetch_mail.py`, and
+# since #89 the `dev/` and `tests/` prefixes too. The capture is always the bare name.
 CMD = re.compile(r"\bpython3?\s+(?:[\w./-]*/)?(\w+\.py)\b")
 
 # Dev-only scripts the docs mention but that no hoster ever runs against the container.
-# There is no structural tell to lean on: the demo blocks invoke make_demo_data.py and
-# verify_parity.py in exactly the shape DEPLOY.md invokes llm_cats.py — a bare
-# `python x.py` inside a fenced bash block. The only thing separating the two kinds is
-# what they are for, so the list is written out. test_*.py is a prefix rule because
-# there are nine of them and there will be more.
+# They live in dev/ since #89, but the regex above drops the directory, so this stays a
+# list of bare names — and it stays written out rather than inferred from the path,
+# because the thing being checked is what a script is for, not where it sits.
+# test_*.py is a prefix rule because there are eleven of them and there will be more.
 DEV_ONLY = {"make_demo_data.py", "probe.py", "verify_parity.py"}
 
 
