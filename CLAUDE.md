@@ -268,17 +268,40 @@ aggregates are precomputed once into `agg` after the fetch. `export_data.py` wri
 `web/static/data/app.json` (served at `/data/app.json` locally; in prod the runner serves
 it from the PVC) — so a data refresh needs **no rebuild**. The Overview view also renders a
 **bills-due panel** (`BillsDue.svelte` + pure `bills.ts`): `app.bills[]` sorted by due date,
-red when `< 3` days out (KL-time today via `todayMYT()`).
+red when `< 3` days out (KL-time today via `todayMYT()`). **`paid` suppresses urgency, and it
+does so in `sortBills` (#85)** — not in the component — so every caller inherits it; `BillsDue`
+then guards `over` and the status branch the same way, or a settled overdue bill prints `-5d`.
 
 The PWA is responsive across 3 tiers: <768px mobile (routed, BottomNav, 1-col),
 768-1024px tablet (routed, 2-col panels), >=1024px desktop (TopBar + unified
 Dashboard rendering all three Views in anchored sections, capped max-w-7xl).
-+layout.svelte renders two CSS-toggled subtrees (lg:hidden routed / hidden
-lg:block Dashboard) — both mount at all widths, but all-time chart aggregates
-are precomputed once into `agg` in `data.svelte.ts` after the fetch so the double-render adds no compute.
+
+**`+layout.svelte` is ONE shell (#86), not the pair it used to be**: `TopBar` behind
+`hidden lg:block`, `children()` **exactly once**, `BottomNav` behind `lg:hidden`. `/settings`
+is the only route the Dashboard does not render as a section, and rendering it *outside* that
+structure is what dropped its navigation at every width — three times now (#40, #74, #86). It
+cannot simply join the dashboard subtree either: **that pair really does mount twice at every
+width**, which is fine for charts and fatal for a form, because duplicate element ids mean every
+`<label for>` in `Setup.svelte` binds to whichever copy the browser saw first. So the double
+mount lives *inside* the dashboard arm of an exclusive `{#if}`, and all-time chart aggregates are
+precomputed once into `agg` in `data.svelte.ts` so it costs no compute. The width toggles **must**
+stay `display:none` (`lg:hidden` / `hidden lg:block`) — only that removes the inert subtree from
+the accessibility tree.
+
+**One content width, owned by the layout (#87):** `const WIDTH = 'mx-auto px-4 md:max-w-3xl'`
+at `+layout.svelte:38`. Full-bleed on a phone — the old `max-w-md` cap gutters a 600px window —
+then a 768px cap all the way up, because a single-column form stretched to the desktop grid is
+unreadable. Leaf components do **not** set their own: `Setup` keeps `max-w-xl` only for the
+standalone `first={true}` mount, and `Dashboard.svelte` keeps `max-w-7xl` because it is a
+multi-column grid and `TopBar` is sized to match it. The **auth and error screens deliberately
+opt out** with `max-w-md` — standalone full-page states, same category as first-run `Setup`.
+
 Acceptance gate: build, `npm run preview -- --port 4173`, then
 `node web/audit-responsive.mjs` (checks 390/834/1440 for overflow/sub-11px/
-console errors; screenshots -> web/audit-shots/).
+console errors, **and that the nav is present on every route including `/settings`**;
+screenshots -> web/audit-shots/). It also writes `readme-<route>.png` at 390x844 for the
+README — `docs/img/` is not gitignored but `audit-shots/` is, so the copy step is explicit
+(the command is an HTML comment above the README's screenshot table).
 
 The Overview view also renders a "Use next" card picker (`CardPick.svelte` →
 `cardpick.ts`): ranks cards by a 50/50 blend of interest-free float runway

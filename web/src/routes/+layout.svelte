@@ -36,6 +36,9 @@
   // unreadable. The desktop Dashboard keeps its own max-w-7xl: it is a multi-column grid,
   // not a column, and TopBar is sized to match it.
   const WIDTH = 'mx-auto px-4 md:max-w-3xl';
+  // The auth and error screens keep their own narrow cap instead: they are standalone
+  // full-page states with no shell around them, same as <Setup first={true} />, and a
+  // one-field form centred in 768px of nothing reads worse than a 448px column.
 
   let pw = $state('');
   let pwError = $state('');
@@ -91,7 +94,7 @@
 
   <div class="lg:hidden"><BottomNav /></div>
 {:else if meta.status === 'auth'}
-  <main class="{WIDTH} py-16 text-center">
+  <main class="mx-auto max-w-md px-4 py-16 text-center">
     <p class="text-base font-bold">Password required</p>
     <p class="mt-2 text-sm" style="color:var(--muted)">This app is locked. Enter the password it was set up with.</p>
     <form class="mt-4 flex flex-col gap-3" onsubmit={unlock}>
@@ -118,7 +121,7 @@
        This used to be a 404 and a blank page. -->
   <Setup first={true} />
 {:else if meta.status === 'error'}
-  <main class="{WIDTH} py-16 text-center">
+  <main class="mx-auto max-w-md px-4 py-16 text-center">
     {#if !net.online}
       <p class="text-base font-bold" style="color:#f87171">You're offline</p>
       <p class="mt-2 text-sm" style="color:var(--muted)">No cached copy yet — reconnect to load your data.</p>
