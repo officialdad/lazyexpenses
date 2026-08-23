@@ -17,16 +17,18 @@ A personal pipeline for processing Malaysian credit-card e-statements (6 banks: 
 what is next; this file is for how the thing works and what will bite you. Do not re-add status,
 handoff notes or per-release changelogs here — file an issue or write a release note.
 
-`lazyexpense.opariffazman.com` runs `ghcr.io/officialdad/lazyexpenses/app` on k3s: one container
-serving the PWA, re-running `parse.py → insights.py → export_data.py` over a 5Gi PVC on every
-`/ingest`, fetching statement mail over IMAP on a timer, and sending the bill reminders itself.
+The live deployment runs `ghcr.io/officialdad/lazyexpenses/app` on k3s behind Traefik: one
+container serving the PWA, re-running `parse.py → insights.py → export_data.py` over a 5Gi PVC on
+every `/ingest`, fetching statement mail over IMAP on a timer, and sending the bill reminders
+itself.
 `Recreate` strategy — the volume is RWO and the code **assumes a single instance** (two replicas
 would each hold their own `reminded.json` and could double-send).
 
-**Infra lives in a separate repo:** `~/repo/infrastructure`, manifests in `k3s/lazyexpense/`.
-Ingress is a single shared object, `k3s/traefik/ingress-local.yml`. Images are digest-pinned for
-Renovate; push to `main` auto-deploys changed `k3s/` dirs. **`kubectl` is a mise shim, so run it
-from inside that repo** or it fails to resolve. A release is a `v*` tag — `docker.yml` builds,
+**Infra lives in a separate private repo, not this one** — the Deployment, the PVC and the
+Ingress are all over there, and the Ingress is a single object shared with the cluster's other
+services. Images are digest-pinned for Renovate; a push to that repo's `main` auto-deploys the
+manifest dirs that changed. **`kubectl` is a mise shim there, so run it from inside that repo**
+or it fails to resolve. A release is a `v*` tag — `docker.yml` builds,
 gates the push on the image reporting the version it was tagged with, then you bump the digest in
 the infra repo.
 
@@ -109,7 +111,7 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
 - **Editing `parse.py` invalidates the whole parse cache** (`PARSE_VER` = hash of the file). On the
   0.4.0 rollout the full 84-PDF reparse took **109s**, versus 0.5s warm. Long enough to trip an
   ingest HTTP timeout, so warm it in-pod after any deploy that touches the parser:
-  `kubectl exec deploy/lazyexpense -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
+  `kubectl exec deploy/<name> -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
   (0.5.0 and 0.6.0 did not touch `parse.py`, so those rollouts kept the cache — 83 entries.)
   **The #82 release touches `parse.py`** (it grows the override lookup), so it pays that
   full reparse once — warm it in-pod straight after the deploy. Every run *after* that is
@@ -157,12 +159,12 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
   Confidence is decoration: `high` comes back on wrong answers too.
 - **`urllib` capitalises header names**, so Web Push requests carry `Ttl:` and `Content-encoding:`.
   Services accept them (headers are case-insensitive), but do not grep for `TTL`.
-- **Internal hosts resolve to a private IP, so off-LAN access needs the tailnet's Split DNS entry**
-  (router `tuf`, 100.65.123.27, restricted to `opariffazman.com`). When it is missing, a foreign
-  network's resolver refuses the private address: Chrome reports "can't find" — a *resolution*
-  failure, not a timeout — while an installed PWA keeps rendering happily from its offline cache and
-  merely looks out of date. **Do not read that as a bad deploy.** Hit `http://192.168.50.220` from
-  the phone: any response, even a 404 from Traefik, proves the route works and isolates it to DNS.
+- **An internal hostname resolves to a private IP, so off-LAN access needs a tailnet Split DNS
+  entry** pointing that domain at the LAN's resolver. When it is missing, a foreign network's
+  resolver refuses the private address: Chrome reports "can't find" — a *resolution* failure, not a
+  timeout — while an installed PWA keeps rendering happily from its offline cache and merely looks
+  out of date. **Do not read that as a bad deploy.** Hit the ingress by raw LAN IP from the phone:
+  any response, even a 404 from Traefik, proves the route works and isolates it to DNS.
 - **No venv on this machine and `python` is not on PATH** — use `python3`, and `python3 -m venv` is
   broken (no `python3-venv`). `uv venv` works: that is how the `server/` pytest suite gets run.
 - **`docs/superpowers/` is gitignored and absent on this machine.** Earlier specs, plans and the

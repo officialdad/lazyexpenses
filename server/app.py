@@ -73,10 +73,10 @@ TEST_REMINDER = ("<b>Reminders are working</b>\n\n"
 # so the only thing that makes it safe is being loud: the server warns once at startup
 # and the Settings screen carries a banner until it changes.
 #
-# #72: "production is unaffected" was the wrong read. lazyexpense-secrets sets no
-# APP_PASSWORD, so the gate is OFF on the live host — the one deployment that is actually
-# reachable is the one with no login. The fix is a secret in the infrastructure repo, not
-# code; what code owes is not being quiet about it, which is _unauthenticated().
+# #72: "production is unaffected" was the wrong read. The cluster Secret set no
+# APP_PASSWORD, so the gate was OFF on the live host — the one deployment that is actually
+# reachable was the one with no login. The fix is a secret in the infra repo, not code;
+# what code owes is not being quiet about it, which is _unauthenticated().
 DEFAULT_PASSWORD = "changeme@123"
 COOKIE = "lx_session"
 SESSION_TTL = 30 * 86400                        # seconds; also the cookie Max-Age
