@@ -15,6 +15,12 @@ export type SettingsView = {
 	locked: string[];
 	/** The parser's bank keys, from parse.BANKS — the only valid `bank` for /ingest. */
 	banks: string[];
+	/** The gate is standing on `changeme@123`, the value .env.example publishes (#65). */
+	default_password: boolean;
+	/** No APP_PASSWORD at all, so there is no gate. Worse than the above, and it is the
+	 *  state `default_password: false` cannot express — false there means "not the
+	 *  published default", which is also true when there is no password (#72). */
+	unauthenticated: boolean;
 };
 
 export type Ingested = {
@@ -31,6 +37,8 @@ export const cfg = $state<SettingsView & { loaded: boolean }>({
 	secrets: {},
 	locked: [],
 	banks: [],
+	default_password: false,
+	unauthenticated: false,
 	loaded: false
 });
 
@@ -68,9 +76,19 @@ const post = (body: unknown) => ({
 
 function fill(d: SettingsView) {
 	cfg.values = d.values ?? {};
-	cfg.secrets = d.secrets ?? {};
+	// Coerced, not copied: `secrets` is declared Record<string, boolean> and this is the
+	// one line that makes that true. settings.public() already guarantees it server-side
+	// and is tested there — this is so a value cannot reach the store even if that
+	// invariant is ever broken upstream, because a bool here is what the UI renders.
+	cfg.secrets = Object.fromEntries(Object.entries(d.secrets ?? {}).map(([k, v]) => [k, !!v]));
 	cfg.locked = d.locked ?? [];
 	cfg.banks = d.banks ?? [];
+	// #74: these live on the store rather than in a second GET from the settings route,
+	// because <Setup> needs them during first run too — and on an empty volume the
+	// settings route is never mounted. Both default false: a fetch that failed must not
+	// invent a security warning.
+	cfg.default_password = !!d.default_password;
+	cfg.unauthenticated = !!d.unauthenticated;
 	cfg.loaded = true;
 }
 

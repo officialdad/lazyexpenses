@@ -159,6 +159,26 @@
     </p>
   </header>
 
+  <!-- Lives here, not on the /settings route (#74): on an empty volume +layout renders
+       <Setup first> directly and the settings page never mounts, so the old banner was
+       absent during first run — the exact moment someone is standing at a fresh
+       deployment. `unauthenticated` wins when both are somehow true: no password is the
+       worse of the two, and only one alert is worth reading. -->
+  {#if cfg.unauthenticated}
+    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--over)" role="alert">
+      <strong>This app has no password.</strong> Anyone who can reach it can upload statements,
+      read your spending, and overwrite your mail and reminder credentials. Set
+      <code>APP_PASSWORD</code> in your <code>.env</code> and restart.
+    </p>
+  {:else if cfg.default_password}
+    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--over)" role="alert">
+      <strong>Change your password.</strong> This app is still using the placeholder
+      <code>changeme@123</code> that ships in <code>.env.example</code> — it is in a public repo,
+      so it is not a secret. Set <code>APP_PASSWORD</code> in your <code>.env</code> to something
+      only you know and restart.
+    </p>
+  {/if}
+
   <!-- 1 ---------------------------------------------------------------- -->
   <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s1">
     <h2 id="s1" class="text-xs uppercase tracking-widest" style="color:var(--muted)">

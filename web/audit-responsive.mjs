@@ -6,6 +6,14 @@ const routes = [
   { name: 'trends', url: '/trends' },
   { name: 'cuts', url: '/cuts' },
   { name: 'fees', url: '/fees' },
+  // #74: /settings was never audited, and it is where #40 shipped two real bugs —
+  // a doubled mount duplicating every id, and the page invisible above 1024px.
+  // `must` is what catches the second one: the desktop subtree renders <Dashboard/>
+  // rather than children(), so a route that lands in the wrong branch does not go
+  // blank — it silently shows the dashboard instead, and overflow/tiny-text/blank
+  // checks all pass on that. Naming one element of the route's OWN content is the
+  // only thing that tells the two apart.
+  { name: 'settings', url: '/settings', must: '#setup-bank' },
 ];
 const widths = [
   { tag: 'mobile', width: 390, height: 844 },
@@ -49,7 +57,14 @@ if (!spyResult.overviewActive) {
 for (const vp of widths) {
   const ctx = await b.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error') issues.push(`[${vp.tag}] console: ${m.text()}`); });
+  page.on('console', (m) => {
+    // `npm run preview` is a static file server with no API behind it, so /api/* 404s
+    // here and only here. Narrowed to that prefix rather than dropped, because a console
+    // error is exactly what this audit exists to catch.
+    if (m.type() !== 'error') return;
+    if (m.location()?.url?.includes('/api/')) return;
+    issues.push(`[${vp.tag}] console: ${m.text()}`);
+  });
   page.on('pageerror', (e) => issues.push(`[${vp.tag}] pageerror: ${e.message}`));
 
   for (const r of routes) {
@@ -84,6 +99,26 @@ for (const vp of widths) {
       return [...out].slice(0, 6);
     });
     if (tiny.length) issues.push(`[${vp.tag}] ${r.name}: TINY TEXT -> ${tiny.join(' | ')}`);
+
+    // A route rendered by BOTH layout subtrees duplicates every id, which silently
+    // breaks every <label for=> on the page — the #40 bug, invisible to the eye.
+    const dupes = await page.evaluate(() => {
+      const seen = new Set(), out = new Set();
+      for (const el of document.querySelectorAll('[id]'))
+        (seen.has(el.id) ? out : seen).add(el.id);
+      return [...out].slice(0, 6);
+    });
+    if (dupes.length) issues.push(`[${vp.tag}] ${r.name}: DUPLICATE IDS -> ${dupes.join(', ')}`);
+
+    if (r.must) {
+      const shown = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return 'absent';
+        const rc = el.getBoundingClientRect();
+        return rc.width > 0 && rc.height > 0 ? 'ok' : 'hidden';
+      }, r.must);
+      if (shown !== 'ok') issues.push(`[${vp.tag}] ${r.name}: ${r.must} is ${shown}`);
+    }
 
     await page.screenshot({ path: `audit-shots/${vp.tag}-${r.name}.png`, fullPage: true });
   }
