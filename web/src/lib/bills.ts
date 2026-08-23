@@ -26,7 +26,8 @@ export function sortBills(bills: Bill[], today: string, paidKeys?: ReadonlySet<s
     .map((b) => {
       const days = daysUntil(b.payment_due_date, today);
       const paid = paidKeys?.has(`${b.bank}|${b.statement_month}`) ?? false;
-      return { ...b, days, urgent: days !== null && days < URGENT_DAYS, paid };
+      // #85: paid clears urgent here, not per-caller — the red status line reads off it.
+      return { ...b, days, urgent: !paid && days !== null && days < URGENT_DAYS, paid };
     })
     .sort((a, b) => {
       if (a.paid !== b.paid) return a.paid ? 1 : -1; // paid bills sink to the bottom

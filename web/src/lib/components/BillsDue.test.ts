@@ -4,6 +4,7 @@ import BillsDue from './BillsDue.svelte';
 import type { Bill } from '$lib/types';
 import { app } from '$lib/data';
 import { push } from '$lib/push.svelte';
+import { paid } from '$lib/paid.svelte';
 
 const bill = (bank: string, due: string | null, bal: number | null = 100): Bill => ({
   bank,
@@ -29,6 +30,23 @@ describe('BillsDue', () => {
     // cimb is due in 3 days -> not urgent
     expect(items[1].querySelector('[data-urgent="false"]')).toBeTruthy();
     getByText(/CIMB/);
+  });
+
+  // #85: paid used to only dim + sink the row; the status line went on shouting.
+  it('drops the red Overdue line once a bill is paid, and never prints a negative day count', () => {
+    paid.keys.add('sc|2026-06');
+    try {
+      const { container } = render(BillsDue, {
+        props: { bills: [bill('sc', '2026-06-17')], today: '2026-06-22' }
+      });
+      const status = container.querySelector('li [data-urgent]')!;
+      expect(status.getAttribute('data-urgent')).toBe('false');
+      expect(status.textContent).not.toContain('Overdue');
+      expect(status.textContent).not.toContain('-5d');
+      expect(container.querySelector('li [style*="#f87171"]')).toBeNull();
+    } finally {
+      paid.keys.clear();
+    }
   });
 
   it('shows a placeholder when there are no bills', () => {

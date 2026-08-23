@@ -50,6 +50,11 @@ describe('sortBills', () => {
     expect(out.find((b) => b.bank === 'sc')!.paid).toBe(true);
     expect(out.find((b) => b.bank === 'cimb')!.paid).toBe(false);
   });
+  it('never marks a paid bill urgent, however overdue (#85)', () => {
+    const out = sortBills([bill('a', '2026-06-17')], '2026-06-22', new Set(['a|2026-06']));
+    expect(out[0].days).toBe(-5);
+    expect(out[0].urgent).toBe(false);
+  });
   it('defaults paid=false when no paidKeys passed (back-compat)', () => {
     expect(sortBills([bill('a', '2026-06-25')], '2026-06-22')[0].paid).toBe(false);
   });
