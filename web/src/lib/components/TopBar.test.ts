@@ -9,9 +9,19 @@ describe('TopBar', () => {
     expect(getByText('Overview')).toBeTruthy();
     expect(getByText('Trends')).toBeTruthy();
     expect(getByText('Cuts')).toBeTruthy();
-    expect(container.querySelector('a[href="#overview"]')).toBeTruthy();
-    expect(container.querySelector('a[href="#trends"]')).toBeTruthy();
-    expect(container.querySelector('a[href="#cuts"]')).toBeTruthy();
+    expect(container.querySelector('a[href="/#overview"]')).toBeTruthy();
+    expect(container.querySelector('a[href="/#trends"]')).toBeTruthy();
+    expect(container.querySelector('a[href="/#cuts"]')).toBeTruthy();
+  });
+
+  // #86: TopBar renders on /settings too, where no such section exists. A click that is
+  // swallowed there leaves the link dead, so the href has to be allowed to navigate.
+  it('lets a click through when the section is not on the page', async () => {
+    const { container } = render(TopBar);
+    const a = container.querySelector('a[href="/#trends"]')! as HTMLAnchorElement;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   // #66: an icon with no text needs an accessible name, or the control is unreachable

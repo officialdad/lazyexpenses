@@ -13,10 +13,14 @@
 
   let active = $state('overview');
 
+  // #86: the shell now renders TopBar on every route, including /settings, where none of
+  // these sections exist. Swallowing the click there left every link dead — so preventDefault
+  // only when there is something to scroll to, and let the href (/#id) route home otherwise.
   function go(e: MouseEvent, id: string) {
-    e.preventDefault();
     const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el) return;
+    e.preventDefault();
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     active = id;
   }
 
@@ -54,7 +58,7 @@
     <nav class="flex gap-5 text-[13px] uppercase tracking-wide font-bold">
       {#each sections as s}
         <a
-          href={'#' + s.id}
+          href={'/#' + s.id}
           onclick={(e) => go(e, s.id)}
           aria-current={active === s.id ? 'page' : undefined}
           style="color:{active === s.id ? 'var(--accent)' : 'var(--muted)'}"
