@@ -1000,8 +1000,40 @@ def test_the_default_password_is_warned_about_at_startup_and_does_not_block_boot
         out = boot("changeme@123")
         assert "APP_PASSWORD" in out and "default" in out
         assert len([ln for ln in out.splitlines() if "APP_PASSWORD" in ln]) == 1
+        # #72: no password is its OWN warning, and it used to be the silent case — the
+        # one deployment actually exposed produced the quietest log. One or the other,
+        # never both: a missing password is not a default password.
+        none = boot(None)
+        assert "NO login" in none and "default" not in none
+        assert len([ln for ln in none.splitlines() if "APP_PASSWORD" in ln]) == 1
+        assert "NO login" not in out
         assert boot("something-only-i-know").strip() == ""
-        assert boot(None).strip() == ""
+    finally:
+        _ungate()
+        _clean_settings_env()
+
+
+def test_an_unauthenticated_deployment_says_so_over_the_api():
+    """#72: `default_password` answers False with no password set, which reads as "it was
+    changed" and is backwards — it is False because there is nothing to change. So the
+    open deployment needs its own flag, or the UI cannot tell the good state from the
+    worst one.
+
+    Mutation check: drop `unauthenticated` from _settings_view(), or derive it from
+    DEFAULT_PASSWORD instead of from "is anything set", and this goes red."""
+    _clean_settings_env()
+    _ungate()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            c, _ = _client(d)                 # no gate: the state #72 is about
+            body = c.get("/api/settings").json()
+            assert body["unauthenticated"] is True
+            assert body["default_password"] is False       # and this is why it needs a flag
+        for pw in ("changeme@123", "something-only-i-know"):
+            with tempfile.TemporaryDirectory() as d:
+                c, _ = _gated(d, password=pw)
+                c.post("/api/login", json={"password": pw})
+                assert c.get("/api/settings").json()["unauthenticated"] is False
     finally:
         _ungate()
         _clean_settings_env()
