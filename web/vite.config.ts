@@ -31,7 +31,9 @@ export default defineConfig({
 					{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
 					{ src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
 					{
-						src: '/pwa-512x512.png',
+						// Its own file, not the `any` icon again: the mark is laid down at 400px on
+						// the 512 tile so its diagonal clears the launcher's 409px safe circle.
+						src: '/pwa-maskable-512x512.png',
 						sizes: '512x512',
 						type: 'image/png',
 						purpose: 'maskable'

@@ -1,0 +1,52 @@
+<icon_generation_request>
+  <app>
+    <name>CC Spend</name>
+    <full_name>Credit-Card Spend</full_name>
+    <purpose>Personal PWA that parses Malaysian credit-card e-statements and shows spend, bills due, and cut-candidates. Offline-first dashboard, single user, phone-first.</purpose>
+    <tone>Utilitarian, dark, financial-terminal. Not playful, not fintech-startup-pastel, no mascot.</tone>
+  </app>
+
+  <deliverable>
+    <format>PNG, transparent-free (opaque background), flat raster</format>
+    <sizes>
+      <size purpose="any">512x512</size>
+      <size purpose="any">192x192</size>
+      <size purpose="maskable">512x512, all art inside the central 409x409 safe circle, background bleeds to all four edges</size>
+    </sizes>
+    <variant>One monochrome amber-on-black 32x32 favicon reading correctly at that size.</variant>
+  </deliverable>
+
+  <palette locked="true">
+    <color role="background" hex="#000000"/>
+    <color role="surface" hex="#0A0A0A"/>
+    <color role="accent-primary" hex="#FFB020" note="amber, the single brand colour, carries the mark"/>
+    <color role="positive" hex="#34D399" note="green, optional accent only"/>
+    <color role="negative" hex="#EF4444" note="red, optional accent only"/>
+    <color role="text" hex="#F5F5F5"/>
+    <rule>Amber on black is the identity. Use at most one secondary colour. No gradients, no glow, no drop shadow, no bevel.</rule>
+  </palette>
+
+  <style_constraints>
+    <constraint priority="critical">HARD SQUARE CORNERS. The app sets border-radius:0 globally. No rounded rectangles, no squircle, no circular badge. Right angles only.</constraint>
+    <constraint>Flat vector geometry. Material Design Icons visual weight: even stroke, 24-grid geometric construction, no outline-plus-fill mixing.</constraint>
+    <constraint>Solid black field, amber mark centred. No scene, no depth, no 3D, no texture, no photo realism.</constraint>
+    <constraint>No text, no letters, no numerals, no currency symbol, no "RM", no wordmark.</constraint>
+    <constraint>Silhouette must survive at 32x32: max 2 shapes, min stroke ~8% of canvas width.</constraint>
+  </style_constraints>
+
+  <concepts count="4" note="generate one candidate per concept">
+    <concept id="1" name="card-stack">Two overlapping square-cornered credit cards, offset diagonally, amber outline on black, a single amber magnetic stripe bar on the front card.</concept>
+    <concept id="2" name="descending-bars">Three vertical bars of decreasing height, square-cut, amber; the tallest bar dimmed to #888 to read as spend falling. Bar-chart, not a logo-of-a-chart.</concept>
+    <concept id="3" name="card-plus-cut">A square card silhouette in amber with one clean diagonal notch removed from its right edge, reading as a cut in spend.</concept>
+    <concept id="4" name="statement-line">A square document edge with three horizontal amber rules of unequal length, the shortest one highlighted, reading as a statement row.</concept>
+  </concepts>
+
+  <negative_prompt>rounded corners, circle badge, gradient, glossy, glassmorphism, drop shadow, 3D render, isometric, mascot, coin, piggy bank, dollar sign, wallet with stitching, blue fintech palette, white background, text, watermark, busy detail, thin hairlines under 2px, photorealism</negative_prompt>
+
+  <acceptance>
+    <check>Renders legibly as a launcher icon at 48dp on a black and on a white home screen.</check>
+    <check>Maskable variant loses nothing when cropped to a circle.</check>
+    <check>Only #000000 and #FFB020 present, plus at most one accent hex from the palette.</check>
+    <check>Zero rounded corners anywhere in the artwork.</check>
+  </acceptance>
+</icon_generation_request>
