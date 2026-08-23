@@ -134,6 +134,55 @@ export async function testMail(f: typeof fetch = fetch): Promise<{ ok: boolean; 
 	}
 }
 
+/** Progress of the one-time mail backfill (#91), as /api/settings/backfill reports it. */
+export type Backfill = {
+	running: boolean;
+	total: number;
+	done: number;
+	ingested: number;
+	skipped: number;
+	failed: number;
+	/** Subjects whose bank detect_bank() could not name. Nothing was ingested for these. */
+	unknown: string[];
+	error: string | null;
+};
+
+/** Human sentence for one backfill state. Pure — this is what the tests pin. */
+export function backfillLine(b: Backfill): string {
+	if (b.error) return `Import failed: ${b.error}`;
+	if (b.running) return `Reading mail… ${b.done} of ${b.total}, ${b.ingested} imported.`;
+	if (!b.total) return 'Nothing in that label to import.';
+	const bits = [`${b.ingested} imported`, `${b.skipped} skipped`];
+	if (b.failed) bits.push(`${b.failed} failed`);
+	const unknown = b.unknown.length
+		? ` ${b.unknown.length} had no recognisable bank — see the server log for the subjects.`
+		: '';
+	return `Read ${b.total} mail: ${bits.join(', ')}.${unknown}`;
+}
+
+/** Start the backfill. It returns as soon as the run is scheduled — the work takes
+ *  minutes (a pipeline run per statement), so progress comes from backfillStatus(). */
+export async function startBackfill(
+	f: typeof fetch = fetch
+): Promise<{ ok: boolean; message: string }> {
+	try {
+		const res = await f('/api/settings/backfill', post({}));
+		return res.ok ? { ok: true, message: '' } : { ok: false, message: await detail(res) };
+	} catch (e) {
+		return { ok: false, message: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+/** Poll target. null when the server could not be asked — a dropped poll is not news. */
+export async function backfillStatus(f: typeof fetch = fetch): Promise<Backfill | null> {
+	try {
+		const res = await f('/api/settings/backfill');
+		return res.ok ? ((await res.json()) as Backfill) : null;
+	} catch {
+		return null;
+	}
+}
+
 export async function testReminder(
 	f: typeof fetch = fetch
 ): Promise<{ ok: boolean; message: string }> {

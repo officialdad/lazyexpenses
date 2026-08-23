@@ -391,6 +391,16 @@ def _web_dir() -> Path:
 def create_app() -> FastAPI:
     app = FastAPI(title="statement-app", lifespan=_lifespan)
     lock = asyncio.Lock()  # serialize the pipeline: no concurrent parse runs
+    # #91: the one-time mail backfill. Hundreds of messages, a pipeline run each, so the
+    # POST starts it and returns and the GET is the progress — a synchronous request
+    # would die in a proxy timeout long before it finished. The whole mechanism is this
+    # dict plus one asyncio task: a job queue for a button pressed once is a container
+    # nobody wants to run. It also lives in the closure, not at module level, so a test
+    # that builds a second app does not inherit the first one's run.
+    backfill = {"running": False, "total": 0, "done": 0, "ingested": 0, "skipped": 0,
+                "failed": 0, "unknown": [], "error": None}
+    bg = set()   # a bare create_task() is only weakly referenced; this keeps it alive
+    app.state.backfill = backfill   # so a test can put /ingest in "a backfill is running"
 
     @app.get("/healthz")
     def healthz():
@@ -588,6 +598,45 @@ def create_app() -> FastAPI:
             # str() of an imaplib error is a bytes repr; b'...' in the UI is not an answer
             raise HTTPException(status_code=400, detail=str(e).strip("b'\" ") or type(e).__name__)
 
+    @app.post("/api/settings/backfill")
+    async def start_backfill():
+        """Start the one-time backfill over the whole label and return immediately.
+
+        Readonly at the IMAP level (fetch_mail.main with a non-UNSEEN criteria), so a
+        year of already-read statement mail keeps its flags: \\Seen is the polling
+        loop's retry signal and it cannot be restored from here."""
+        if backfill["running"]:
+            raise HTTPException(status_code=409, detail="A backfill is already running.")
+        if not (settings.get("GMAIL_USER") and settings.get("GMAIL_APP_PASSWORD")):
+            raise HTTPException(status_code=400,
+                                detail="Gmail address and app password are not set")
+        backfill.update(running=True, total=0, done=0, ingested=0, skipped=0,
+                        failed=0, unknown=[], error=None)
+
+        async def run():
+            try:
+                # `backfill` is handed in as the stat dict and filled in place, which is
+                # how the GET below has progress to report while this is still going.
+                await asyncio.to_thread(fetch_mail.main, False, "ALL", backfill)
+            except Exception as e:   # a mailbox outage must be a sentence, not a traceback
+                backfill["error"] = str(e).strip("b'\" ") or type(e).__name__
+                print(f"backfill failed: {e}", flush=True)
+            finally:
+                backfill["running"] = False
+                print(f"backfill finished: {backfill['ingested']} ingested, "
+                      f"{backfill['skipped']} skipped, {backfill['failed']} failed",
+                      flush=True)
+
+        t = asyncio.create_task(run())
+        bg.add(t)
+        t.add_done_callback(bg.discard)
+        return backfill
+
+    @app.get("/api/settings/backfill")
+    def backfill_status():
+        """Progress. `running` false with a total means the last run finished."""
+        return backfill
+
     @app.post("/api/settings/test-reminder")
     async def test_reminder():
         """Send one message down every configured transport. remind_bills.send() raises
@@ -623,8 +672,21 @@ def create_app() -> FastAPI:
         # and a slow push must not hold the pipeline. A failure here is logged, never
         # raised — the statement IS ingested, which is what the caller asked for.
         try:
+            after = _bills(data_dir)
+            # #91: announce()'s "older than last month" floor is NOT enough for a
+            # backfill. bills[] is the newest statement per bank, so walking a year of
+            # mail replaces each bank's entry over and over and the LAST replacement is
+            # this month's or last month's — above the floor, and sent. Six banks x two
+            # months is a burst of push notifications for statements the user already
+            # has. Handing announce() the post-run keys as `known` makes every bill
+            # already-known, which is its own record-without-send path: a backfill is
+            # history, not news.
+            # ponytail: this silences a fetch-loop ingest that happens to land during a
+            # backfill too. Both are reading the same mailbox; a lost "arrived" for one
+            # statement beats a burst, and the due reminder still fires on its own.
+            known = {remind_bills.bill_key(b) for b in after} if backfill["running"] else before
             announced = await asyncio.to_thread(
-                remind_bills.announce, _bills(data_dir), before,
+                remind_bills.announce, after, known,
                 str(data_dir / "reminded.json"))
             for b in announced:
                 print(f"statement announced: {b['bank']} {b['statement_month']}", flush=True)

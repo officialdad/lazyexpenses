@@ -1,5 +1,6 @@
 """Tests for fetch_mail.py — bank detection + the attachment walk + the mark-seen rule.
 /ingest is stubbed and IMAP is never touched; no test needs a mailbox or a server."""
+import imaplib
 from email.message import EmailMessage
 
 import fetch_mail
@@ -102,6 +103,95 @@ def test_skips_never_mark_seen_and_never_ingest():
         fetch_mail.ingest = real
 
 
+class _FakeIMAP:
+    """The four IMAP calls main() makes, and a record of what it asked for."""
+
+    def __init__(self, msgs):
+        self.raw = [m.as_bytes() for m in msgs]
+        self.selected = self.criteria = None
+        self.stored = []
+        self.fetched = []
+
+    def __call__(self, host):        # stands in for imaplib.IMAP4_SSL(host)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def login(self, user, password):
+        pass
+
+    def select(self, mailbox, readonly=False):
+        self.selected = (mailbox, readonly)
+
+    def search(self, charset, criteria):
+        self.criteria = criteria
+        return "OK", [b" ".join(str(i + 1).encode() for i in range(len(self.raw)))]
+
+    def fetch(self, num, spec):
+        self.fetched.append(spec)
+        return "OK", [(num, self.raw[int(num) - 1], b")")]
+
+    def store(self, num, flag, value):
+        self.stored.append((num, flag, value))
+
+
+def _run(msgs, **kw):
+    """main() against a fake mailbox. -> (fake connection, stat dict)."""
+    fake = _FakeIMAP(msgs)
+    real_imap, real_creds, real_ingest = imaplib.IMAP4_SSL, fetch_mail.creds, fetch_mail.ingest
+    imaplib.IMAP4_SSL = fake
+    fetch_mail.creds = lambda: ("me@example.com", "app-pw", "CC", "imap.example.com")
+    fetch_mail.ingest = lambda c, b, url=None: {"recon": {"VERIFIED": 1}}
+    try:
+        return fake, fetch_mail.main(**kw)
+    finally:
+        imaplib.IMAP4_SSL, fetch_mail.creds, fetch_mail.ingest = real_imap, real_creds, real_ingest
+
+
+def test_the_polling_pass_is_unseen_writable_and_marks_seen():
+    msgs = [_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]),
+            _msg(frm="y@hsbc.com.my", pdfs=[("b.pdf", b"B")])]
+    fake, stat = _run(msgs)
+    assert fake.criteria == "UNSEEN"
+    assert fake.selected == ('"CC"', False)          # writable: the retry flag is ours
+    assert len(fake.stored) == 2 and fake.stored[0][1:] == ("+FLAGS", "\\Seen")
+    assert (stat["total"], stat["ingested"], stat["skipped"], stat["failed"]) == (2, 2, 0, 0)
+
+
+def test_a_backfill_searches_all_selects_readonly_and_never_marks_seen():
+    """THE constraint of #91. \\Seen is the polling loop's retry signal, and setting it
+    across a year of mail cannot be undone — so a backfill must not write it, and must
+    not even be able to: the mailbox is selected readonly."""
+    msgs = [_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]) for _ in range(3)]
+    fake, stat = _run(msgs, criteria="ALL")
+    assert fake.criteria == "ALL"
+    assert fake.selected == ('"CC"', True)
+    assert fake.stored == []                          # nothing marked, ever
+    assert all(spec == "(BODY.PEEK[])" for spec in fake.fetched)
+    assert stat["ingested"] == 3 and stat["total"] == 3
+
+
+def test_a_backfill_counts_and_names_the_mail_it_could_not_place():
+    """No unread pile to nag from, so an unknown bank is visible exactly once."""
+    msgs = [_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]),
+            _msg(frm="a@b.com", subj="Your statement", pdfs=[("b.pdf", b"B")]),
+            _msg(frm="y@rhbgroup.com", subj="newsletter")]
+    fake, stat = _run(msgs, criteria="ALL")
+    assert stat["unknown"] == ["Your statement"], stat["unknown"]
+    assert (stat["ingested"], stat["skipped"], stat["failed"]) == (1, 2, 0)
+    assert fake.stored == []
+
+
+def test_a_dry_run_stays_readonly_whatever_the_criteria():
+    fake, stat = _run([_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")])], dry=True)
+    assert fake.selected == ('"CC"', True) and fake.stored == []
+    assert stat["ingested"] == 1                      # "would ingest" counts as one
+
+
 if __name__ == "__main__":
     test_detect_bank_across_the_six()
     test_no_match_returns_none_rather_than_guessing()
@@ -110,4 +200,8 @@ if __name__ == "__main__":
     test_handle_ingests_every_pdf_and_marks_seen()
     test_a_failed_ingest_leaves_the_message_unread()
     test_skips_never_mark_seen_and_never_ingest()
+    test_the_polling_pass_is_unseen_writable_and_marks_seen()
+    test_a_backfill_searches_all_selects_readonly_and_never_marks_seen()
+    test_a_backfill_counts_and_names_the_mail_it_could_not_place()
+    test_a_dry_run_stays_readonly_whatever_the_criteria()
     print("OK")

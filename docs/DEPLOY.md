@@ -148,6 +148,30 @@ because everything that worked is already read.
 Google still issues app passwords with 2FA on, but has been signalling a move to
 OAuth 2.0. If that day comes, the login is four lines in one function.
 
+### Importing the statements you already read
+
+Only unread mail is picked up, so a fresh install starts at whatever Gmail happens to
+have left unread — every statement you have already opened is invisible to it. Press
+**Import all past mail** in Settings, next to *Save and test connection*, and the server
+reads the whole label once, oldest to newest.
+
+It leaves every mail **unread**. Being read is how the hourly fetch knows what it still
+owes you, and setting that flag across a year of mail cannot be undone from here — so the
+import opens the mailbox read-only and never writes it.
+
+Expect it to take minutes: each statement is a parse of the whole corpus. It runs on the
+server, so closing the page does not stop it, and the button reports what it found when
+it finishes — imported, skipped, failed. Mail whose bank it could not name is counted
+there and its subjects are printed to the **server log**; nothing was ingested for those,
+and there is no unread pile to nag you about them. Re-importing is harmless: statements
+are stored by content hash, so one already on the volume is a no-op.
+
+From a shell instead:
+
+```bash
+python fetch_mail.py --all
+```
+
 ## Bill reminders
 
 The server sends these itself — there is nothing extra to deploy. Once a day after 09:00

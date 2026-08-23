@@ -10,12 +10,18 @@
   import { cats } from '$lib/cats.svelte';
   import { push, togglePush } from '$lib/push.svelte';
   import {
-    cfg, isLocked, loadSettings, saveSettings, testMail, testReminder, upload, reconLine
+    cfg, isLocked, loadSettings, saveSettings, testMail, testReminder, upload, reconLine,
+    startBackfill, backfillStatus, backfillLine, type Backfill
   } from '$lib/setup.svelte';
 
   let { first = false }: { first?: boolean } = $props();
 
-  onMount(() => { loadSettings(); });
+  onMount(() => {
+    loadSettings();
+    // A backfill outlives this page: it runs on the server for minutes. If one is
+    // already going, pick its progress back up rather than showing a fresh button.
+    backfillStatus().then((b) => { if (b?.running) { bfBusy = true; poll(b); } });
+  });
 
   const APP_PW_URL = 'https://myaccount.google.com/apppasswords';
   const pretty = (b: string) => (b === 'sc' ? 'Standard Chartered' : b.toUpperCase());
@@ -98,6 +104,32 @@
     gmailPw = '';
     mailMsg = err ? say(false, err) : await testMail().then((r) => say(r.ok, r.message));
     busy = false;
+  }
+
+  // -------------------------------------------------- 3b. backfill the whole label (#91)
+  // Unread mail is all the polling loop can see, so a fresh install starts at whatever
+  // Gmail happens to have left unread. This reads the label end to end, once.
+  let bf = $state<Backfill | null>(null);
+  let bfBusy = $state(false);
+
+  function poll(seed: Backfill | null = null) {
+    if (seed) bf = seed;
+    setTimeout(async () => {
+      const b = await backfillStatus();
+      if (!b) return poll();          // one dropped poll is not the end of the run
+      bf = b;
+      if (b.running) return poll();
+      bfBusy = false;
+      await loadAppData();            // months that just landed, without a reload
+    }, 2000);
+  }
+
+  async function runBackfill() {
+    bfBusy = true;
+    bf = null;
+    const r = await startBackfill();
+    if (!r.ok) { bfBusy = false; mailMsg = say(false, r.message); return; }
+    poll();
   }
 
   // ---------------------------------------------------------------- 4. reminders
@@ -383,13 +415,28 @@
           style={FIELD_STYLE}
         />
       </div>
-      <div>
+      <div class="flex flex-wrap gap-2">
         <button type="submit" disabled={busy} class={BTN} style={BTN_STYLE}>
           {busy ? 'Connecting…' : 'Save and test connection'}
+        </button>
+        <button
+          type="button"
+          disabled={busy || bfBusy}
+          onclick={runBackfill}
+          class={BTN}
+          style={BTN_STYLE}
+        >
+          {bfBusy ? 'Importing…' : 'Import all past mail'}
         </button>
       </div>
     </form>
     {@render result(mailMsg)}
+    <p class="mt-2 text-xs" style="color:var(--muted)">
+      From here on only unread mail is picked up. Import reads the whole label once, so
+      statements you have already opened come in too. It leaves every mail unread, takes
+      a few minutes, and keeps going if you close this page.
+    </p>
+    {#if bf}{@render result(say(!bf.error && !bf.failed, backfillLine(bf)))}{/if}
   </section>
 
   <!-- 4 ---------------------------------------------------------------- -->
