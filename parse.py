@@ -6,8 +6,11 @@ No LLM. pdfplumber word-geometry + per-bank rules.
 import pdfplumber, re, csv, glob, os, sys, hashlib, json
 from collections import defaultdict
 
+import insights  # for norm_merchant — one normalisation, not a second copy of it
+
 SRC = os.environ.get("STMT_SRC", "cc-statements")
 CACHE = os.environ.get("STMT_CACHE", "cache")
+CATS_FILE = os.environ.get("STMT_CATS", "cats.json")   # human-confirmed categories (#82)
 # Busts the whole cache whenever parse.py changes, so a parser-rule edit never
 # serves stale rows (silently-wrong financial data). Hash of this file's bytes.
 PARSE_VER = hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:12]
@@ -472,6 +475,27 @@ def categorize(desc):
     return 'Other'
 
 
+def load_overrides(path=None):
+    """Human-confirmed merchant -> category, from cats.json on the volume (#82).
+
+    NOT read inside categorize(), and that is the whole design. categorize() runs inside
+    parse_statement, which cached_parse memoizes per PDF keyed on PARSE_VER — a hash of
+    this file. An override consulted from in there would not bust that cache, so a
+    confirmation would silently fail to apply until something else edited the parser.
+    Applied AFTER the cache boundary instead, it lands on the very next pipeline run with
+    no reparse at all (~0.5s warm, not ~110s).
+
+    Keyed by insights.norm_merchant(), the same normalisation the UI's unknown list is
+    built with — otherwise a trailing reference or date token makes one merchant two.
+    A missing or corrupt file is simply no overrides."""
+    try:
+        with open(path or CATS_FILE, encoding='utf-8') as fh:
+            m = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return {insights.norm_merchant(k): v for k, v in m.items() if v}
+
+
 # ============================ main ============================
 def cached_parse(f):
     # ponytail: per-file memo of parse_statement (pure given file bytes), keyed
@@ -498,6 +522,7 @@ def cached_parse(f):
 
 def main():
     files = sorted(glob.glob(os.path.join(SRC, '*.pdf')))
+    overrides = load_overrides()
     tx_rows = []
     recon = []
     seen_fp = {}                              # statement fingerprint -> first file that had it
@@ -523,7 +548,12 @@ def main():
         seen_fp[fp] = meta['file']
         recon.append(meta)
         for t in txns:
-            cat = 'Installments/BT' if t.get('inst') else categorize(t['desc'])
+            # An override beats CATS — a human confirmed that merchant, a keyword guessed
+            # it. `inst` still wins over both: it is structure the bank printed, not a
+            # guess about what the merchant sells.
+            cat = ('Installments/BT' if t.get('inst')
+                   else overrides.get(insights.norm_merchant(t['desc']))
+                   or categorize(t['desc']))
             typ = 'credit' if t['credit'] else 'debit'
             tx_rows.append(dict(
                 bank=meta['bank'], card_last4=t['card'], statement_month=meta['smonth'],
@@ -590,7 +620,8 @@ def main():
     for r in recon:
         perbank[r['bank']][r['status']] += 1
     uniq = sum(1 for r in recon if r['status'] != 'DUPLICATE')
-    print(f"files={len(files)} unique_statements={uniq} txns={len(tx_rows)}  status={dict(st)}")
+    print(f"files={len(files)} unique_statements={uniq} txns={len(tx_rows)}  status={dict(st)}"
+          + (f" cat_overrides={len(overrides)}" if overrides else ""))
     for b in sorted(perbank):
         print(f"  {b:9s} {dict(perbank[b])}")
     dups = [r for r in recon if r['status'] == 'DUPLICATE']

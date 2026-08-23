@@ -124,6 +124,31 @@ def build_bills(csv_path="reconciliation.csv"):
     return bills
 
 
+def build_other(rows, limit=50):
+    """Merchants that fell through CATS into `Other` — what the confirmation UI asks
+    about (#82).
+
+    Grouped by insights.norm_merchant so the key is EXACTLY what parse.py applies an
+    override with; a different grouping here means a confirmed merchant reappears as
+    unknown under a slightly different tail. `rm` is netted the way every other total in
+    this app is (debit +, credit -), so a refunded one-off does not read as spend.
+    Biggest first, because that is the order worth answering in."""
+    agg: dict = {}
+    for r in rows:
+        if r["g"] != "Other":
+            continue
+        k = insights.norm_merchant(r["d"])
+        if not k:
+            continue
+        a = agg.setdefault(k, {"m": k, "n": 0, "rm": 0.0})
+        a["n"] += 1
+        a["rm"] += r["a"] if r["t"] == 0 else -r["a"]
+    out = sorted(agg.values(), key=lambda a: -a["rm"])[:limit]
+    for a in out:
+        a["rm"] = round(a["rm"], 2)
+    return out
+
+
 def build_payload(rows, insights_out, cycles=None, bills=None):
     """Assemble the full app.json payload from transaction rows + insights output."""
     months = sorted({r["m"] for r in rows})
@@ -149,6 +174,11 @@ def build_payload(rows, insights_out, cycles=None, bills=None):
         "committed": build_committed(insights_out),
         "cycles": cycles or {},
         "bills": bills or [],
+        # #82: what the categoriser could not place, and the full taxonomy to place it
+        # into. `cats` above is only what APPEARS in the data — a dropdown built from
+        # that could never offer a category nothing has been filed under yet.
+        "other": build_other(rows),
+        "allCats": [c for c in dashboard.COLORS if c != "Other"],
     }
 
 

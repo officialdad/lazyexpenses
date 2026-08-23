@@ -51,6 +51,14 @@ must stay that way or bills get messaged twice.
   `_reminder_tick` which reads the PVC directly. `/ingest` holds the lock, saves the PDF and
   reparses the corpus; routing through it keeps one copy of that. The cost is knowing our own port,
   which is what `INGEST_URL` is for.
+- **Two events per bill (#83)**: `run()` says "due soon", `announce()` says "this arrived".
+  `/ingest` diffs `bills[]` **before and after** the pipeline run and announces only keys
+  that appeared — "an upload happened" is the wrong trigger, because `save_pdf` names by
+  content hash and a `fetch_mail` retry re-posts the same bytes on purpose. State lives in
+  the same `reminded.json` under a **different namespace** (`arrived|<bank>|<month>`); the
+  bare key is the due reminder's, and sharing it would silence that reminder forever. A
+  bill that was already there, or older than last month, is **recorded without being
+  sent** — that is the seed that stops a backfill firing a burst.
 - **Reminders**: `remind_bills.py` holds the logic and still runs standalone. Web Push is the
   default transport and needs no configuration; Telegram is the opt-in fallback. **The split is in
   `send()`, not in the server**, so `reminded.json` stays keyed by *bill*, not by transport — both
@@ -78,7 +86,8 @@ must stay that way or bills get messaged twice.
   reference, `CONTRIBUTING.md` covers adding a bank and the test suite. Keep them that way.
 
 **Backup-critical files on the volume**, none of them regenerable: `settings.json` (mode 0600, not
-encrypted), `vapid.json` (replacing it silently orphans every stored push subscription), and
+encrypted), `vapid.json` (replacing it silently orphans every stored push subscription),
+`cats.json` (#82 — hand-confirmed merchant categories, and nothing else knows them), and
 `reminded.json`/`paid.json`/`push_subs.json`.
 
 ## Sharp edges
@@ -107,6 +116,10 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
   ingest HTTP timeout, so warm it in-pod after any deploy that touches the parser:
   `kubectl exec deploy/lazyexpense -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
   (0.5.0 and 0.6.0 did not touch `parse.py`, so those rollouts kept the cache — 83 entries.)
+  **The #82 release touches `parse.py`** (it grows the override lookup), so it pays that
+  full reparse once — warm it in-pod straight after the deploy. Every run *after* that is
+  warm again, including the one `POST /api/cats` triggers, which is the whole reason the
+  override is applied outside `parse_statement`.
 - **Telegram will not let a bot message first.** A misconfigured reminder returns `400 Bad Request`
   whose body says `chat not found`; `send()` now keeps that description, because the status line
   alone is useless in an unattended log. Fix is to message the bot once from the target chat.
@@ -288,7 +301,9 @@ prints no ISSUES (a new long card name or category can overflow a chart), and sk
 `INSTALLMENT_MERCHANTS` or category-allowlist tweak). New months/cards surface in all dashboard views automatically.
 
 ### Categorization & spend definition
-Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The back-catalogue is hand-mapped to merchant-specific keywords, so `Other` stays small — but it is never empty, and is not meant to be: it collects one-off merchants that appeared after the last hand-mapping pass. `Other` is the safety fallback for new/unseen merchants and is meant to be watched — it surfaces in the dashboard donut and during the refresh-loop check. Most entries are a one-line `CATS` addition; `llm_cats.py --suggest-cats` (#29, suggest mode only) drafts those lines with an optional local model. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
+Keyword map (`CATS`, ordered — first match wins) → standard taxonomy. The back-catalogue is hand-mapped to merchant-specific keywords, so `Other` stays small — but it is never empty, and is not meant to be: it collects one-off merchants that appeared after the last hand-mapping pass. `Other` is the safety fallback for new/unseen merchants and is meant to be watched — it surfaces in the dashboard donut and during the refresh-loop check. Most entries are a one-line `CATS` addition; `llm_cats.py --suggest-cats` (#29, suggest mode only) drafts those lines with an optional local model.
+
+**Confirming one in the UI is the other way in (#82).** Settings step 5 lists what fell into `Other` (`app.json`'s `other[]`, from `export_data.build_other`) with a dropdown of the whole taxonomy (`allCats`); a pick writes `{merchant: category}` to `cats.json` on the PVC via `POST /api/cats`, which then re-runs the pipeline so the answer is on screen. **The apply point is `parse.py`'s `main()` loop, AFTER `cached_parse` — never inside `categorize()`.** `categorize()` runs inside `parse_statement`, which is memoized per PDF and keyed on `PARSE_VER`; an override read from in there would not bust that cache, so a confirmation would silently do nothing until something else edited the parser. Applied after the cache boundary it lands on the next run with **no reparse at all** (~0.5s warm). Keys are `insights.norm_merchant()` on **both** sides, or a trailing ref token makes one merchant two. An **override beats `CATS`** (a human confirmed it), so a later `CATS` keyword cannot correct a bad one — clearing the row in the UI is the only undo. `t['inst']` still beats both: that is printed structure, not a guess. The dropdown is built from `dashboard.COLORS` while `/api/cats` validates against `parse.CATS`; `test_parse.py::test_every_category_has_a_colour_and_an_icon` is what keeps those two the same taxonomy. **`Vehicle`** is a merged bucket — fuel + ride-hail/transport + tolls/parking + auto/workshop (the old separate `Fuel`/`Transport` categories were folded in). Other custom categories: `Certifications` (MBOT etc.), `Charity` (donations/zakat). `total_spend` excludes the non-consumption categories `NON_SPEND = {Installments/BT, Transfers/Payments, Rebate/Cashback}`. The `Installments/BT` total is inflated by monthly recurrence — never treat it as monthly consumption.
 
 **Spend is netted**: in the summaries, consumption categories use signed amounts (debit `+`, credit `−`) so a **refund/reversal** (a credit sitting under a merchant category — e.g. a cancelled `…-REV` booking) subtracts from that category. `NON_SPEND` categories stay debit-only/gross (their credits are bill payments & cashback, not negative spend). The dashboard mirrors this exactly via its `val(r)` helper. Net cells can occasionally go slightly negative (a refund whose original purchase was a different month) — charts guard against it; the reconciliation is unaffected (it nets all debits/credits globally regardless of category).
 

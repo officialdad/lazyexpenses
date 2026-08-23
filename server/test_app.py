@@ -246,6 +246,63 @@ def test_paid_post_rejects_missing_key():
         assert c.post("/api/paid", json={"paid": True}).status_code == 400
 
 
+def test_cats_post_persists_to_the_pvc_and_reruns_the_pipeline(monkeypatch):
+    """#82: a confirmation is written next to waivers.json and applied straight away —
+    parse.py reads it AFTER the per-PDF cache, so the re-run is a warm one."""
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        ran = []
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: ran.append(dd) or {})
+        assert c.get("/data/cats.json").json() == {}
+        r = c.post("/api/cats", json={"merchant": "BINGXUE", "category": "F&B"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"BINGXUE": "F&B"}
+        assert len(ran) == 1
+        assert c.get("/data/cats.json").json() == {"BINGXUE": "F&B"}
+        # clearing is the only undo — an override beats CATS, so CATS cannot correct it
+        c.post("/api/cats", json={"merchant": "BINGXUE", "category": None})
+        assert c.get("/data/cats.json").json() == {}
+        assert len(ran) == 2
+
+
+def test_cats_post_rejects_a_category_outside_the_taxonomy(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", lambda dd: 1 / 0)  # must not run
+        assert c.post("/api/cats", json={"merchant": "X", "category": "Snacks"}).status_code == 400
+        assert c.post("/api/cats", json={"category": "F&B"}).status_code == 400
+        assert not os.path.exists(os.path.join(d, "cats.json"))
+
+
+def test_ingest_announces_only_a_bill_that_was_not_there_before(monkeypatch):
+    """#83: the trigger is a new bills[] entry, not an upload. Re-posting a statement is
+    idempotent by design (content-hash filename), so it must stay silent."""
+    import remind_bills
+    with tempfile.TemporaryDirectory() as d:
+        c, appmod = _client(d)
+        sent = []
+        monkeypatch.setattr(remind_bills, "send", sent.append)
+        month = remind_bills.today_myt().strftime("%Y-%m")
+
+        def fake_run(dd):
+            with open(os.path.join(dd, "app.json"), "w", encoding="utf-8") as fh:
+                json.dump({"bills": [{"bank": "cimb", "statement_month": month,
+                                      "current_balance": 812.5,
+                                      "payment_due_date": "2026-09-05"}]}, fh)
+            return {"VERIFIED": 1}
+
+        monkeypatch.setattr(appmod.pipeline, "run_pipeline", fake_run)
+        c.post("/ingest", files={"file": ("s.pdf", b"%PDF-1.4", "application/pdf")},
+               data={"bank": "cimb"})
+        assert len(sent) == 1 and "CIMB" in sent[0] and "812.50" in sent[0]
+        # the same statement again: same bills[], nothing new to say
+        c.post("/ingest", files={"file": ("s.pdf", b"%PDF-1.4", "application/pdf")},
+               data={"bank": "cimb"})
+        assert len(sent) == 1, sent
+        state = json.load(open(os.path.join(d, "reminded.json"), encoding="utf-8"))
+        assert state == [f"arrived|cimb|{month}"], state
+
+
 def test_reminder_tick_reads_bills_and_paid_from_pvc():
     """The in-process reminder reads the PVC directly (no self-HTTP). Telegram stubbed."""
     import remind_bills

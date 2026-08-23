@@ -177,6 +177,9 @@ Two files appear on the volume: `vapid.json` (the signing key — **back it up w
 rest; replacing it makes every device re-enable reminders**) and `push_subs.json` (one
 entry per device you turned reminders on for).
 
+On iPhone, Safari only allows notifications for a PWA **added to the Home Screen**, over
+`https://`. Install it first, then press **Remind me** inside the installed app.
+
 ### Telegram (the fallback)
 
 Still fully supported, and the right answer for a desktop you never install the app on.
@@ -223,6 +226,26 @@ been mentioned is recorded in `/data/reminded.json`. A bill you marked paid in t
 is never reminded about, and a statement whose due date the parser could not find is
 skipped rather than guessed at. "Today" is resolved in Asia/Kuala_Lumpur whatever the
 host's timezone is, so a UTC machine does not fire a day early.
+
+### When a statement arrives
+
+A second, earlier message, on the same transports and with nothing extra to configure:
+
+> **New HSBC statement**
+>
+> 💳 RM `1,643.65` for 2026-08
+>
+> ⌛ Due 2026-08-23
+
+It fires the moment a statement turns into a new bill — whether the hourly mail fetch
+brought it in or you dragged it into Settings — because that is when you still have time
+to move money. A statement with no printed due date says `Due unknown` rather than being
+held back.
+
+Recorded in the same `/data/reminded.json`, under an `arrived|` key so it can never be
+mistaken for the due-date reminder. Re-uploading a statement you already have sends
+nothing, and neither does backfilling old ones: only a bill from this month or last is
+news.
 
 ## Locking it with a password
 

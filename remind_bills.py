@@ -15,6 +15,10 @@ At most ONE message per bill (bank+statement_month), tracked in a state file nex
 paid.json/waivers.json — so a second run in the same day sends nothing, and a server
 restart cannot re-send.
 
+TWO EVENTS PER BILL (#83). run() says "this is due soon"; announce() says "this arrived",
+the moment /ingest turns a statement into a new bills[] entry. Same transports, same
+state file, DIFFERENT key namespace (`arrived|<bank>|<month>`) — see ARRIVED_PREFIX.
+
 Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BILLS_URL, PAID_URL, REMIND_STATE,
 REMIND_DAYS, REMIND_TEMPLATE. Since #40 everything but the two URLs and REMIND_STATE may
 equally come from the Settings UI (settings.json on the volume) - env first, always - and
@@ -106,6 +110,82 @@ def message(bill, today, tmpl=None):
         return (tmpl or template()).format_map(fields)
     except KeyError as e:
         raise RuntimeError(f"REMIND_TEMPLATE: unknown placeholder {e}; known: {FIELDS}") from None
+
+
+# ------------------------------------------------------- a statement arrived (#83)
+# The SAME bill, a DIFFERENT event. The due reminder consumes `<bank>|<month>`
+# (bill_key), so writing that bare key here would read as "already reminded" and the
+# due-date message would never fire. Namespaced instead, in the same state file.
+ARRIVED_PREFIX = "arrived|"
+ARRIVED_TEMPLATE = (
+    "<b>New {bank} statement</b>\n\n"
+    "\U0001f4b3 RM <code>{amount}</code> for {month}\n\n"
+    "\u231b Due {due}"
+)
+ARRIVED_FIELDS = "bank, amount, due, month"
+
+
+def arrived_key(b):
+    return ARRIVED_PREFIX + bill_key(b)
+
+
+def arrived_message(bill, tmpl=None):
+    """Render one just-arrived statement.
+
+    No `days` field, deliberately: this fires the day the statement lands, so a countdown
+    is noise. A missing due date or balance is SAID rather than used to skip the
+    statement - parse.py emits None when it found none, and "a statement arrived" is
+    still worth hearing without one."""
+    bal = bill.get("current_balance")
+    fields = {
+        "bank": bill["bank"].upper(),
+        "amount": f"{bal:,.2f}" if bal is not None else "?",
+        "due": bill.get("payment_due_date") or "unknown",
+        "month": bill["statement_month"],
+    }
+    try:
+        return (tmpl or ARRIVED_TEMPLATE).format_map(fields)
+    except KeyError as e:
+        raise RuntimeError(
+            f"arrived template: unknown placeholder {e}; known: {ARRIVED_FIELDS}") from None
+
+
+def prev_month(today):
+    """`YYYY-MM` of the month before `today` - the oldest statement month worth saying
+    anything about. YYYY-MM sorts lexicographically, so a plain `<` is the comparison."""
+    return f"{today.year - 1}-12" if today.month == 1 else f"{today.year}-{today.month - 1:02d}"
+
+
+def announce(bills, known=(), state_path=None, today=None, tmpl=None, dry=False):
+    """One message per statement that has just appeared in `bills`. Returns what it sent.
+
+    `known` is the set of bill_key()s present BEFORE the pipeline ran. Anything already
+    in it - or older than last month - is RECORDED WITHOUT BEING SENT. That is the seed
+    that keeps the first run after this ships, and a bulk backfill of old statements,
+    from firing a burst: only a bill that appeared during this run is news.
+
+    Recorded after each send, like run(): a transport outage must leave the rest
+    unrecorded so the next ingest retries exactly those."""
+    state_path = state_path or STATE
+    today = today or today_myt()
+    seen = load_state(state_path)
+    floor = prev_month(today)
+    done = []
+    for b in bills:
+        k = arrived_key(b)
+        if k in seen:
+            continue
+        if bill_key(b) in known or (b.get("statement_month") or "") < floor:
+            save_state(state_path, load_state(state_path) | {k})
+            continue
+        text = arrived_message(b, tmpl)
+        if dry:
+            print(text)
+            continue
+        send(text)
+        done.append(b)
+        save_state(state_path, load_state(state_path) | {k})
+    return done
 
 
 def _get_json(url):
