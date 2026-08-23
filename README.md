@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="docs/img/icon.png" width="128" alt="lazyexpenses">
+  <img src="docs/img/icon.png" width="168" alt="lazyexpenses">
 </p>
 
 <h1 align="center">lazyexpenses</h1>
 
 <p align="center">
-  Your banks email you a locked PDF every month and you never open it.<br>
-  lazyexpenses reads those PDFs and turns them into a dashboard of what you actually spend.
+  Carrying a few cards, and losing track of what goes on which?<br>
+  Want a nudge before each due date, so a missed one never lands on your credit score?<br>
+  lazyexpenses reads the locked statement PDFs your Malaysian banks email you
+  and turns them into a dashboard of what you actually spend.
 </p>
 
 <p align="center">
@@ -101,9 +103,16 @@ and there is nothing to schedule.
 
 ## Which banks
 
-Six Malaysian banks: **Maybank, CIMB, Standard Chartered, Alliance, HSBC, RHB**. CIMB,
-Alliance and RHB put several cards on one statement, and each transaction still lands on
-the right card.
+Six Malaysian ones:
+
+- **Maybank**
+- **CIMB** (several cards on one statement)
+- **Standard Chartered**
+- **Alliance** (several cards on one statement)
+- **HSBC**
+- **RHB** (several cards on one statement)
+
+Where a statement covers several cards, each transaction still lands on the right one.
 
 **Everything else is unsupported.** Each of these six needed its own rules, because
 Maybank prints its address between a balance label and the balance, HSBC runs the words
@@ -112,7 +121,11 @@ it in Malay, and CIMB-i marks installments with a `:NN/MM` ratio. A statement fr
 bank matches none of that. Amounts are RM throughout and nothing is converted.
 
 Adding a bank is one branch in one function, and [CONTRIBUTING.md](CONTRIBUTING.md)
-walks through it.
+walks through it. If you would rather not write it yourself,
+[open a bank request](https://github.com/officialdad/lazyexpenses/issues/new?template=bank-request.yml).
+It asks for a redacted sample statement, because a layout nobody can read is a layout
+nobody can parse, and it covers how to redact one without leaving the text sitting in the
+file under a black box.
 
 ## How accurate is it
 

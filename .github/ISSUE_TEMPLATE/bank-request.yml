@@ -1,0 +1,100 @@
+name: Bank support request
+description: Ask for a bank the parser does not read yet, and offer a redacted sample statement.
+title: "bank: <name of the bank>"
+labels: ["bank-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every bank prints its statement differently, so each one needs its own branch in
+        `parse.py`. Writing that branch takes one sample statement from the bank. Without a
+        sample there is nothing to read the layout off, and nothing to test the parser against.
+
+        `CONTRIBUTING.md` walks through adding a bank yourself if you would rather do it, and
+        that path never asks you to hand a statement to anyone.
+
+  - type: input
+    id: bank
+    attributes:
+      label: Bank
+      placeholder: Public Bank
+    validations:
+      required: true
+
+  - type: input
+    id: country
+    attributes:
+      label: Country
+      description: The parser reads Malaysian statements today. Amounts are treated as RM and nothing is converted, so a statement in another currency needs work beyond one new branch.
+      value: Malaysia
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sample
+    attributes:
+      label: Can you provide a sample statement?
+      options:
+        - Yes, I can attach a redacted PDF
+        - Yes, but I want to ask about redaction first
+        - "No"
+    validations:
+      required: true
+
+  - type: textarea
+    id: layout
+    attributes:
+      label: What the statement looks like
+      description: |
+        Anything you already know saves a round trip. Does one statement cover several cards?
+        Does each transaction print on one line, or does the date sit on the line above the
+        amount? Are credits marked with a trailing `CR`? Is there a payment due date on it?
+      placeholder: |
+        One card per statement. Each row is posting date, transaction date, description, amount.
+        Credits print with CR after the number. Due date is on page 1 under "Payment Due Date".
+
+  - type: textarea
+    id: password
+    attributes:
+      label: What the covering email says about the PDF password
+      description: How the bank tells you to unlock the file, in your own words. Do not paste the password itself.
+      placeholder: The email says the password is the first 4 letters of my name plus my date of birth.
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Redacting the sample
+
+        **Black boxes drawn over text do not remove the text.** The words stay in the file and
+        anyone who opens it can select, copy or extract them. This is the single most common way
+        a redacted document leaks. After you redact, open the result and try to select the text
+        you covered. If you can select it, or if searching the file finds it, it is still there.
+
+        What to remove: your name, your full card number, your address, your IC or passport
+        number, your phone number, your email address, and any account or reference number that
+        points back to you.
+
+        What to keep: the page layout, every label, the statement date, the payment due date, the
+        transaction rows and the balance figures. Those are the only things the parser reads. A
+        sample with them stripped out cannot be tested against anything.
+
+        You can change the amounts, and for a sensitive statement you probably should. There is
+        one condition. The parser is accepted only when a statement reconciles, meaning previous
+        balance plus debits minus credits equals the printed current balance. Amounts edited at
+        random break that, and a sample that cannot reconcile cannot prove the parser right. Edit
+        them so the arithmetic still lands, or leave them alone.
+
+        The same goes for card numbers on a statement covering several cards. Replace the digits
+        with anything you like, but use the same replacement everywhere that card appears, or the
+        parser cannot tell which rows belong to which card.
+
+        **Never attach the original locked PDF, and never post its password.**
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you attach anything
+      options:
+        - label: I checked that the text I redacted is gone from the file, not just covered up.
+        - label: This PDF is not the original, and I have not posted its password.
+        - label: I understand this issue is public and anyone can download what I attach here.
