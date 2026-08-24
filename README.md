@@ -53,6 +53,29 @@ card numbers. Real statements never enter this repository. The
 invented statements. It is the static half only, so Settings, mark-paid and the reminders
 all need the server and do nothing there.*
 
+## Why it is called lazy
+
+Every other spending app asks you for discipline. You tap the app after lunch, you type
+the amount, you pick a category, and the month you stop doing that is the month the
+numbers quietly stop being true.
+
+This one never asks. The bank already wrote down what you spent, sent it to you, and
+signed off on the total. That statement is the only thing this app reads.
+
+<!-- Regenerate after editing docs/img/why-lazy.html:
+       node docs/img/shoot.mjs               (needs web/node_modules, so run `cd web && npm i` once) -->
+<p align="center">
+  <img src="docs/img/why-lazy.png" width="820" alt="Two columns. The usual way: you buy something, you remember to open an app, you type the amount and pick a category, one busy week and you stop, leaving numbers you no longer trust. lazyexpenses: you buy something, your bank emails the statement, it opens on its own and reads every line, it checks its own total against the bank's, and you get what you spent, what is due, and a nudge before it is.">
+</p>
+
+Nothing in the second path needs you. You are not the one keeping it accurate, and
+you cannot forget your way out of it. The worst you can do is nothing, which is the
+point.
+
+Because the statement is the source, the app also knows things a typed-in log never
+does: what each card actually charged you, when each bill closes, and what the bank
+says you owe on it.
+
 ## Start it
 
 ```bash

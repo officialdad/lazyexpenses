@@ -1,0 +1,100 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>What happens to a statement</title>
+<!-- Tokens copied from web/src/app.css. Render with: node docs/img/shoot.mjs -->
+<style>
+  :root {
+    --bg: #000; --surface: #0a0a0a; --surface2: #111;
+    --divider: #222; --divider2: #2a2a2a;
+    --text: #f5f5f5; --muted: #888;
+    --accent: #ffb020; --ok: #34d399; --dead: #666;
+  }
+  * { box-sizing: border-box; margin: 0; border-radius: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px; width: 1000px;
+  }
+  .col { display: flex; flex-direction: column; align-items: stretch; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .node {
+    border: 1px solid var(--divider2); background: var(--surface2);
+    padding: 12px 16px;
+  }
+  .node b { display: block; font-weight: 600; font-size: 15px; }
+  .node b code { font: inherit; color: var(--accent); }
+  .node span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .in { background: var(--surface); border-style: dashed; border-color: var(--divider); }
+  .in b { color: var(--muted); font-weight: 500; }
+  .file { background: var(--surface); border-color: var(--divider); }
+  .file b { color: var(--ok); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+  .arrow { display: flex; align-items: center; justify-content: center; gap: 10px;
+           height: 34px; color: var(--dead); }
+  .arrow svg { width: 11px; height: 16px; }
+  .arrow em { font-style: normal; font-size: 12px; color: var(--muted); }
+  .box {
+    border: 1px solid var(--divider2); padding: 18px; margin: 4px 0;
+    background: #050505;
+  }
+  .box > h3 {
+    font: 600 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+  }
+  .split { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: center; }
+  .aside { display: flex; flex-direction: column; gap: 8px; }
+  .aside .file { padding: 9px 12px; }
+  .aside .file span { font-size: 12px; }
+  h2 {
+    font: 600 13px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 18px;
+  }
+  footer {
+    margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--divider);
+    font-size: 13px; color: var(--muted); display: flex; gap: 22px; justify-content: center;
+  }
+  .key { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 10px; height: 10px; display: inline-block; }
+</style>
+
+<h2>What happens to a statement</h2>
+
+<div class="col">
+  <div class="row">
+    <div class="node in"><b>Gmail, label <code>CC</code></b><span>a locked statement PDF</span></div>
+    <div class="node in"><b>Dragged in from Settings</b><span>same path, done by hand</span></div>
+  </div>
+  <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg><em>&nbsp;the mail is checked hourly, a drop lands at once</em></div>
+  <div class="node"><b><code>POST /ingest</code></b><span>saves the PDF under the hash of its bytes, so the same mail twice costs nothing</span></div>
+  <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+
+  <div class="box">
+    <h3>one container, one volume</h3>
+    <div class="split">
+      <div class="node"><b><code>parse.py</code></b><span>unlocks it, rebuilds each row by position, categorises, and reconciles against the balance the bank printed</span></div>
+      <div class="aside">
+        <div class="node file"><b>cache/</b><span>one entry per PDF, keyed by content hash &middot; read and written</span></div>
+        <div class="node file"><b>cats.json</b><span>the categories you confirmed in the app &middot; read</span></div>
+      </div>
+    </div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="node file"><b>transactions.csv &nbsp;&middot;&nbsp; reconciliation.csv</b><span>every line of every statement, and whether each one adds up</span></div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="node"><b><code>insights.py</code></b><span>subscriptions, installments, balance transfers, creeping categories, one-offs</span></div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="node"><b><code>export_data.py</code></b><span>flattens all of it into the one file the web app reads</span></div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="node file"><b>app.json</b><span>bills, statement cycles, totals, leaks</span></div>
+  </div>
+
+  <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+  <div class="row">
+    <div class="node"><b>The web app</b><span>fetches <code>/data/app.json</code> at runtime &mdash; new numbers need a refresh, not a rebuild</span></div>
+    <div class="node"><b>The reminder loop</b><span>&ldquo;this one arrived&rdquo; and &ldquo;this one is due soon&rdquo;, over Web Push or Telegram</span></div>
+  </div>
+</div>
+
+<footer>
+  <span class="key"><span class="sw" style="background:#ffb020"></span>code that runs on every ingest</span>
+  <span class="key"><span class="sw" style="background:#34d399"></span>files kept on the volume</span>
+</footer>

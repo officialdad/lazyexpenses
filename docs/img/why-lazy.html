@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Why it is called lazy</title>
+<!-- Tokens copied from web/src/app.css, including the square edges: this graphic sits next to
+     screenshots of the app, so it has to read as the same product. -->
+<style>
+  :root {
+    --bg: #000; --surface: #0a0a0a; --surface2: #111;
+    --divider: #222; --divider2: #2a2a2a;
+    --text: #f5f5f5; --muted: #888;
+    --accent: #ffb020;
+    --dead: #666;
+  }
+  * { box-sizing: border-box; margin: 0; border-radius: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px;
+    width: 1080px;
+  }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+  .lane { display: flex; flex-direction: column; }
+  h2 {
+    font-size: 13px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .old h2 { color: var(--muted); }
+  .new h2 { color: var(--accent); }
+  .sub { font-size: 14px; color: var(--muted); margin-bottom: 22px; min-height: 42px; }
+  .step {
+    border: 1px solid var(--divider);
+    background: var(--surface);
+    padding: 13px 16px;
+    font-size: 16px;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .new .step { border-color: var(--divider2); background: var(--surface2); color: var(--text); }
+  .n {
+    flex: none; width: 22px; height: 22px;
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 600;
+    background: var(--divider2); color: var(--muted);
+  }
+  .new .n { background: var(--accent); color: #000; }
+  .arrow { height: 20px; display: grid; place-items: center; }
+  .arrow svg { width: 11px; height: 15px; }
+  .old .arrow svg { color: var(--dead); }
+  .new .arrow svg { color: var(--accent); }
+  .end { padding: 13px 16px; font-size: 16px; }
+  .old .end { border: 1px dashed var(--divider2); color: var(--dead); }
+  .new .end { background: var(--accent); color: #000; font-weight: 600; }
+  footer {
+    margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--divider);
+    font-size: 15px; color: var(--muted); text-align: center;
+  }
+  footer b { color: var(--text); font-weight: 600; }
+</style>
+
+<div class="lanes">
+  <section class="lane old">
+    <h2>The usual way</h2>
+    <p class="sub">Accurate for as long as you keep it up.</p>
+    <div class="step"><span class="n">1</span>You buy something</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">2</span>You remember to open an app</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">3</span>You type the amount, pick a category</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">4</span>One busy week, and you stop</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="end">Numbers you no longer trust</div>
+  </section>
+
+  <section class="lane new">
+    <h2>lazyexpenses</h2>
+    <p class="sub">Accurate because your bank already did the work, and never asks you for
+      anything.</p>
+    <div class="step"><span class="n">1</span>You buy something</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">2</span>Your bank emails the statement</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">3</span>It opens on its own and reads every line</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="step"><span class="n">4</span>It checks its own total against the bank&rsquo;s</div>
+    <div class="arrow"><svg viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 0v12M2 8.5l4 4 4-4"/></svg></div>
+    <div class="end">What you spent, what is due, and a nudge before it is</div>
+  </section>
+</div>
+
+<footer>
+  Same purchase, same month. <b>One side needs you to remember. The other never asks.</b>
+</footer>

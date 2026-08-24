@@ -8,6 +8,7 @@ Everything here is optional. If a folder of PDFs and `python parse.py` is enough
 you, it is enough. Nothing below is needed to use the parser or the offline dashboard.
 
 - [The quick version](#the-quick-version)
+- [What happens to a statement](#what-happens-to-a-statement)
 - [What each variable does](#what-each-variable-does)
 - [Fetching statements from Gmail](#fetching-statements-from-gmail)
 - [Bill reminders](#bill-reminders)
@@ -74,6 +75,29 @@ legitimately arrives under several filenames and gets deduplicated. The HTTP sta
 identically. Read the body, not the status code.
 
 A locked PDF whose `CC_PW_<BANK>` is not set lands in `ERROR`, and you will see it there.
+
+## What happens to a statement
+
+One container does all of it. A statement arrives by mail or by hand, and everything
+downstream of it is rebuilt on the spot, so there is nothing to trigger and no second
+process to deploy.
+
+<!-- Regenerate after editing docs/img/pipeline.html:
+       node docs/img/shoot.mjs      (needs web/node_modules, so run `cd web && npm i` once) -->
+<p align="center">
+  <img src="img/pipeline.png" width="760" alt="A statement enters from Gmail label CC or a drag-and-drop in Settings, is POSTed to /ingest and saved under the hash of its bytes, then inside one container on one volume parse.py reads it against the cache and cats.json, writes transactions.csv and reconciliation.csv, which insights.py and export_data.py turn into app.json, which the web app fetches at runtime and the reminder loop reads to notify you.">
+</p>
+
+Three things in there are worth knowing before you debug anything:
+
+- **The same PDF twice costs nothing.** `/ingest` names the file by the hash of its
+  bytes, and the parse cache is keyed the same way, so a re-sent mail overwrites itself
+  and reparses nothing.
+- **Editing `parse.py` throws the whole cache away.** The cache stores a hash of the
+  parser with each entry, so a parser change reparses every statement once. That is
+  seconds on a small corpus and over a minute on a large one.
+- **`app.json` is fetched at runtime, not built into the app.** New numbers reach an open
+  dashboard on a refresh. New *code* needs a new image.
 
 ## What each variable does
 
