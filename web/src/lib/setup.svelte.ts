@@ -45,6 +45,18 @@ export const cfg = $state<SettingsView & { loaded: boolean }>({
 
 export const isLocked = (name: string): boolean => cfg.locked.includes(name);
 
+/** Nothing that would let mail or a locked PDF through is configured yet. Exported so the
+ *  nav can point at Settings without owning the definition of "unfinished" (#95).
+ *
+ *  A FUNCTION, not the `$derived` const #95 sketched: Svelte refuses to export derived
+ *  state from a module (`derived_invalid_export`) and tells you to export a function
+ *  returning the value. `cfg` is `$state`, so calling this inside a template or an
+ *  `$effect` tracks it exactly like a derived would. Call it — `setupIncomplete()`. */
+export const setupIncomplete = (): boolean =>
+	cfg.loaded &&
+	!cfg.secrets.GMAIL_APP_PASSWORD &&
+	!Object.keys(cfg.secrets).some((k) => k.startsWith('CC_PW_') && cfg.secrets[k]);
+
 /** Human sentence for one reconciliation result. Pure — this is what the tests pin. */
 export function reconLine(r: Ingested): string {
 	if (r.locked) return `That ${r.bank.toUpperCase()} statement is password-protected.`;
@@ -145,6 +157,10 @@ export type Backfill = {
 	failed: number;
 	/** Subjects whose bank detect_bank() could not name. Nothing was ingested for these. */
 	unknown: string[];
+	/** Banks whose statements failed because their PDF password is missing (#95). Empty
+	 *  until the server counts them, which is why a failure without it says "see the log"
+	 *  rather than guessing at a cause. */
+	locked: string[];
 	error: string | null;
 };
 
@@ -154,11 +170,17 @@ export function backfillLine(b: Backfill): string {
 	if (b.running) return `Reading mail… ${b.done} of ${b.total}, ${b.ingested} imported.`;
 	if (!b.total) return 'Nothing in that label to import.';
 	const bits = [`${b.ingested} imported`, `${b.skipped} skipped`];
-	if (b.failed) bits.push(`${b.failed} failed`);
+	// A failure gets its own sentence, and names the cause when the server knows it: the
+	// whole point of #95 is that 15 undecryptable statements must not read as success.
+	const failed = !b.failed
+		? ''
+		: b.locked.length
+			? ` ${b.failed} failed — the ${b.locked.map((x) => x.toUpperCase()).join(', ')} statements are password-protected. Add the password in step 2.`
+			: ` ${b.failed} failed — see the server log.`;
 	const unknown = b.unknown.length
 		? ` ${b.unknown.length} had no recognisable bank — see the server log for the subjects.`
 		: '';
-	return `Read ${b.total} mail: ${bits.join(', ')}.${unknown}`;
+	return `Read ${b.total} mail: ${bits.join(', ')}.${failed}${unknown}`;
 }
 
 /** Start the backfill. It returns as soon as the run is scheduled — the work takes
@@ -178,7 +200,11 @@ export async function startBackfill(
 export async function backfillStatus(f: typeof fetch = fetch): Promise<Backfill | null> {
 	try {
 		const res = await f(base + '/api/settings/backfill');
-		return res.ok ? ((await res.json()) as Backfill) : null;
+		if (!res.ok) return null;
+		const d = (await res.json()) as Backfill;
+		// `locked` arrives only once the server counts it; normalise here so no caller
+		// has to guard an array that is declared non-optional.
+		return { ...d, locked: d.locked ?? [] };
 	} catch {
 		return null;
 	}
