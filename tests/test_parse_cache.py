@@ -1,9 +1,18 @@
 """Plain-assert tests for parse.cached_parse (the per-PDF memo). No real PDF / pdfplumber.
 
 Monkeypatches parse_statement so we test the cache wrapper in isolation:
-hit/miss, content-hash key, filename re-derivation, version-bust, corrupt-entry fallback.
+hit/miss, content-hash key, filename re-derivation, version-bust (parse.py's bytes AND
+the installed pdfplumber version, #115), corrupt-entry fallback.
 """
-import os, json, tempfile, parse
+import os, json, hashlib, tempfile, parse
+from importlib.metadata import version
+
+
+def ver_for(pdfplumber_version):
+    """PARSE_VER as parse.py computes it, for an arbitrary pdfplumber version."""
+    return hashlib.sha256(
+        open(parse.__file__, "rb").read() + pdfplumber_version.encode()
+    ).hexdigest()[:12]
 
 calls = {"n": 0}
 
@@ -50,11 +59,26 @@ def main():
         assert calls["n"] == 2, "version mismatch must reparse"
         assert json.load(open(cf))["ver"] == parse.PARSE_VER, "stale entry must be rewritten"
 
+        # a pdfplumber bump must bust the cache too (#115). parse.py reads word geometry,
+        # so a library bump can change parse_statement's answer for identical PDF bytes
+        # while parse.py is untouched — hashing only this file would serve stale rows.
+        assert parse.PARSE_VER == ver_for(version("pdfplumber")), \
+            "PARSE_VER must fold in the INSTALLED pdfplumber version"
+        assert ver_for("0.11.4") != ver_for("0.11.10"), \
+            "a pdfplumber version change must change PARSE_VER"
+        c = json.load(open(cf))
+        c["ver"] = ver_for("0.0.0-not-the-installed-one")   # entry from another pdfplumber
+        with open(cf, "w") as fh:
+            json.dump(c, fh)
+        parse.cached_parse(pdf)
+        assert calls["n"] == 3, "an entry written by a different pdfplumber must reparse"
+        assert json.load(open(cf))["ver"] == parse.PARSE_VER
+
         # corrupt entry -> reparse, no crash
         with open(cf, "w") as fh:
             fh.write("{ not json")
         parse.cached_parse(pdf)
-        assert calls["n"] == 3, "corrupt entry must reparse"
+        assert calls["n"] == 4, "corrupt entry must reparse"
         json.load(open(cf))  # valid JSON again
 
     print("OK")

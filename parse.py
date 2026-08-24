@@ -5,15 +5,24 @@ No LLM. pdfplumber word-geometry + per-bank rules.
 """
 import pdfplumber, re, csv, glob, os, sys, hashlib, json
 from collections import defaultdict
+from importlib.metadata import version as _dist_version
 
 import insights  # for norm_merchant — one normalisation, not a second copy of it
 
 SRC = os.environ.get("STMT_SRC", "cc-statements")
 CACHE = os.environ.get("STMT_CACHE", "cache")
 CATS_FILE = os.environ.get("STMT_CATS", "cats.json")   # human-confirmed categories (#82)
-# Busts the whole cache whenever parse.py changes, so a parser-rule edit never
-# serves stale rows (silently-wrong financial data). Hash of this file's bytes.
-PARSE_VER = hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:12]
+# Busts the whole cache whenever parse.py OR the installed pdfplumber changes, so
+# neither a parser-rule edit nor a library bump ever serves stale rows
+# (silently-wrong financial data). This file's bytes + the pdfplumber version:
+# parse.py reads word geometry, not text, so a pdfplumber bump can move `top`
+# values against a fixed `ytol` and change what parse_statement returns for the
+# very same PDF bytes. Hashing only this file would leave every cache entry valid
+# across such a bump (#115). pdfplumber pins pdfminer.six exactly, so its version
+# covers the whole extraction stack.
+PARSE_VER = hashlib.sha256(
+    open(__file__, "rb").read() + _dist_version("pdfplumber").encode()
+).hexdigest()[:12]
 AMT_RE = re.compile(r'^(-?\d{1,3}(?:,\d{3})*\.\d{2})(CR)?$')
 CARDNUM_DASH = re.compile(r'\b(\d{4}-\d{4}-\d{4}-\d{4})\b')
 CARDNUM_SPACE = re.compile(r'\b(\d{4} \d{4} \d{4} \d{4})\b')
@@ -480,7 +489,8 @@ def load_overrides(path=None):
 
     NOT read inside categorize(), and that is the whole design. categorize() runs inside
     parse_statement, which cached_parse memoizes per PDF keyed on PARSE_VER — a hash of
-    this file. An override consulted from in there would not bust that cache, so a
+    this file plus the pdfplumber version. An override consulted from in there would not
+    bust that cache (cats.json is in neither), so a
     confirmation would silently fail to apply until something else edited the parser.
     Applied AFTER the cache boundary instead, it lands on the very next pipeline run with
     no reparse at all (~0.5s warm, not ~110s).

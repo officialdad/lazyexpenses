@@ -119,9 +119,12 @@ Three things in there are worth knowing before you debug anything:
 - **The same PDF twice costs nothing.** `/ingest` names the file by the hash of its
   bytes, and the parse cache is keyed the same way, so a re-sent mail overwrites itself
   and reparses nothing.
-- **Editing `parse.py` throws the whole cache away.** The cache stores a hash of the
-  parser with each entry, so a parser change reparses every statement once. That is
-  seconds on a small corpus and over a minute on a large one.
+- **Editing `parse.py`, or upgrading `pdfplumber`, throws the whole cache away.** The
+  cache stores a hash of the parser *and* the installed `pdfplumber` version with each
+  entry, so either change reparses every statement once. That is seconds on a small
+  corpus and over a minute on a large one. `pdfplumber` is in there because `parse.py`
+  reads word coordinates, not text: a library upgrade can move them, and an entry
+  written by the old library would otherwise stay valid forever.
 - **`app.json` is fetched at runtime, not built into the app.** New numbers reach an open
   dashboard on a refresh. New *code* needs a new image.
 
@@ -628,9 +631,28 @@ leaves it alone; `docker compose down -v` deletes it. To back it up, copy `/data
 the container, or just keep the original statement PDFs, since every other file in there
 is rebuilt from them.
 
-An upgrade that changes the parser re-reads every statement on the next ingest rather than
-trusting the cache, so the first run after one is slower. That is deliberate: a parser
-change must never serve rows from the old rules.
+An upgrade that changes the parser, or the `pdfplumber` it reads PDFs with, re-reads every
+statement on the next ingest rather than trusting the cache, so the first run after one is
+slower. That is deliberate: neither a rule change nor a library change must ever serve rows
+produced by the old one.
+
+Rejected entries are ignored, not deleted, and the reparse lands on whichever `/ingest`
+arrives first — which on a large corpus is long enough to time that request out. On an
+upgrade that bumps `pdfplumber`, clear the cache and warm it yourself instead:
+
+```bash
+docker compose exec app sh -c 'rm -rf /data/cache && cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'
+```
+
+On Kubernetes the same thing, against the Deployment:
+
+```bash
+kubectl exec deploy/<name> -- sh -c 'rm -rf /data/cache && cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'
+```
+
+Budget for it. A cold 84-PDF reparse took **109s** against 0.5s warm. Skipping it does not
+break anything, but the numbers will not move until the next statement arrives, which reads
+exactly like a bad deploy.
 
 **Something looks wrong?**
 
