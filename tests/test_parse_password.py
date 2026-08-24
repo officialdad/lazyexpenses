@@ -6,7 +6,7 @@ the encryption cases are skipped and the rest still runs.
 
 Run: python tests/test_parse_password.py   ->  OK
 """
-import io, os, tempfile, parse
+import csv, io, os, tempfile, parse
 
 MARK = "STATEMENT BALANCE 1,234.56"
 
@@ -34,6 +34,24 @@ def _minimal_pdf(text=MARK):
     out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
         len(objs) + 1, xref)
     return bytes(out)
+
+
+def _recon_row(src):
+    """parse.main() over one source dir, in a scratch cwd. -> its single recon row.
+
+    main() writes its CSVs to the working directory, so it gets one of its own.
+    """
+    cwd, osrc, ocache = os.getcwd(), parse.SRC, parse.CACHE
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            parse.SRC, parse.CACHE = src, os.path.join(out, "cache")
+            os.chdir(out)
+            parse.main()
+            with open("reconciliation.csv", encoding="utf-8-sig") as fh:
+                return next(csv.DictReader(fh))
+    finally:
+        os.chdir(cwd)
+        parse.SRC, parse.CACHE = osrc, ocache
 
 
 def main():
@@ -78,6 +96,21 @@ def main():
             else:
                 raise AssertionError(f"{algo}: wrong password should not open the file")
             os.environ["CC_PW_MAYBANK"] = "s3cret"
+
+        # ...and the ERROR row parse.main() writes for it names the exception and the
+        # bank (#93). str() of the PdfminerException wrapping PDFPasswordIncorrect is
+        # EMPTY, so the one cell holding the reason used to be blank, under bank '?'.
+        src = os.path.join(d, "src")
+        os.makedirs(src)
+        w = pypdf.PdfWriter(clone_from=io.BytesIO(plain))
+        w.encrypt("s3cret", algorithm="AES-128")
+        w.write(os.path.join(src, "maybank_x.pdf"))
+        os.environ["CC_PW_MAYBANK"] = "wrong"
+        row = _recon_row(src)
+        assert row["status"] == "ERROR", row
+        assert row["bank"] == "maybank", "the bank comes from the filename, not '?'"
+        assert row["sdate"].split(":")[0].isidentifier() and row["sdate"], (
+            f"the ERROR row must name its exception type, got {row['sdate']!r}")
 
     print("OK")
 

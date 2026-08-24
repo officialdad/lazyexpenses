@@ -60,8 +60,9 @@ def test_handle_ingests_every_pdf_and_marks_seen():
     fetch_mail.ingest = lambda c, b, url=None: calls.append((b, c)) or {"recon": {"VERIFIED": 1}}
     try:
         m = _msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A"), ("b.pdf", b"B")])
-        mark, lines = handle(m)
-        assert mark is True, lines
+        mark, results = handle(m)
+        assert mark is True, results
+        assert [r["kind"] for r in results] == ["ingested", "ingested"], results
         assert calls == [("cimb", b"A"), ("cimb", b"B")], calls
     finally:
         fetch_mail.ingest = real
@@ -75,9 +76,10 @@ def test_a_failed_ingest_leaves_the_message_unread():
 
     fetch_mail.ingest = boom
     try:
-        mark, lines = handle(_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]))
+        mark, results = handle(_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]))
         assert mark is False
-        assert "connection refused" in lines[0]
+        assert results[0]["kind"] == "failed", results
+        assert "connection refused" in results[0]["line"]
     finally:
         fetch_mail.ingest = real
 
@@ -91,14 +93,17 @@ def test_skips_never_mark_seen_and_never_ingest():
     fetch_mail.ingest = boom
     try:
         # unknown bank: skipping beats posting it against the wrong bank's rules
-        mark, lines = handle(_msg(frm="a@b.com", pdfs=[("a.pdf", b"A")]))
-        assert mark is False and "bank not recognised" in lines[0]
+        mark, results = handle(_msg(frm="a@b.com", pdfs=[("a.pdf", b"A")]))
+        assert mark is False and results[0]["kind"] == "skipped"
+        assert "bank not recognised" in results[0]["line"]
         # no attachment
-        mark, lines = handle(_msg(frm="x@cimb.com.my", body="marketing"))
-        assert mark is False and "no PDF attachment" in lines[0]
+        mark, results = handle(_msg(frm="x@cimb.com.my", body="marketing"))
+        assert mark is False and results[0]["kind"] == "skipped"
+        assert "no PDF attachment" in results[0]["line"]
         # dry run posts nothing and leaves the flag alone
-        mark, lines = handle(_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]), dry=True)
-        assert mark is False and lines == ["would ingest cimb: a.pdf (1 bytes)"], lines
+        mark, results = handle(_msg(frm="x@cimb.com.my", pdfs=[("a.pdf", b"A")]), dry=True)
+        assert mark is False and len(results) == 1, results
+        assert results[0]["line"] == "would ingest cimb: a.pdf (1 bytes)", results
     finally:
         fetch_mail.ingest = real
 
@@ -106,9 +111,10 @@ def test_skips_never_mark_seen_and_never_ingest():
 class _FakeIMAP:
     """The four IMAP calls main() makes, and a record of what it asked for."""
 
-    def __init__(self, msgs):
+    def __init__(self, msgs, select_typ="OK"):
         self.raw = [m.as_bytes() for m in msgs]
         self.selected = self.criteria = None
+        self.select_typ = select_typ
         self.stored = []
         self.fetched = []
 
@@ -126,6 +132,8 @@ class _FakeIMAP:
 
     def select(self, mailbox, readonly=False):
         self.selected = (mailbox, readonly)
+        # imaplib returns a status; on a missing mailbox it is NO and it does NOT raise
+        return self.select_typ, [b"1" if self.select_typ == "OK" else b"[NONEXISTENT]"]
 
     def search(self, charset, criteria):
         self.criteria = criteria
@@ -139,13 +147,13 @@ class _FakeIMAP:
         self.stored.append((num, flag, value))
 
 
-def _run(msgs, **kw):
+def _run(msgs, ingest=None, **kw):
     """main() against a fake mailbox. -> (fake connection, stat dict)."""
     fake = _FakeIMAP(msgs)
     real_imap, real_creds, real_ingest = imaplib.IMAP4_SSL, fetch_mail.creds, fetch_mail.ingest
     imaplib.IMAP4_SSL = fake
     fetch_mail.creds = lambda: ("me@example.com", "app-pw", "CC", "imap.example.com")
-    fetch_mail.ingest = lambda c, b, url=None: {"recon": {"VERIFIED": 1}}
+    fetch_mail.ingest = ingest or (lambda c, b, url=None: {"recon": {"VERIFIED": 1}})
     try:
         return fake, fetch_mail.main(**kw)
     finally:
@@ -192,6 +200,72 @@ def test_a_dry_run_stays_readonly_whatever_the_criteria():
     assert stat["ingested"] == 1                      # "would ingest" counts as one
 
 
+def test_a_warning_response_is_a_failure_and_keeps_the_retry_flag():
+    """#93. The PDF landed and did not parse, so /ingest answers `warning: true` — but
+    the log line still begins "ingested", and classifying on that prefix counted it as a
+    success and marked the mail \\Seen. Nothing ever retried it."""
+    def warned(c, b, url=None):
+        return {"recon": {"ERROR": 1}, "problems": {"ERROR": 1},
+                "warning": True, "locked": True}
+
+    real = fetch_mail.ingest
+    fetch_mail.ingest = warned
+    try:
+        mark, results = handle(_msg(frm="x@maybank2u.com.my", pdfs=[("a.pdf", b"A")]))
+        assert mark is False, "a warning must not mark the mail seen"
+        assert results[0]["kind"] == "failed", results
+        assert results[0]["locked"] is True and results[0]["bank"] == "maybank", results
+        assert results[0]["line"].startswith("ingested maybank: a.pdf"), results[0]["line"]
+        assert "WARNING" in results[0]["line"]        # log text byte-identical
+    finally:
+        fetch_mail.ingest = real
+
+    fake, stat = _run([_msg(frm="x@maybank2u.com.my", pdfs=[("a.pdf", b"A")])],
+                      ingest=warned)
+    assert (stat["ingested"], stat["failed"]) == (0, 1), stat
+    assert stat["locked"] == ["maybank"], stat
+    assert fake.stored == [], "a statement that did not parse must stay unread"
+
+
+def test_a_missing_label_says_so_instead_of_the_imap_state_error():
+    """imaplib.select() returns ('NO', ...) and leaves the connection in AUTH, so the
+    search that follows raised `command SEARCH illegal in state AUTH` — the UI showed
+    that instead of the spelling mistake that caused it."""
+    fake = _FakeIMAP([], select_typ="NO")
+    real_imap, real_creds = imaplib.IMAP4_SSL, fetch_mail.creds
+    imaplib.IMAP4_SSL = fake
+    fetch_mail.creds = lambda: ("me@example.com", "app-pw", "Cc", "imap.example.com")
+    try:
+        for call in (fetch_mail.check, fetch_mail.main):
+            try:
+                call()
+            except RuntimeError as e:
+                assert 'No label named "Cc"' in str(e), e
+                assert "case-sensitive" in str(e), e
+            else:
+                raise AssertionError(f"{call.__name__} must raise on a missing label")
+    finally:
+        imaplib.IMAP4_SSL, fetch_mail.creds = real_imap, real_creds
+
+
+def test_a_rejected_login_names_the_credential():
+    fake = _FakeIMAP([])
+    fake.login = lambda u, p: (_ for _ in ()).throw(
+        imaplib.IMAP4.error("b'[AUTHENTICATIONFAILED] Invalid credentials (Failure)'"))
+    real_imap, real_creds = imaplib.IMAP4_SSL, fetch_mail.creds
+    imaplib.IMAP4_SSL = fake
+    fetch_mail.creds = lambda: ("me@example.com", "nope", "CC", "imap.example.com")
+    try:
+        try:
+            fetch_mail.check()
+        except RuntimeError as e:
+            assert str(e) == "Gmail rejected that address or app password.", e
+        else:
+            raise AssertionError("a rejected login must be a sentence, not a protocol dump")
+    finally:
+        imaplib.IMAP4_SSL, fetch_mail.creds = real_imap, real_creds
+
+
 if __name__ == "__main__":
     test_detect_bank_across_the_six()
     test_no_match_returns_none_rather_than_guessing()
@@ -204,4 +278,7 @@ if __name__ == "__main__":
     test_a_backfill_searches_all_selects_readonly_and_never_marks_seen()
     test_a_backfill_counts_and_names_the_mail_it_could_not_place()
     test_a_dry_run_stays_readonly_whatever_the_criteria()
+    test_a_warning_response_is_a_failure_and_keeps_the_retry_flag()
+    test_a_missing_label_says_so_instead_of_the_imap_state_error()
+    test_a_rejected_login_names_the_credential()
     print("OK")

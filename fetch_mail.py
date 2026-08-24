@@ -124,8 +124,18 @@ def ingest(content, bank, url=None, timeout=600):
         return json.load(r)
 
 
+def _res(kind, line, bank="", locked=False):
+    return {"kind": kind, "line": line, "bank": bank, "locked": locked}
+
+
 def handle(msg, dry=False, url=None):
-    """Ingest every PDF in one message. -> (mark_seen, [log lines]).
+    """Ingest every PDF in one message. -> (mark_seen, [results]).
+
+    A result is {"kind": "ingested"|"failed"|"skipped", "line", "bank", "locked"}. The
+    caller counts `kind` and never re-reads `line`: a statement that lands but does not
+    parse still logs an "ingested ..." line, and classifying by that prefix counted it
+    as a success and marked the mail \\Seen, so it was never retried (#93). The line
+    text itself is unchanged — existing log greps still hold.
 
     mark_seen is False unless everything ingested — including for the no-PDF and
     unknown-bank skips, so nothing quietly disappears into the read pile.
@@ -133,23 +143,31 @@ def handle(msg, dry=False, url=None):
     subj = (msg.get("Subject") or "")[:80]
     pdfs = pdf_attachments(msg)
     if not pdfs:
-        return False, [f"skip: no PDF attachment: {subj}"]
+        return False, [_res("skipped", f"skip: no PDF attachment: {subj}")]
     bank = bank_of(msg)
     if not bank:
-        return False, [f"skip: bank not recognised: {subj}"]
-    lines, ok = [], not dry
+        return False, [_res("skipped", f"skip: bank not recognised: {subj}")]
+    out, ok = [], not dry
     for name, content in pdfs:
         if dry:
-            lines.append(f"would ingest {bank}: {name} ({len(content)} bytes)")
+            out.append(_res("ingested",
+                            f"would ingest {bank}: {name} ({len(content)} bytes)", bank))
             continue
         try:
             res = ingest(content, bank, url)
             warn = " WARNING " + json.dumps(res.get("problems")) if res.get("warning") else ""
-            lines.append(f"ingested {bank}: {name} {json.dumps(res.get('recon'))}{warn}")
+            line = f"ingested {bank}: {name} {json.dumps(res.get('recon'))}{warn}"
+            if res.get("warning"):
+                # Stored, but the recon says it did not parse. That is a failure: the
+                # retry flag must stay, and `locked` says whether the fix is a password.
+                ok = False
+                out.append(_res("failed", line, bank, bool(res.get("locked"))))
+            else:
+                out.append(_res("ingested", line, bank))
         except Exception as e:
             ok = False
-            lines.append(f"FAILED {bank}: {name}: {e}")
-    return ok, lines
+            out.append(_res("failed", f"FAILED {bank}: {name}: {e}", bank))
+    return ok, out
 
 
 def creds():
@@ -158,6 +176,29 @@ def creds():
     at any point during that, which is the whole point of not reading them at import."""
     return (settings.get("GMAIL_USER"), settings.get("GMAIL_APP_PASSWORD"),
             settings.get("GMAIL_LABEL", "CC"), settings.get("IMAP_HOST", "imap.gmail.com"))
+
+
+def _login(M, user, password):
+    """Log in, and say which credential was rejected rather than echoing the protocol."""
+    try:
+        M.login(user, password)
+    except Exception as e:
+        if "AUTHENTICATIONFAILED" in str(e):
+            raise RuntimeError("Gmail rejected that address or app password.") from None
+        raise
+
+
+def _select(M, label, readonly):
+    """Select the label, or say the label is missing (#93).
+
+    imaplib.select() does NOT raise on a missing mailbox: it returns ('NO', ...) and
+    leaves the connection in state AUTH, so the *next* call is what blows up, with
+    `command SEARCH illegal in state AUTH` — and that is what the Settings UI showed.
+    """
+    typ, _ = M.select(f'"{label}"', readonly=readonly)
+    if typ != "OK":
+        raise RuntimeError(f'No label named "{label}" in that mailbox. '
+                           "Check the exact spelling in Gmail — labels are case-sensitive.")
 
 
 def check():
@@ -169,8 +210,8 @@ def check():
     if not (user and password):
         raise RuntimeError("Gmail address and app password are not set")
     with imaplib.IMAP4_SSL(host) as M:
-        M.login(user, password)
-        M.select(f'"{label}"', readonly=True)
+        _login(M, user, password)
+        _select(M, label, True)
         return {"ok": True, "user": user, "label": label,
                 "unread": len(M.search(None, "UNSEEN")[1][0].split())}
 
@@ -190,17 +231,17 @@ def main(dry=False, criteria="UNSEEN", stat=None):
     # half unconfigured should say so and exit 0, not crash-loop on a KeyError.
     user, password, LABEL, host = creds()
     stat = {} if stat is None else stat
-    stat.update(total=0, done=0, ingested=0, skipped=0, failed=0, unknown=[])
+    stat.update(total=0, done=0, ingested=0, skipped=0, failed=0, unknown=[], locked=[])
     if not (user and password):
         print("GMAIL_USER / GMAIL_APP_PASSWORD not set - nothing to fetch")
         return stat
     # readonly on a dry run AND on a backfill: the server cannot change a flag even if
     # we ask. Only the UNSEEN pass is allowed to consume mail.
     readonly = dry or criteria != "UNSEEN"
-    seen = 0
+    seen, locked = 0, set()
     with imaplib.IMAP4_SSL(host) as M:
-        M.login(user, password)
-        M.select(f'"{LABEL}"', readonly=readonly)
+        _login(M, user, password)
+        _select(M, LABEL, readonly)
         nums = M.search(None, criteria)[1][0].split()
         stat["total"] = len(nums)
         print(f"{LABEL}: {len(nums)} message(s) matching {criteria}"
@@ -209,16 +250,14 @@ def main(dry=False, criteria="UNSEEN", stat=None):
             # PEEK — a plain FETCH sets \Seen by itself, which would defeat the retry.
             raw = M.fetch(n, "(BODY.PEEK[])")[1][0][1]
             msg = email.message_from_bytes(raw, policy=policy.default)
-            mark, lines = handle(msg, dry)
-            for line in lines:
-                print(line, flush=True)
-                if line.startswith(("ingested", "would ingest")):
-                    stat["ingested"] += 1
-                elif line.startswith("FAILED"):
-                    stat["failed"] += 1
-                else:                       # "skip: ..." — no PDF, or no known bank
-                    stat["skipped"] += 1
-            if any(ln.startswith("skip: bank not recognised") for ln in lines):
+            mark, results = handle(msg, dry)
+            for r in results:
+                print(r["line"], flush=True)
+                stat[r["kind"]] += 1
+                if r["locked"]:
+                    locked.add(r["bank"])
+                    stat["locked"] = sorted(locked)   # visible while a backfill runs
+            if any(r["line"].startswith("skip: bank not recognised") for r in results):
                 stat["unknown"].append((msg.get("Subject") or "(no subject)")[:120])
             stat["done"] += 1
             if mark and not readonly:

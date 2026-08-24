@@ -398,7 +398,7 @@ def create_app() -> FastAPI:
     # nobody wants to run. It also lives in the closure, not at module level, so a test
     # that builds a second app does not inherit the first one's run.
     backfill = {"running": False, "total": 0, "done": 0, "ingested": 0, "skipped": 0,
-                "failed": 0, "unknown": [], "error": None}
+                "failed": 0, "unknown": [], "locked": [], "error": None}
     bg = set()   # a bare create_task() is only weakly referenced; this keeps it alive
     app.state.backfill = backfill   # so a test can put /ingest in "a backfill is running"
 
@@ -611,7 +611,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400,
                                 detail="Gmail address and app password are not set")
         backfill.update(running=True, total=0, done=0, ingested=0, skipped=0,
-                        failed=0, unknown=[], error=None)
+                        failed=0, unknown=[], locked=[], error=None)
 
         async def run():
             try:

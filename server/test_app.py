@@ -967,6 +967,7 @@ def test_test_mail_reports_what_it_found_and_never_marks_anything_seen():
 
         def select(self, mailbox, readonly=False):
             FakeIMAP.selected = (mailbox, readonly)
+            return "OK", [b"3"]        # imaplib returns a status; NO means no such label
 
         def search(self, charset, *criteria):
             return "OK", [b"1 2 3"]
