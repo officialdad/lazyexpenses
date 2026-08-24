@@ -1,0 +1,59 @@
+# OSSF Scorecard: an automated read-only audit of this repo's supply-chain posture
+# (pinned dependencies, branch protection, token permissions, workflow hygiene). It
+# builds nothing and never touches the PVC or the image - it reads the repo and the
+# GitHub API, then writes SARIF to the Security tab.
+#
+# The shape of this file is constrained, not stylistic. Publishing results makes the
+# Scorecard API reject a workflow that has top-level env vars or defaults, workflow-level
+# write permissions, an `id-token: write` job other than this one, or any step outside
+# their approved action list (checkout / upload-artifact / codeql-action-upload-sarif /
+# scorecard-action / harden-runner). Keep it as-is unless you drop `publish_results`.
+name: Scorecard
+
+on:
+  # Only the default branch is supported for either trigger.
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 01:37 UTC (09:37 MYT). Off the hour on purpose - a round :00
+    # lands in GitHub's busiest scheduling window and gets delayed.
+    - cron: '37 1 * * 1'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # upload the SARIF to the code-scanning dashboard
+      id-token: write          # OIDC token, required by publish_results
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The analysis reads the checkout; it has no reason to hold a push token.
+          persist-credentials: false
+
+      # No movable major tag is published - ossf/scorecard-action ships exact patch
+      # tags only, so this pin is bumped by hand (or by Renovate), never by upstream.
+      - uses: ossf/scorecard-action@v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Replaces the Scorecard team's own weekly scan of this public repo with this
+          # run, and is what enables the badge and the api.scorecard.dev result.
+          publish_results: true
+
+      # Five-day copy on the Actions tab, readable without repo write access - the
+      # code-scanning dashboard below is not.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
