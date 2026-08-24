@@ -9,6 +9,7 @@ import {
 	upload,
 	reconLine,
 	backfillLine,
+	setupIncomplete,
 	startBackfill,
 	backfillStatus,
 	type Backfill,
@@ -169,6 +170,7 @@ const bf = (over: Partial<Backfill> = {}): Backfill => ({
 	skipped: 0,
 	failed: 0,
 	unknown: [],
+	locked: [],
 	error: null,
 	...over
 });
@@ -182,7 +184,7 @@ describe('backfill (#91)', () => {
 			'Read 120 mail: 84 imported, 36 skipped.'
 		);
 		expect(backfillLine(bf({ total: 3, done: 3, ingested: 2, skipped: 1, failed: 1 }))).toBe(
-			'Read 3 mail: 2 imported, 1 skipped, 1 failed.'
+			'Read 3 mail: 2 imported, 1 skipped. 1 failed — see the server log.'
 		);
 		expect(backfillLine(bf())).toBe('Nothing in that label to import.');
 	});
@@ -191,6 +193,27 @@ describe('backfill (#91)', () => {
 		expect(
 			backfillLine(bf({ total: 2, done: 2, ingested: 1, skipped: 1, unknown: ['Your statement'] }))
 		).toContain('1 had no recognisable bank');
+	});
+
+	// #95: the beginner path imported 15 statements that all failed to decrypt and read as
+	// success. A failure now names the cause whenever the server counted it.
+	it('blames the missing password when the server named the locked banks', () => {
+		expect(
+			backfillLine(bf({ total: 15, done: 15, ingested: 0, skipped: 0, failed: 15, locked: ['cimb'] }))
+		).toBe(
+			'Read 15 mail: 0 imported, 0 skipped. 15 failed — the CIMB statements are password-protected. Add the password in step 2.'
+		);
+		expect(
+			backfillLine(bf({ total: 4, done: 4, ingested: 2, skipped: 0, failed: 2, locked: ['cimb', 'rhb'] }))
+		).toContain('the CIMB, RHB statements are password-protected');
+		// The Python half lands separately, so `locked` is empty until then — an empty
+		// list must not invent a cause.
+		expect(backfillLine(bf({ total: 1, done: 1, failed: 1 }))).toContain('see the server log');
+	});
+
+	it('fills in `locked` when the server has not started sending it yet', async () => {
+		const b = await backfillStatus(json({ running: false, total: 0, done: 0, ingested: 0, skipped: 0, failed: 0, unknown: [], error: null }));
+		expect(b!.locked).toEqual([]);
 	});
 
 	it('shows the server error rather than a stuck progress line', () => {
@@ -210,5 +233,30 @@ describe('backfill (#91)', () => {
 			throw new Error('offline');
 		}) as unknown as typeof fetch;
 		expect(await backfillStatus(offline)).toBeNull();
+	});
+});
+
+// #95: the nav pulses the Settings cog while this is true, so the predicate lives here —
+// the wave-2 issue owns only the nav components.
+describe('setupIncomplete', () => {
+	it('is true on a virgin config and false once any password exists', async () => {
+		await loadSettings(
+			json({ ...VIEW, secrets: { GMAIL_APP_PASSWORD: false, CC_PW_CIMB: false } })
+		);
+		expect(setupIncomplete()).toBe(true);
+
+		await loadSettings(json({ ...VIEW, secrets: { GMAIL_APP_PASSWORD: true, CC_PW_CIMB: false } }));
+		expect(setupIncomplete()).toBe(false);
+
+		await loadSettings(json({ ...VIEW, secrets: { GMAIL_APP_PASSWORD: false, CC_PW_CIMB: true } }));
+		expect(setupIncomplete()).toBe(false);
+	});
+
+	it('stays false before the server has answered — an unloaded store is not a verdict', () => {
+		cfg.loaded = false;
+		cfg.secrets = {};
+		expect(setupIncomplete()).toBe(false);
+		cfg.loaded = true;
+		expect(setupIncomplete()).toBe(true);
 	});
 });
