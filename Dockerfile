@@ -35,8 +35,13 @@ RUN rm -f build/healthz
 FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a AS runtime
 ARG APP_VERSION
 WORKDIR /app
-COPY server/requirements.txt ./server/requirements.txt
-RUN pip install --no-cache-dir -r server/requirements.txt
+# requirements.txt is the hand-edited input; the lock is what actually ships, so the
+# image installs the lock. --require-hashes is the point of it: every transitive is
+# pinned AND hash-checked, where before only the five direct pins were fixed and the
+# other 23 floated on whatever PyPI served that build. tests/test_requirements_lock.py
+# fails CI if the two drift apart.
+COPY server/requirements.lock ./server/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r server/requirements.lock
 # pipeline scripts (run as subprocesses by the runner)
 COPY parse.py insights.py dashboard.py export_data.py remind_bills.py fetch_mail.py llm_cats.py web_push.py ./
 COPY server/ ./server/
