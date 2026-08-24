@@ -153,8 +153,10 @@ file under a black box.
 ## How accurate is it
 
 Every statement is checked the boring way: previous balance, plus what you spent, minus
-what you paid, has to land on the new balance. On my own statements that is 82 of them,
-each matching to the cent. If a bank changes its layout and a statement stops adding up,
+what you paid, has to land on the new balance. On my own statements that is 78 of them,
+each matching to the cent, out of 82 files: the other four are the same statements
+arriving twice, and they are dropped rather than counted. If a bank changes its layout
+and a statement stops adding up,
 you get a flag rather than a wrong number you never notice.
 
 ## Statements arriving on their own

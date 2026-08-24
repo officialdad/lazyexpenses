@@ -112,6 +112,7 @@ committed copy with placeholders. Copy it, do not edit it.
 | `GMAIL_USER` | none | the mailbox to poll |
 | `GMAIL_APP_PASSWORD` | none | a Google app password, never your login password |
 | `GMAIL_LABEL` | `CC` | the label statement mail is filed under |
+| `IMAP_HOST` | `imap.gmail.com` | the mail server, for a non-Gmail mailbox |
 | `FETCH_POLL` | `3600` | seconds between mail checks |
 | `TELEGRAM_BOT_TOKEN` | none | the *optional* Telegram fallback; off unless both this and the chat id are set |
 | `TELEGRAM_CHAT_ID` | none | |
@@ -126,10 +127,8 @@ repo, or in a log line.
 ## Fetching statements from Gmail
 
 The server checks your mailbox every hour and posts every PDF attachment it finds to
-`/ingest`. Gmail exposes labels as IMAP mailboxes, so a label is just a mailbox to open,
-and `imaplib` and `email` both ship with Python, so there is nothing to install and
-nothing extra to run. The same code is also a standalone script (`fetch_mail.py`) if you would
-rather drive it from cron.
+`/ingest`. There is nothing to install and nothing extra to run. The same code is also a
+standalone script, `fetch_mail.py`, for driving it from cron instead.
 
 Set it up once:
 
@@ -142,11 +141,6 @@ Set it up once:
 3. **Label your statement mail.** Make a Gmail filter that applies a label (`CC` by
    default) to mail from your banks. The script only ever looks in that one mailbox, and
    only at unread messages in it.
-
-There is no IMAP switch to find. Google no longer offers one: *Settings → Forwarding and
-POP/IMAP* now shows only behaviour options under *IMAP access*, such as auto-expunge and
-folder size limits, and the defaults are all fine. If your account is old enough to still show an
-*Enable IMAP* radio, pick it.
 
 Then try it before trusting it:
 
@@ -168,9 +162,6 @@ server that was down, an unknown bank, or a mail with no PDF all stay unread and
 back on the next run. That is noisy on purpose. A statement that quietly vanishes into the
 read pile is one you never notice is missing. Re-running straight away does nothing,
 because everything that worked is already read.
-
-Google still issues app passwords with 2FA on, but has been signalling a move to
-OAuth 2.0. If that day comes, the login is four lines in one function.
 
 ### Importing the statements you already read
 
@@ -224,9 +215,6 @@ answers `410 Gone` and is forgotten.
 Two files appear on the volume: `vapid.json` (the signing key: **back it up with the
 rest, because replacing it makes every device re-enable reminders**) and `push_subs.json` (one
 entry per device you turned reminders on for).
-
-On iPhone, Safari only allows notifications for a PWA **added to the Home Screen**, over
-`https://`. Install it first, then press **Remind me** inside the installed app.
 
 ### Telegram (the fallback)
 
@@ -364,20 +352,13 @@ What it actually costs you:
   confidence on **every** answer, right or wrong, so the confidence column is decoration.
   **Do not filter on it.**
 
-  The old prompt made the model stop reading the merchant and answer one constant category
-  (`Shopping`) for all five. It was never a size problem: ask Gemma *"what kind of business
-  is K S S OTOMOBIL SDN BHD"* and it says "auto parts supplier"; `PERODUA SERVIS` → "auto
-  repair"; `DOMINOS MALAYSIA` → "pizza restaurant". Removing the descriptions gets that
-  knowledge back. Ruled out as causes along the way: the JSON-schema grammar, the `system`
-  role Gemma 3 does not have, truncation, and prompt length itself. A *longer* few-shot
-  prompt (309 tokens) still scored 4/5, while 26 extra tokens of category prose in the
-  system message dropped it straight back to 1/5. See the comment above `taxonomy()` in
-  `llm_cats.py` for the full variant table.
+  Category prose in the prompt is what breaks it, not model size: the old prompt made the
+  model answer one constant category for all five. The comment above `taxonomy()` in
+  `llm_cats.py` has the full variant table.
 
   **This is a 5-merchant pilot on synthetic strings.** Treat `suggested_cats.csv` as a
   ranked list of merchants worth looking at, and read every line before it goes into
-  `CATS`. Qwen2.5-0.5B is still the worse choice. It scored 0/5 on the old prompt and
-  ~1/5 even asked in plain English, so it lacks the knowledge rather than the prompt.
+  `CATS`.
 
 Nothing is applied for you. The run writes `suggested_cats.csv`, one row per merchant with
 the proposed category, the confidence, how many times it appeared and what it came to in
