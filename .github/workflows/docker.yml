@@ -86,6 +86,15 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           # The header names a pullable tag, so the bare version is substituted in.
+          # Idempotent on purpose. A re-run of a tag build, or a tag whose release was
+          # written by hand first, must not fail the whole run - the image is already
+          # pushed by then. An existing release also keeps its body: whoever wrote it
+          # knew more than --generate-notes does.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, leaving its notes alone"
+            exit 0
+          fi
+          # The header names a pullable tag, so the bare version is substituted in.
           sed "s/VERSION/${TAG#v}/" .github/release-header.md > /tmp/notes.md
           gh release create "$TAG" \
             --title "lazyexpenses ${TAG#v}" \

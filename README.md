@@ -17,7 +17,12 @@
   <img src="https://img.shields.io/badge/PWA-offline--first-5a0fc8" alt="Installable offline-first PWA">
   <img src="https://img.shields.io/badge/banks-6%20MY-f5a623" alt="Six Malaysian banks">
   <img src="https://img.shields.io/badge/LLM-optional-6b7280" alt="No LLM at runtime">
-  <a href="https://scorecard.dev/viewer/?uri=github.com/officialdad/lazyexpenses"><img src="https://api.scorecard.dev/projects/github.com/officialdad/lazyexpenses/badge" alt="OpenSSF Scorecard"></a>
+  <!-- The documented badge URL 302s to shields' `ossf-scorecard` endpoint, which reads the
+       LEGACY api.securityscorecards.dev - that host 404s for this repo and renders
+       "invalid repo path". The action publishes to api.scorecard.dev, which has the
+       score, so read it directly. Swap back to the short URL once the legacy host
+       carries this repo. -->
+  <a href="https://scorecard.dev/viewer/?uri=github.com/officialdad/lazyexpenses"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2Fofficialdad%2Flazyexpenses&query=%24.score&label=openssf%20scorecard&color=blue" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">
