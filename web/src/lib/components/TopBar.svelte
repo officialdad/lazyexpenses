@@ -5,6 +5,11 @@
   import SyncStatus from '$lib/components/SyncStatus.svelte';
   import Icon from './Icon.svelte';
 
+  // #94: the first-run setup state renders this shell with no data behind it — app is
+  // empty until the first statement lands. `bare` drops everything that reads `app`
+  // (sections, month/range, SyncStatus, Search) and keeps brand + the settings cog.
+  let { bare = false } = $props();
+
   const sections = [
     { id: 'overview', label: 'Overview' },
     { id: 'trends', label: 'Trends' },
@@ -53,32 +58,38 @@
   });
 </script>
 
-<header class="sticky top-0 z-20 border-b" style="background:var(--bg);border-color:var(--divider)">
+<!-- #94: `sticky top-0 z-20` lives on the layout wrapper, not here — this element is
+     the wrapper's whole content, so sticking to it gave zero scroll range. The opaque
+     background and border-b stay: a transparent sticky header shows scrolled content
+     through itself. -->
+<header class="border-b" style="background:var(--bg);border-color:var(--divider)">
   <div class="max-w-7xl mx-auto px-6 h-14 flex items-center gap-6">
     <span class="font-extrabold tracking-tight text-lg" style="color:var(--accent)">lazyexpenses</span>
-    <nav class="flex gap-5 text-[13px] uppercase tracking-wide font-bold">
-      {#each sections as s}
-        <a
-          href={base + '/#' + s.id}
-          onclick={(e) => go(e, s.id)}
-          aria-current={active === s.id ? 'page' : undefined}
-          style="color:{active === s.id ? 'var(--accent)' : 'var(--muted)'}"
-        >{s.label}</a>
-      {/each}
-    </nav>
-    <button type="button" onclick={() => (search.open = true)} aria-label="Search transactions"
-      class="iconbtn ml-auto" style="color:var(--muted)">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d={MAGNIFY} /></svg>
-    </button>
-    <span class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
-      {latestMonth()} · {app.range}
-    </span>
+    {#if !bare}
+      <nav class="flex gap-5 text-[13px] uppercase tracking-wide font-bold">
+        {#each sections as s}
+          <a
+            href={base + '/#' + s.id}
+            onclick={(e) => go(e, s.id)}
+            aria-current={active === s.id ? 'page' : undefined}
+            style="color:{active === s.id ? 'var(--accent)' : 'var(--muted)'}"
+          >{s.label}</a>
+        {/each}
+      </nav>
+      <button type="button" onclick={() => (search.open = true)} aria-label="Search transactions"
+        class="iconbtn ml-auto" style="color:var(--muted)">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d={MAGNIFY} /></svg>
+      </button>
+      <span class="text-[13px] uppercase tracking-wide font-bold" style="color:var(--muted)">
+        {latestMonth()} · {app.range}
+      </span>
+    {/if}
     <!-- #40: the four setup steps are all optional, so they need a way back.
          #66: an icon button, same cog as the BottomNav tab, so the two read as one feature. -->
-    <a href="{base}/settings" class="iconbtn" aria-label="Settings" title="Settings" style="color:var(--muted)">
+    <a href="{base}/settings" class="iconbtn {bare ? 'ml-auto' : ''}" aria-label="Settings" title="Settings" style="color:var(--muted)">
       <Icon name="cog-outline" size={20} />
     </a>
-    <SyncStatus />
+    {#if !bare}<SyncStatus />{/if}
   </div>
 </header>
 
