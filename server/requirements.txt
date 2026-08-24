@@ -1,5 +1,5 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-python-multipart==0.0.18
+python-multipart==0.0.32
 pdfplumber==0.11.4
-cryptography==46.0.3
+cryptography==50.0.0
