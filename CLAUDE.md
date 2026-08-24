@@ -113,7 +113,8 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
   ingest HTTP timeout, so warm it in-pod after any deploy that touches the parser:
   `kubectl exec deploy/<name> -- sh -c 'cd /app && python -c "from server import pipeline; pipeline.run_pipeline(\"/data\")"'`
   (0.5.0 and 0.6.0 did not touch `parse.py`, so those rollouts kept the cache — 83 entries.)
-  **The #82 release touches `parse.py`** (it grows the override lookup), so it pays that
+  **The #82 and #93 releases each touch `parse.py`** (#82 grows the override lookup, #93 makes
+  the ERROR recon row name its exception type and its bank), so each pays that
   full reparse once — warm it in-pod straight after the deploy. Every run *after* that is
   warm again, including the one `POST /api/cats` triggers, which is the whole reason the
   override is applied outside `parse_statement`.
