@@ -9,8 +9,8 @@ ARG APP_VERSION=dev
 # #99: pinned to $BUILDPLATFORM, so a multi-arch build runs `npm ci` + `npm run build` ONCE
 # natively instead of once per target under QEMU emulation. Sound because the output is
 # static HTML/JS/CSS with no native addon - the COPY --from below is the same bytes either
-# way. The runtime stage below is deliberately NOT pinned: it installs cryptography, which
-# resolves a per-architecture wheel and must build for the target.
+# way. The runtime stage below is deliberately NOT platform-pinned: it installs
+# cryptography, which resolves a per-architecture wheel and must build for the target.
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS web
 ARG APP_VERSION
 ENV VITE_APP_VERSION=$APP_VERSION
