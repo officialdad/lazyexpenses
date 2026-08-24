@@ -12,6 +12,18 @@ The bank is read straight from the filename. A file named `maybank_june.pdf` is 
 
 - One unlocked sample statement from the bank you want to add. A single PDF is enough to start.
 - Python 3.9 or newer, in a virtual environment, with `pdfplumber` installed.
+
+Runtime dependencies live in two files. `server/requirements.txt` is the hand-edited
+input and holds only the five direct pins. `server/requirements.lock` is compiled from
+it, pins all 28 packages including transitives, and carries hashes — and it is what the
+Dockerfile installs, so a bump that lands only in `requirements.txt` ships nothing.
+After changing a pin, recompile:
+
+```bash
+uv pip compile server/requirements.txt --python-version 3.12 --generate-hashes -o server/requirements.lock
+```
+
+`tests/test_requirements_lock.py` fails CI if the two drift apart.
 - The real previous and current balance off that statement, so you can confirm the parser agrees with the bank.
 
 Set that up once, from the repo root:
@@ -91,7 +103,7 @@ With those statements on disk the server's end-to-end test stops skipping itself
 The server tests use pytest, and also pass with no statements (the end-to-end one skips itself when there is no sample PDF):
 
 ```bash
-pip install pytest httpx    # httpx is what starlette's TestClient imports
+pip install pytest httpx2   # httpx2 is what starlette's TestClient imports
 python -m pytest server/
 ```
 
