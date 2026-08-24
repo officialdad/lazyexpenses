@@ -61,6 +61,26 @@ async function checkDesktopScrollSpy(b) {
   return result;
 }
 
+// #94: the desktop header is sticky. It was sticky on the wrong element (TopBar's own
+// <header>, whose parent is exactly one header tall), so it had zero scroll range and
+// left the viewport with the page. Nothing caught that, hence this: scroll / to the
+// bottom at 1440 and the header must still be pinned at y=0.
+async function checkStickyHeader(b) {
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  await page.goto(base + '/', { waitUntil: 'networkidle' });
+  await waitReady(page);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(400);
+  const r = await page.evaluate(() => {
+    const h = document.querySelector('header');
+    if (!h) return { top: null, scrolled: window.scrollY };
+    return { top: Math.round(h.getBoundingClientRect().top), scrolled: Math.round(window.scrollY) };
+  });
+  await ctx.close();
+  return r;
+}
+
 const spyResult = await checkDesktopScrollSpy(b);
 if (!spyResult.overviewActive) {
   issues.push(`[desktop] scroll-spy: #overview link NOT aria-current="page" at scrollTop=0 (active: ${spyResult.active.join(', ') || 'none'})`);
@@ -68,6 +88,17 @@ if (!spyResult.overviewActive) {
   issues.push(`[desktop] scroll-spy: multiple links are aria-current="page" at scrollTop=0 (${spyResult.active.join(', ')})`);
 } else {
   console.log('[desktop] scroll-spy: #overview is active at scrollTop=0 OK');
+}
+
+const sticky = await checkStickyHeader(b);
+if (sticky.top === null) {
+  issues.push('[desktop] sticky header: no <header> on / at 1440');
+} else if (sticky.scrolled < 100) {
+  issues.push(`[desktop] sticky header: page did not scroll (scrollY=${sticky.scrolled}), check is meaningless`);
+} else if (sticky.top !== 0) {
+  issues.push(`[desktop] sticky header: header.top=${sticky.top} after scrolling to the bottom (scrollY=${sticky.scrolled}), expected 0`);
+} else {
+  console.log(`[desktop] sticky header: pinned at top=0 after scrolling ${sticky.scrolled}px OK`);
 }
 
 for (const vp of widths) {

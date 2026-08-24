@@ -88,8 +88,11 @@
        ids mean every <label for> in Setup binds to whichever copy the browser saw first.
        IMPORTANT: the width toggles MUST stay display:none (lg:hidden / hidden lg:block).
        Do NOT switch to visibility:hidden or opacity:0 — only display:none removes the
-       inert subtree from the accessibility tree. -->
-  <div class="hidden lg:block"><TopBar /></div>
+       inert subtree from the accessibility tree.
+       #94: `sticky` belongs on THIS wrapper, not on TopBar's own <header>. A sticky
+       element is clamped to its parent's box, and the header is the wrapper's entire
+       content — one header tall, so zero scroll range, so it scrolled away. -->
+  <div class="hidden lg:block sticky top-0 z-20"><TopBar /></div>
 
   {#if DASHBOARD_ROUTES.includes(route)}
     <!-- Desktop renders all four views as anchored sections instead of the routed one, so
@@ -135,7 +138,12 @@
   </main>
 {:else if meta.status === 'setup'}
   <!-- #40: an empty volume is not an error, it is the state onboarding exists for.
-       This used to be a 404 and a blank page. -->
+       This used to be a 404 and a blank page.
+       #94: desktop gets the shell too, in its `bare` form — brand and the cog, nothing
+       that reads `app`. No BottomNav and no section tabs here on purpose: every other
+       route is empty until the first statement lands, so tabs would be five dead links.
+       Mobile first-run keeps the full-page Setup it already had. -->
+  <div class="hidden lg:block sticky top-0 z-20"><TopBar bare /></div>
   <Setup first={true} />
 {:else if meta.status === 'error'}
   <main class="mx-auto max-w-md px-4 py-16 text-center">

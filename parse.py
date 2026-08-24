@@ -530,7 +530,14 @@ def main():
         try:
             meta, txns = cached_parse(f)
         except Exception as e:
-            recon.append(dict(file=os.path.basename(f), bank='?', smonth='ERR', sdate=str(e),
+            # Name the exception type: str() of the PdfminerException that wraps
+            # PDFPasswordIncorrect is EMPTY, so `sdate` — the one cell holding the
+            # reason — said nothing at all. Bank comes from the filename, same place
+            # parse_statement takes it, so the failure groups under the bank whose
+            # password is missing instead of under '?'.
+            recon.append(dict(file=os.path.basename(f),
+                              bank=os.path.basename(f).split('_')[0], smonth='ERR',
+                              sdate=f"{type(e).__name__}: {e}".strip(': '),
                               prev=None, cur=None, debit=0, credit=0, expected=None, diff=None,
                               status='ERROR', n=0))
             continue

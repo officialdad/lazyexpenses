@@ -45,12 +45,52 @@ describe('Setup', () => {
 		);
 	});
 
-	it('does not ask for statement passwords unprompted on a first run', async () => {
-		const { queryByText } = render(Setup, { props: { first: true } });
+	it('asks for a statement password on a first run, one bank at a time', async () => {
+		const { container, getByText } = render(Setup, { props: { first: true } });
 		await waitFor(() => expect(cfg.banks.length).toBe(6));
-		// step 2 is asked in context, when a real file came back locked — a cold grid of
-		// six password boxes is the terminal experience #40 exists to delete
-		expect(queryByText('2 · Statement passwords')).toBeNull();
+		// #95: hiding step 2 here left no way to set a password before the import, and
+		// the import then reported success on statements that all failed to decrypt.
+		expect(getByText('2 · Statement passwords')).toBeTruthy();
+		const pick = container.querySelector('#pw-bank') as HTMLSelectElement;
+		expect([...pick.options].map((o) => o.value).slice(1)).toEqual(VIEW.banks);
+		expect(pick.value).toBe('');
+		// ...but still ONE field, not the cold grid of six #40 exists to delete
+		expect(container.querySelector('#pw-pick')).toBeTruthy();
+		for (const id of ['pw-maybank', 'pw-cimb', 'pw-rhb'])
+			expect(document.getElementById(id)).toBeNull();
+		// nothing can be saved until a bank is chosen
+		expect((container.querySelector('#pw-pick') as HTMLInputElement).disabled).toBe(true);
+	});
+
+	it('starts the first-run picker on the bank the backfill could not decrypt (#95)', async () => {
+		// onMount adopts a run already in progress, so the run has to still be going when
+		// the page loads and finish under the poll — that is when `bf.locked` lands.
+		let n = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => ({
+				ok: true,
+				status: 200,
+				json: async () =>
+					String(url).includes('backfill')
+						? {
+								running: n++ === 0, total: 15, done: 15, ingested: 0, skipped: 0,
+								failed: 15, unknown: [], locked: ['alliance'], error: null
+							}
+						: VIEW
+			}))
+		);
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			const { container, findByText } = render(Setup, { props: { first: true } });
+			await waitFor(() => expect(cfg.banks.length).toBe(6));
+			await vi.advanceTimersByTimeAsync(2500);   // one poll tick
+			await findByText(/15 failed — the ALLIANCE statements are password-protected/);
+			expect((container.querySelector('#pw-bank') as HTMLSelectElement).value).toBe('alliance');
+			expect((container.querySelector('#pw-pick') as HTMLInputElement).disabled).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('offers all four steps when revisited as Settings', async () => {

@@ -64,6 +64,18 @@
   // ---------------------------------------------------------------- 2. passwords
   let pw = $state<Record<string, string>>({});
   let pwSaved = $state('');
+  // Pick mode (#95): a first run has no upload to learn a bank from, so it asks. One
+  // field, not six — the grid stays a Settings thing.
+  let pwBank = $state('');
+  const pickKey = $derived(pwBank ? `CC_PW_${pwBank.toUpperCase()}` : '');
+  // The backfill names the banks it could not decrypt; start on the first of them.
+  $effect(() => {
+    const l = bf?.locked?.[0];
+    if (l && !pwBank) pwBank = l;
+  });
+  // Banks with no stored password, for the warning above "Import all past mail". Derived
+  // from the booleans /api/settings already returns — no new endpoint (#95).
+  const noPw = $derived(cfg.banks.filter((b) => !cfg.secrets[`CC_PW_${b.toUpperCase()}`]));
 
   async function savePw(b: string, thenRetry = false) {
     const key = `CC_PW_${b.toUpperCase()}`;
@@ -283,82 +295,121 @@
   </section>
 
   <!-- 2 ---------------------------------------------------------------- -->
-  <!-- Only ever asked when a real file came back locked, or from Settings where you
-       came looking for it. An unprompted grid of six password boxes is the terminal
-       experience this issue exists to delete. -->
-  {#if retry || !first}
-    <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s2">
-      <h2 id="s2" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
-        2 · Statement passwords
-      </h2>
-      {#if retry}
-        <p class="mt-2 text-sm">
-          That {pretty(retry.bank)} statement is password-protected. The covering email says what the
-          password is — usually your IC or date of birth.
-        </p>
-        <div class="mt-3 flex flex-col gap-2">
-          <label class="text-xs" for="pw-retry" style="color:var(--muted)"
-            >{pretty(retry.bank)} PDF password</label
+  <!-- Three modes, one section (#95). retry: a real file came back locked. pick: a first
+       run, which used to hide this entirely — leaving no way to set a password before
+       the import, so 15 statements failed to decrypt and still reported success. all:
+       Settings, where you came looking for it. Pick mode is one field on purpose: an
+       unprompted grid of six password boxes is the terminal experience we deleted. -->
+  <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s2">
+    <h2 id="s2" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
+      2 · Statement passwords
+    </h2>
+    {#if retry}
+      <p class="mt-2 text-sm">
+        That {pretty(retry.bank)} statement is password-protected. The covering email says what the
+        password is — usually your IC or date of birth.
+      </p>
+      <div class="mt-3 flex flex-col gap-2">
+        <label class="text-xs" for="pw-retry" style="color:var(--muted)"
+          >{pretty(retry.bank)} PDF password</label
+        >
+        <input
+          id="pw-retry"
+          type="password"
+          autocomplete="off"
+          bind:value={pw[retry.bank]}
+          class={FIELD}
+          style={FIELD_STYLE}
+        />
+        <div>
+          <button
+            type="button"
+            disabled={busy || !pw[retry.bank]}
+            class={BTN}
+            style={BTN_STYLE}
+            onclick={() => savePw(retry!.bank, true)}>Save and retry</button
           >
-          <input
-            id="pw-retry"
-            type="password"
-            autocomplete="off"
-            bind:value={pw[retry.bank]}
-            class={FIELD}
-            style={FIELD_STYLE}
-          />
-          <div>
+        </div>
+      </div>
+    {:else if first}
+      <p class="mt-2 text-sm">
+        Most banks lock the PDF they email you. The covering email says what the password is —
+        usually your IC or date of birth. Set the ones you have; you can come back for the rest.
+      </p>
+      <div class="mt-3 flex flex-col gap-2">
+        <label class="text-xs" for="pw-bank" style="color:var(--muted)">Which bank?</label>
+        <select id="pw-bank" bind:value={pwBank} class={FIELD} style={FIELD_STYLE}>
+          <option value="" disabled>Choose a bank…</option>
+          {#each cfg.banks as b (b)}
+            <option value={b}>{pretty(b)}{cfg.secrets[`CC_PW_${b.toUpperCase()}`] ? ' · set' : ''}</option>
+          {/each}
+        </select>
+        <label class="text-xs" for="pw-pick" style="color:var(--muted)">
+          PDF password {@render lock(pickKey)}
+        </label>
+        <input
+          id="pw-pick"
+          type="password"
+          autocomplete="off"
+          disabled={!pwBank || isLocked(pickKey)}
+          bind:value={pw[pwBank]}
+          class={FIELD}
+          style={FIELD_STYLE}
+        />
+        <div>
+          <button
+            type="button"
+            disabled={busy || !pwBank || isLocked(pickKey) || !pw[pwBank]}
+            class={BTN}
+            style={BTN_STYLE}
+            onclick={() => savePw(pwBank)}>Save</button
+          >
+        </div>
+      </div>
+    {:else}
+      <p class="mt-2 text-xs" style="color:var(--muted)">
+        Stored once per bank and reused for every statement it sends. Leave a box empty to keep
+        what is already there.
+      </p>
+      <div class="mt-3 flex flex-col gap-3">
+        {#each cfg.banks as b (b)}
+          {@const key = `CC_PW_${b.toUpperCase()}`}
+          <div class="flex items-end gap-2">
+            <div class="flex-1">
+              <label class="mb-1 block text-xs" for={'pw-' + b} style="color:var(--muted)">
+                {pretty(b)}
+                {#if cfg.secrets[key]}<span style="color:var(--ok)">· set</span>{:else}<span
+                    >· not set</span
+                  >{/if}
+                {@render lock(key)}
+              </label>
+              <input
+                id={'pw-' + b}
+                type="password"
+                autocomplete="off"
+                disabled={isLocked(key)}
+                bind:value={pw[b]}
+                class={FIELD}
+                style={FIELD_STYLE}
+              />
+            </div>
             <button
               type="button"
-              disabled={busy || !pw[retry.bank]}
+              disabled={busy || isLocked(key) || !pw[b]}
               class={BTN}
               style={BTN_STYLE}
-              onclick={() => savePw(retry!.bank, true)}>Save and retry</button
+              onclick={() => savePw(b)}>Save</button
             >
           </div>
-        </div>
-      {:else}
-        <p class="mt-2 text-xs" style="color:var(--muted)">
-          Stored once per bank and reused for every statement it sends. Leave a box empty to keep
-          what is already there.
-        </p>
-        <div class="mt-3 flex flex-col gap-3">
-          {#each cfg.banks as b (b)}
-            {@const key = `CC_PW_${b.toUpperCase()}`}
-            <div class="flex items-end gap-2">
-              <div class="flex-1">
-                <label class="mb-1 block text-xs" for={'pw-' + b} style="color:var(--muted)">
-                  {pretty(b)}
-                  {#if cfg.secrets[key]}<span style="color:var(--ok)">· set</span>{:else}<span
-                      >· not set</span
-                    >{/if}
-                  {@render lock(key)}
-                </label>
-                <input
-                  id={'pw-' + b}
-                  type="password"
-                  autocomplete="off"
-                  disabled={isLocked(key)}
-                  bind:value={pw[b]}
-                  class={FIELD}
-                  style={FIELD_STYLE}
-                />
-              </div>
-              <button
-                type="button"
-                disabled={busy || isLocked(key) || !pw[b]}
-                class={BTN}
-                style={BTN_STYLE}
-                onclick={() => savePw(b)}>Save</button
-              >
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if pwSaved}<p class="mt-2 text-xs" style="color:var(--muted)" role="status">{pwSaved}</p>{/if}
-    </section>
-  {/if}
+        {/each}
+      </div>
+    {/if}
+    <p class="mt-3 text-[11px]" style="color:var(--muted)">
+      Set these here, or as <code>CC_PW_*</code> in <code>.env</code> if you run your own stack.
+      Env wins and greys the box out.
+    </p>
+    {#if pwSaved}<p class="mt-2 text-xs" style="color:var(--muted)" role="status">{pwSaved}</p>{/if}
+  </section>
 
   <!-- 3 ---------------------------------------------------------------- -->
   <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s3">
@@ -416,6 +467,12 @@
           style={FIELD_STYLE}
         />
       </div>
+      {#if noPw.length}
+        <p class="text-xs" style="color:var(--over)" role="status">
+          No password set for {noPw.map(pretty).join(', ')}. Password-protected statements from
+          those will fail to parse.
+        </p>
+      {/if}
       <div class="flex flex-wrap gap-2">
         <button type="submit" disabled={busy} class={BTN} style={BTN_STYLE}>
           {busy ? 'Connecting…' : 'Save and test connection'}
