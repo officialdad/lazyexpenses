@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/PWA-offline--first-5a0fc8" alt="Installable offline-first PWA">
   <img src="https://img.shields.io/badge/banks-6%20MY-f5a623" alt="Six Malaysian banks">
   <img src="https://img.shields.io/badge/LLM-optional-6b7280" alt="No LLM at runtime">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/officialdad/lazyexpenses"><img src="https://api.scorecard.dev/projects/github.com/officialdad/lazyexpenses/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">
