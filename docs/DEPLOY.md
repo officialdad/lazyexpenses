@@ -19,13 +19,39 @@ you, it is enough. Nothing below is needed to use the parser or the offline dash
 
 ## The quick version
 
+Docker with Compose v2 is the only prerequisite: `docker compose version` must print a
+version. Install it from <https://docs.docker.com/get-docker/>.
+
 ```bash
+git clone https://github.com/officialdad/lazyexpenses.git
+cd lazyexpenses
 cp .env.example .env    # then open it and fill in what you have
 # change APP_PASSWORD: the value it ships with is a placeholder, not a password
 docker compose up -d
 ```
 
 Open <http://localhost:8000>. That is the whole deployment.
+
+**No git on that machine?** Two files are the whole repo as far as Docker is concerned —
+`compose.yaml` and `.env.example`. Download them into an empty directory and carry on
+from `cp .env.example .env` above:
+
+```bash
+curl -O https://raw.githubusercontent.com/officialdad/lazyexpenses/main/compose.yaml
+curl -O https://raw.githubusercontent.com/officialdad/lazyexpenses/main/.env.example
+```
+
+Did it start?
+
+```bash
+curl -sf http://localhost:8000/healthz && echo up
+```
+
+`/healthz` answers `{"ok":true,"version":"…"}` and takes no password, so it works before
+you log in and whatever `APP_PASSWORD` holds. `docker compose ps` says whether the
+container is running, `docker compose logs -f` says what it is doing, and
+`docker compose down` stops it and leaves the data volume alone. Nothing starting? See
+[the troubleshooting table](#upgrading-and-backing-up).
 
 **Change the password first.** `.env.example` ships `APP_PASSWORD=changeme@123` so that a
 fresh install is closed rather than wide open, but that value is printed in a public repo
@@ -610,6 +636,10 @@ change must never serve rows from the old rules.
 
 | Symptom | Where to look |
 |---|---|
+| `env file /…/.env not found: stat /…/.env: no such file or directory` | `compose.yaml` declares `env_file: .env` and Compose refuses to start without it. Run `cp .env.example .env` first |
+| `port is already allocated`, or `failed to bind host port 0.0.0.0:8000/tcp: address already in use` | something else holds 8000. Set `PORT` in `.env` to a free port. The first wording means another container, the second any other process |
+| `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | Linux, and your user is not in the `docker` group. `sudo usermod -aG docker $USER`, then log out and back in. Older Docker says `…the Docker daemon socket at…` |
+| `exec format error` | you are on an arm64 machine running an amd64-only image published before arm64 support. `docker compose pull` for the latest tag |
 | Page loads, no data | `/data/app.json` does not exist yet, so nothing has been ingested |
 | A statement shows `ERROR` | locked PDF, and its `CC_PW_<BANK>` is unset or wrong |
 | A statement shows `REVIEW` | the bank changed its layout; `python dev/probe.py <file>` shows what the parser sees |
