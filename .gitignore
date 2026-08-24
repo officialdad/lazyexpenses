@@ -30,6 +30,9 @@ docs/superpowers/
 
 # local deployment config - real secrets
 .env
+# optional local-HTTPS rig (docs/DEPLOY.md): your own CA + leaf key, never committed
+local-https/
+compose.override.yaml
 
 # agent worktrees - four checkouts of this repo, never committed
 .claude/worktrees/

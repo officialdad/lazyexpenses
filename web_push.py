@@ -26,9 +26,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-# Push services want a way to contact whoever is sending; nothing here is emailed, and
-# every service in practice accepts any mailto:. Override if one ever complains.
-VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:bills@lazyexpenses.invalid")
+# Push services want a way to contact whoever is sending; nothing here is emailed.
+# Apple validates the domain and rejects an unresolvable one with 403 BadJwtToken, which
+# is why the default is a real https:// URL and not a mailto: on a .invalid domain (#76).
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "https://github.com/officialdad/lazyexpenses")
 TTL = "86400"          # let the push service hold a reminder for a day if the phone is off
 RECORD_SIZE = 4096     # RFC 8188 rs; one record is plenty for a two-line notification
 
