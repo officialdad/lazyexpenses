@@ -158,6 +158,15 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
   single answer; length is not the variable (a *longer* few-shot prompt scores the same). Measured
   1/5 → 4/5. `test_llm_cats.py::test_the_prompt_is_the_category_names_and_nothing_else` guards it.
   Confidence is decoration: `high` comes back on wrong answers too.
+- **`VAPID_SUBJECT` must resolve, and only Apple checks (#76).** `web.push.apple.com`
+  validates the JWT `sub` domain and answers `403 {"reason":"BadJwtToken"}` for a fake one;
+  Mozilla and Google accept anything. The old default `mailto:bills@lazyexpenses.invalid`
+  therefore broke iOS push and nothing else — it now defaults to the repo's https URL.
+  Changing it needs no key rotation: `sub` is read at sign time, not part of the keypair.
+  iOS Web Push is otherwise **verified end to end** on Safari and iOS Chrome (same WebKit
+  bridge) — `togglePush()`'s `await serviceWorker.ready` before `requestPermission()` does
+  **not** burn the activation window, that was disproved with an isolated diagnostic PWA.
+  To reset a refused iOS permission, remove the Home Screen app and reinstall it.
 - **`urllib` capitalises header names**, so Web Push requests carry `Ttl:` and `Content-encoding:`.
   Services accept them (headers are case-insensitive), but do not grep for `TTL`.
 - **An internal hostname resolves to a private IP, so off-LAN access needs a tailnet Split DNS

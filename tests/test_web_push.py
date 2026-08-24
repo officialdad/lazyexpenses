@@ -82,7 +82,9 @@ def test_vapid_jwt_verifies_with_the_public_key():
         pk.verify(der, f"{head}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))  # raises if bad
         body = json.loads(_unb64(claims))
         assert body["aud"] == "https://push.example.net", body
-        assert body["sub"].startswith("mailto:") and body["exp"] > 0, body
+        # RFC 8292 allows either scheme for `sub`; the default is https:// because Apple
+        # rejects an unresolvable mailto: domain with 403 BadJwtToken (#76).
+        assert body["sub"].startswith(("mailto:", "https://")) and body["exp"] > 0, body
         assert json.loads(base64.urlsafe_b64decode(head + "=="))["alg"] == "ES256"
 
 

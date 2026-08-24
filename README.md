@@ -173,7 +173,9 @@ Press **Remind me** next to the bills and allow notifications. You get one notif
 when a statement lands, with the amount and the due date, and another a few days before
 it is due. There are no accounts or tokens to set up anywhere. It needs `https://` or
 `http://localhost` to work, and on an iPhone you have to add the app to the Home Screen
-first. Telegram is still there as a fallback for a desktop you never install the app on;
+first. No domain and no public host? `docs/DEPLOY.md` has a
+[self-signed HTTPS recipe](docs/DEPLOY.md#https-on-a-lan-ip-no-domain-and-no-vps) for a bare
+LAN IP. Telegram is still there as a fallback for a desktop you never install the app on;
 see [docs/DEPLOY.md](docs/DEPLOY.md#bill-reminders).
 
 ## Your data

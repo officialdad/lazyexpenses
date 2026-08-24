@@ -116,7 +116,7 @@ committed copy with placeholders. Copy it, do not edit it.
 | `FETCH_POLL` | `3600` | seconds between mail checks |
 | `TELEGRAM_BOT_TOKEN` | none | the *optional* Telegram fallback; off unless both this and the chat id are set |
 | `TELEGRAM_CHAT_ID` | none | |
-| `VAPID_SUBJECT` | `mailto:bills@lazyexpenses.invalid` | contact address the push services see. Nothing is emailed to it; change it only if a push service complains |
+| `VAPID_SUBJECT` | `https://github.com/officialdad/lazyexpenses` | contact address the push services see. Nothing is emailed to it. It must resolve: **Apple rejects an unresolvable domain** with `403 BadJwtToken`, so a `.invalid` value breaks iOS push while every other service still accepts it |
 | `REMIND_DAYS` | `3` | how far ahead to look |
 | `REMIND_HOUR` | `9` | earliest local hour to send |
 | `REMIND_TEMPLATE` | the message below | Telegram HTML plus the placeholders below |
@@ -205,7 +205,18 @@ Two things have to be true, and both are the same conditions as installing the a
   `http://192.168.x.x` address the browser gives you no service worker and therefore no
   notifications. See [Putting it on your network](#putting-it-on-your-network).
 - **On iPhone/iPad, the app has to be installed** (Share → Add to Home Screen) and opened
-  from the Home Screen. Safari allows push for installed web apps only.
+  from the Home Screen. Safari allows push for installed web apps only. iOS Chrome behaves
+  identically — Apple makes every iOS browser use WebKit, so both go through the same
+  bridge. Verified end to end on a real device (#76), Safari and Chrome.
+
+There is one iOS-only trap: `VAPID_SUBJECT` **has to resolve**. Apple validates the domain
+in the signed request and answers `403 BadJwtToken` for a fake one, while Mozilla and
+Google accept it — so a bad value looks like "push works everywhere except iPhone". The
+default is a real URL; if you override it, use your own `mailto:` address or an `https://`
+URL, not a made-up domain. Changing it needs no new key, only a restart.
+
+To reset a permission you already refused on iOS, remove the app from the Home Screen and
+re-install it. There is no per-site toggle in Settings for an installed web app.
 
 The app says which of these is missing rather than doing nothing quietly. A permission
 you refuse, a browser that cannot do push, and a subscription the browser later revokes
@@ -457,6 +468,105 @@ self-signed certificate means installing your own CA on every device that should
 
 Whatever you put in front, the security note above still applies. A tunnel that gives you
 a public hostname also gives it to everyone else.
+
+### HTTPS on a LAN IP, no domain and no VPS
+
+This is the route if you have neither a domain nor a public host: a self-signed CA of your
+own, Caddy in front of the app, and the CA trusted on the one phone you install the app on.
+It is what #76's iOS Web Push test ran on. `local-https/` and `compose.override.yaml` are
+both already gitignored, so none of it can be committed, and deleting the folder goes
+straight back to plain HTTP on `:8000`.
+
+**1. A CA and a leaf certificate**, plain `openssl`, nothing to install:
+
+```bash
+mkdir -p local-https/certs && cd local-https/certs
+
+# your own root, trusted on your own devices only
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+  -keyout ca.key -out ca.crt \
+  -subj "/O=lazyexpenses/CN=lazyexpenses local CA"
+
+# the SAN must list exactly how the phone reaches it - a browser ignores the CN
+cat > leaf.ext <<'EOF'
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=IP:<LAN-IP>,IP:127.0.0.1,DNS:localhost
+EOF
+
+openssl req -newkey rsa:2048 -nodes \
+  -keyout server.key -out server.csr -subj "/CN=<LAN-IP>"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 397 -extfile leaf.ext
+```
+
+`ca.key`, `server.key` and `server.csr` never leave the machine. Only `ca.crt` is copied
+anywhere.
+
+**2. Caddy in front of the unmodified app.** `compose.override.yaml` — Compose merges it in
+by itself, so `docker compose up -d` takes no extra flag:
+
+```yaml
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports: ["8443:8443"]
+    volumes:
+      - ./local-https/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./local-https/certs:/certs:ro
+    restart: unless-stopped
+    depends_on: [app]
+```
+
+`local-https/Caddyfile`:
+
+```
+{
+  auto_https off
+  admin off
+}
+:8443 {
+  tls /certs/server.crt /certs/server.key
+  reverse_proxy app:8000
+}
+```
+
+`auto_https off` is required: Caddy's default is to fetch a real certificate from Let's
+Encrypt, which cannot be issued for a private IP.
+
+**3. Trust the CA on the phone.** Email `ca.crt` to yourself — **only `ca.crt`**, never
+`ca.key` or `server.key` — and open the attachment in Mail on the device.
+
+- iOS offers *Install Profile* → **Settings → General → VPN & Device Management** → install.
+- Then **Settings → General → About → Certificate Trust Settings** → turn on full trust for
+  it. The profile alone is not enough; this second toggle is what makes Safari accept the
+  leaf certificate.
+- Android: **Settings → Security → Encryption & credentials → Install a certificate → CA
+  certificate**.
+
+**4. If the app runs inside WSL2**, its NAT does not forward LAN traffic to the guest. Run
+this elevated **on the Windows host**, not inside WSL:
+
+```powershell
+New-NetFirewallRule -DisplayName "lazyexpenses 8443" -Direction Inbound -Protocol TCP -LocalPort 8443 -Profile Private -Action Allow
+```
+
+**5. Install and test.** Open `https://<LAN-IP>:8443/` on the phone → Share → **Add to Home
+Screen** → open it from the Home Screen → Overview → **Bills due** → **Remind me** → allow.
+Confirm `POST /api/push/subscribe` 200 in `docker compose logs app`, then send one by hand:
+
+```bash
+docker compose exec app python -c "import web_push; print(web_push.send('lazyexpenses', 'test push'))"
+```
+
+The number is browsers reached. `0` with a non-empty `web_push.load_subs()` means every
+stored subscription was rejected — on iOS, check `VAPID_SUBJECT` first. `0` with an empty
+one means nothing ever subscribed, so press **Remind me** again.
+
+A certificate you sign yourself is trusted by the devices you install the CA on and by
+nothing else. It buys the secure context that install and Web Push need on a LAN address.
+It is not a reason to expose the port beyond the LAN — the security note above still holds.
 
 ## Without Docker
 
