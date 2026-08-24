@@ -78,14 +78,30 @@ says you owe on it.
 
 ## Start it
 
+You need Docker with Compose v2 — `docker compose version` must print a version, because
+`docker-compose` (v1, with the hyphen) is not it. Install it from
+<https://docs.docker.com/get-docker/>.
+
 ```bash
-cp .env.example .env
+git clone https://github.com/officialdad/lazyexpenses.git
+cd lazyexpenses
+cp .env.example .env      # then change APP_PASSWORD
 docker compose up -d
 ```
 
 Open <http://localhost:8000> and sign in with `changeme@123`. **That password is in a
 public repository, so change it.** It is the `APP_PASSWORD` line in your `.env`, and
 [docs/DEPLOY.md](docs/DEPLOY.md#locking-it-with-a-password) has the details.
+
+Three commands run it from there:
+
+- `docker compose ps` — it is up
+- `docker compose logs -f` — what it is doing
+- `docker compose down` — stop it, keeping your data
+
+No git on that machine? [docs/DEPLOY.md](docs/DEPLOY.md#the-quick-version) has the
+two-file download instead. Nothing that does not start? The same page has a
+[troubleshooting table](docs/DEPLOY.md#upgrading-and-backing-up).
 
 The app opens on a setup page asking for one statement. Choose the bank it came from,
 upload the PDF exactly as it arrived, and the page becomes a dashboard. If the PDF is
