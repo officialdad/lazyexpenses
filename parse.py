@@ -522,6 +522,13 @@ def cached_parse(f):
 
 def main():
     files = sorted(glob.glob(os.path.join(SRC, '*.pdf')))
+    if not files:
+        # An empty corpus is a legitimate first run, not an error (#101). Say so and keep
+        # going: silence reads as a broken install, but returning here would skip the empty
+        # CSVs that insights.py opens unconditionally, turning a clean state into a crash.
+        print(f"No statements in {SRC}/ - put your statement PDFs there, named "
+              f"<bank>_<anything>.pdf where <bank> is one of {', '.join(sorted(BANKS))}, "
+              f"or run: python dev/make_demo_data.py --pdfs")
     overrides = load_overrides()
     tx_rows = []
     recon = []

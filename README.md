@@ -214,16 +214,26 @@ it on your own machine or a private network, not on the open internet.
 ## Prefer to run it yourself?
 
 You do not have to run a server. The parser and the offline single-file dashboard are
-plain scripts with one dependency:
+plain scripts with one dependency. They need **Python 3.9 or newer**:
 
 ```bash
-python -m pip install pdfplumber
+python3 -m venv .venv && . .venv/bin/activate   # Debian/Ubuntu: apt install python3-venv first
+pip install pdfplumber
+mkdir -p cc-statements                          # gitignored, so a fresh clone has no such directory
 python parse.py        # reads cc-statements/*.pdf, writes CSVs, prints a reconciliation report
 python dashboard.py    # builds dashboard.html, which opens offline in any browser
 ```
 
-Every statement in that report should say `VERIFIED`. `REVIEW` means the numbers did not
+The virtual environment comes first for two reasons. Debian and Ubuntu ship `python3` and
+no `python`, and inside the environment `python` resolves — so every other command in
+these docs runs exactly as written. They also refuse a system-wide `pip install` with
+`error: externally-managed-environment` (PEP 668), and the environment is what avoids
+that. Open a new terminal later and run `. .venv/bin/activate` again before anything else.
+
+Every statement in that report must say `VERIFIED`. `REVIEW` means the numbers did not
 add up and something was misread; `NO_BALANCE` means the balances were not found at all.
+With `cc-statements/` still empty, `parse.py` says so in one line instead of printing
+nothing.
 
 With no statements to hand, the repo can invent a year of them, one per bank per month.
 Everything downstream runs on the fake ones exactly as it would on real data, and it is

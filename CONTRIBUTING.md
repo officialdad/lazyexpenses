@@ -11,8 +11,18 @@ The bank is read straight from the filename. A file named `maybank_june.pdf` is 
 ## What you need
 
 - One unlocked sample statement from the bank you want to add. A single PDF is enough to start.
-- Python with `pdfplumber` installed.
+- Python 3.9 or newer, in a virtual environment, with `pdfplumber` installed.
 - The real previous and current balance off that statement, so you can confirm the parser agrees with the bank.
+
+Set that up once, from the repo root:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate   # Debian/Ubuntu: apt install python3-venv first
+pip install pdfplumber
+mkdir -p cc-statements                          # gitignored, so a fresh clone has no such directory
+```
+
+Every `python x.py` below assumes that environment is active. Debian and Ubuntu ship `python3` and no `python`, and inside the environment `python` resolves, so the commands run exactly as written. A system-wide `pip install` on those distributions fails with `error: externally-managed-environment` (PEP 668); the environment is what avoids that. Re-activate it with `. .venv/bin/activate` in every new terminal.
 
 ## Adding a bank, step by step
 
