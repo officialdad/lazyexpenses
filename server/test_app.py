@@ -91,6 +91,47 @@ def test_release_critical_static_files_revalidate_and_hashed_assets_do_not():
         assert c.get("/sw.js", headers={"if-none-match": etag}).status_code == 304
 
 
+def test_data_json_routes_revalidate():
+    """#118: the sibling of the #75 test above, and the hole it left.
+
+    `_cache_control` runs inside `SPAStaticFiles.get_response`, but every /data/*.json
+    route is an explicit APIRoute registered BEFORE that mount, so none of them was ever
+    covered — they shipped with no Cache-Control at all. app.json is the only one served
+    as a FileResponse, so it is the only one that also carries a Last-Modified, and that
+    pairing is what a browser turns into HEURISTIC freshness (~10% of Date - Last-Modified)
+    and serves from disk without asking the origin. Observed in prod: zero origin hits for
+    app.json across 30h while paid/cats/waivers, fetched in the SAME onMount, hit it dozens
+    of times. A hard reload did not help, because Workbox's NetworkFirst handler issues its
+    own fetch inside the service worker and that fetch does not inherit the reload flag.
+
+    Mutation check: drop any one `_no_cache(...)` wrapper in app.py and this goes red."""
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "app.json"), "w", encoding="utf-8") as fh:
+            json.dump({"bills": [{"bank": "hsbc", "statement_month": "2026-09"}]}, fh)
+        c, _ = _client(d)
+
+        # app.json is the FileResponse one — the actual prod regression.
+        for path in ("/data/app.json", "/bills",
+                     "/data/paid.json", "/data/cats.json", "/data/waivers.json"):
+            r = c.get(path)
+            assert r.status_code == 200, path
+            assert r.headers.get("cache-control") == "no-cache", path
+
+        # no-cache, NOT no-store: the ETag must still turn an unchanged app.json into a
+        # 304 with no body. It is 200KB in prod, so this is the whole cost argument.
+        etag = c.get("/data/app.json").headers["etag"]
+        assert c.get("/data/app.json", headers={"if-none-match": etag}).status_code == 304
+
+    # The absent-file branch of each route returns early, so it needs the header too:
+    # a first-run volume must not let a browser pin an empty [] or {}.
+    with tempfile.TemporaryDirectory() as empty:
+        c2, _ = _client(empty)
+        for path in ("/bills", "/data/paid.json", "/data/cats.json", "/data/waivers.json"):
+            r = c2.get(path)
+            assert r.status_code == 200, path
+            assert r.headers.get("cache-control") == "no-cache", path
+
+
 def test_prerendered_route_and_spa_fallback():
     # Extensionless prerendered routes (/trends) must resolve to <route>.html, and any
     # unknown path must fall back to the SPA shell — without this the Workbox precache

@@ -1,6 +1,7 @@
 import { base } from '$app/paths';
 import type { AppData } from './types';
 import { monthlySeries, byCategory, topMerchants } from './trends';
+import { FRESH } from './fresh';
 
 export type LoadStatus = 'loading' | 'ready' | 'error' | 'auth' | 'setup';
 
@@ -43,7 +44,7 @@ export async function loadAppData(f: typeof fetch = fetch): Promise<void> {
   meta.status = 'loading';
   meta.error = '';
   try {
-    const res = await f(base + '/data/app.json');
+    const res = await f(base + '/data/app.json', FRESH);
     // 401 = the server has APP_PASSWORD set and we have no session cookie. That is not
     // an error to retry, it is a prompt to show — a fourth state, not a fourth screen.
     if (res.status === 401) {

@@ -130,10 +130,33 @@ encrypted), `vapid.json` (replacing it silently orphans every stored push subscr
 - **Telegram will not let a bot message first.** A misconfigured reminder returns `400 Bad Request`
   whose body says `chat not found`; `send()` now keeps that description, because the status line
   alone is useless in an unattended log. Fix is to message the bot once from the target chat.
-- **PWA runtime-refresh gate** (carried from Plan 2, still unverified in prod): the vite-pwa service
-  worker must serve `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores` +
-  `runtimeCaching`, cache `app-data`). Without it an installed PWA precaches the data cache-first and
-  never sees a refresh until a rebuild. Verify by swapping `app.json` on the PVC and reloading.
+- **PWA runtime-refresh gate — NetworkFirst is deployed, correct, and was NOT sufficient.** The
+  vite-pwa worker does serve `/data/app.json` **NetworkFirst** (`web/vite.config.ts` `globIgnores`
+  + `runtimeCaching`, cache `app-data`), confirmed in the shipped `sw.js`. It never fired, because
+  the request did not get that far: `/data/app.json` is served by a **`FileResponse` on an explicit
+  APIRoute**, so it carried an `ETag` and a `Last-Modified` but **no `Cache-Control`** — and #75's
+  `_cache_control` only runs inside `SPAStaticFiles.get_response`, which those routes are registered
+  *before*. No Cache-Control plus a Last-Modified is not "always revalidate": a browser computes
+  **heuristic freshness ≈ 10% of (Date − Last-Modified)** and answers from disk without asking. The
+  loop is vicious — the longer `app.json` goes unwritten, the wider that gap, so the longer the
+  stale copy is pinned. Live symptom: **zero origin hits for `app.json` over 30h** while
+  `paid`/`cats`/`waivers`, fetched in the *same* `onMount`, hit it dozens of times — those are
+  `JSONResponse`, carry no `Last-Modified`, and so were never heuristically cacheable. **A hard
+  reload does not clear it**: the reload flag covers the document and the page's own requests, but
+  Workbox's NetworkFirst handler issues its **own `fetch()` inside the service worker**, which does
+  not inherit that flag. Fixed by `_no_cache()` on the four `/data/*.json` routes + `/bills`, with
+  a hand-rolled conditional GET on `app.json` (a bare `FileResponse` sets an ETag but does **not**
+  negotiate 304 — only `StaticFiles` does — so without it `no-cache` would mean re-sending 200KB
+  every load). `test_app.py::test_data_json_routes_revalidate` is the guard.
+  **Diagnose this class of bug from the access log, not the browser**: when the origin shows no
+  request at all, nothing you clear client-side is the fix.
+- **Data staleness has a second half no header can reach: the client not asking at all.**
+  `loadAppData()` ran once in `onMount` and never again, so an installed PWA resumed from the
+  background rendered whatever it fetched when it was last opened. `app.html` had solved this for
+  the *shell* in #67 (`reg.update()` on an interval and on resume); `$lib/refresh.ts` is the same
+  move for the *data*, on the same 60s floor. `$lib/fresh.ts` holds the one `RequestInit`
+  (`cache: 'no-cache'`) all four loaders pass — **`no-cache`, never `no-store`**, or the conditional
+  GET above is thrown away and every resume re-downloads the whole file.
 - **`app.json` lives on the PVC and a deploy does NOT rewrite it.** The icon table ships inside it,
   so a newly added MDI icon renders as `Icon.svelte`'s visible `square-outline` fallback in prod
   until a pipeline run. Two releases in a row needed the manual warm above (#64's bell, #66's cog).

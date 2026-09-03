@@ -22,7 +22,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -192,6 +192,35 @@ def _cache_control(path: str) -> str:
     every release, so it must revalidate or a client can sit on last month's shell."""
     return ("public, max-age=31536000, immutable"
             if path.replace("\\", "/").startswith(IMMUTABLE) else "no-cache")
+
+
+def _no_cache(res):
+    """#118: stamp `no-cache` on a /data/*.json response and return it.
+
+    #75 gave every file behind the SPA mount a Cache-Control, but `_cache_control` runs
+    inside `SPAStaticFiles.get_response` and the /data/*.json routes are explicit
+    APIRoutes registered BEFORE that mount — so they never reached it and shipped with no
+    Cache-Control at all. That is NOT a browser default of "always revalidate": with no
+    Cache-Control but a Last-Modified present, a browser computes HEURISTIC freshness of
+    ~10% of (Date - Last-Modified) and serves its cached copy without asking. app.json is
+    the only one of the five served as a FileResponse, so it is the only one carrying a
+    Last-Modified — which is exactly the asymmetry the access log showed: zero origin hits
+    for app.json over 30h against dozens for the JSONResponse routes, all four loaded in
+    the same onMount.
+
+    The loop is vicious: the longer app.json goes unwritten, the wider that gap, so the
+    longer a browser pins the stale copy. A freshly ingested statement stays invisible.
+
+    A hard reload does not clear it. The reload flag applies to the document and to the
+    requests the page issues, but Workbox's NetworkFirst handler issues its OWN fetch
+    inside the service worker, which does not inherit that flag and is answered from the
+    HTTP cache. The `app-data` NetworkFirst route is correct and was never the problem.
+
+    `no-cache` is revalidate-every-time, NOT `no-store`: FileResponse's ETag still turns an
+    unchanged 200KB app.json into a 304 with no body, so the cost is one round trip.
+    """
+    res.headers["cache-control"] = "no-cache"
+    return res
 
 
 class SPAStaticFiles(StaticFiles):
@@ -425,19 +454,33 @@ def create_app() -> FastAPI:
         return res
 
     @app.get("/data/app.json")
-    def data_app_json():
+    def data_app_json(request: Request):
         p = _data_dir() / "app.json"
         if not p.exists():
             raise HTTPException(status_code=404, detail="app.json not generated yet")
-        return FileResponse(str(p), media_type="application/json")
+        # `stat_result` makes FileResponse compute its ETag NOW rather than at send time,
+        # so it can be compared before the body is queued.
+        res = _no_cache(FileResponse(str(p), media_type="application/json",
+                                     stat_result=os.stat(p)))
+        # Conditional GET by hand. StaticFiles does this negotiation for the SPA mount,
+        # but a bare FileResponse on an APIRoute does NOT — it sets an ETag and then sends
+        # the whole body regardless. Without this, `no-cache` above would mean every load
+        # re-downloads ~200KB instead of a 304 with no body, which is the entire cost
+        # argument for revalidate-every-time over a max-age.
+        inm = request.headers.get("if-none-match", "")
+        etag = res.headers.get("etag", "")
+        if etag and any(t.strip().removeprefix("W/") == etag for t in inm.split(",")):
+            return _no_cache(Response(status_code=304, headers={
+                "etag": etag, "last-modified": res.headers.get("last-modified", "")}))
+        return res
 
     @app.get("/bills")
     def bills():
         p = _data_dir() / "app.json"
         if not p.exists():
-            return JSONResponse([])
+            return _no_cache(JSONResponse([]))
         data = json.loads(p.read_text(encoding="utf-8"))
-        return JSONResponse(data.get("bills", []))
+        return _no_cache(JSONResponse(data.get("bills", [])))
 
     @app.get("/data/paid.json")
     def data_paid_json():
@@ -445,8 +488,8 @@ def create_app() -> FastAPI:
         # Served from the PVC; [] when nothing's been marked yet.
         p = _data_dir() / "paid.json"
         if not p.exists():
-            return JSONResponse([])
-        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+            return _no_cache(JSONResponse([]))
+        return _no_cache(JSONResponse(json.loads(p.read_text(encoding="utf-8"))))
 
     @app.post("/api/paid")
     async def set_paid(body: dict = Body(...)):
@@ -499,8 +542,8 @@ def create_app() -> FastAPI:
         # app.json. Served from the PVC; {} when nothing's been tracked yet.
         p = _data_dir() / "waivers.json"
         if not p.exists():
-            return JSONResponse({})
-        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+            return _no_cache(JSONResponse({}))
+        return _no_cache(JSONResponse(json.loads(p.read_text(encoding="utf-8"))))
 
     @app.post("/api/waivers")
     async def set_waiver(body: dict = Body(...)):
@@ -529,8 +572,8 @@ def create_app() -> FastAPI:
         # is backup-critical.
         p = _data_dir() / "cats.json"
         if not p.exists():
-            return JSONResponse({})
-        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+            return _no_cache(JSONResponse({}))
+        return _no_cache(JSONResponse(json.loads(p.read_text(encoding="utf-8"))))
 
     @app.post("/api/cats")
     async def set_cat(body: dict = Body(...)):

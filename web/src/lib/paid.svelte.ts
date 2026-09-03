@@ -1,6 +1,7 @@
 import { base } from '$app/paths';
 import { SvelteSet } from 'svelte/reactivity';
 import { toast } from './toast.svelte';
+import { FRESH } from './fresh';
 
 // Server-backed (cross-device) paid-bill state. Persisted in paid.json on the PVC,
 // kept OUT of app.json (the pipeline regenerates app.json and would clobber it).
@@ -24,7 +25,7 @@ export const paid = {
   /** Hydrate from the server. Never throws; leaves the set empty on any failure. */
   async load(f: typeof fetch = fetch): Promise<void> {
     try {
-      const res = await f(GET);
+      const res = await f(GET, FRESH);
       if (!res.ok) return;
       const arr = (await res.json()) as string[];
       _keys.clear();
