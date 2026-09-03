@@ -1,6 +1,7 @@
 import { base } from '$app/paths';
 import { SvelteMap } from 'svelte/reactivity';
 import { toast } from './toast.svelte';
+import { FRESH } from './fresh';
 
 // Server-backed (cross-device) category confirmations (#82). Persisted in cats.json on
 // the PVC, kept OUT of app.json (the pipeline regenerates app.json and would clobber it).
@@ -28,7 +29,7 @@ export const cats = {
   /** Hydrate from the server. Never throws; leaves the map empty on any failure. */
   async load(f: typeof fetch = fetch): Promise<void> {
     try {
-      const res = await f(GET);
+      const res = await f(GET, FRESH);
       if (!res.ok) return;
       const obj = (await res.json()) as Record<string, string>;
       _map.clear();

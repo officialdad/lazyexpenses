@@ -9,6 +9,7 @@
   import { cats } from '$lib/cats.svelte';
   import { net, initNet } from '$lib/net.svelte';
   import { initPush } from '$lib/push.svelte';
+  import { makeResumeRefresher } from '$lib/refresh';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import Dashboard from '$lib/components/Dashboard.svelte';
@@ -23,7 +24,16 @@
   // shell ships the skeleton; data hydrates here).
   // initPush() here and not in BillsDue: both the mobile and desktop subtrees mount at
   // every width, so the panel renders twice and would probe the browser twice.
-  onMount(() => { initNet(); loadAppData(); paid.load(); waivers.load(); cats.load(); initPush(); });
+  // #118: data loaded once here and never again meant an installed PWA resumed from the
+  // background rendered whatever it fetched on the day it was last opened. app.html
+  // already re-checks the SHELL on resume (#67); this is the same move for the DATA.
+  onMount(() => {
+    initNet(); loadAppData(); paid.load(); waivers.load(); cats.load(); initPush();
+    const onResume = makeResumeRefresher();
+    const onVis = () => { if (document.visibilityState === 'visible') onResume(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  });
 
   // Password gate (#51): the server 401s the data routes when APP_PASSWORD is set, and
   // loadAppData turns that into meta.status === 'auth'. One form, one cookie, no route.
