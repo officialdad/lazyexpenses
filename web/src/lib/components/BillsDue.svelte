@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte';
+  import CardCopy from '$lib/components/CardCopy.svelte';
   import { app } from '$lib/data';
   import { sortBills } from '$lib/bills';
   import { prettyCard, todayMYT } from '$lib/cardpick';
@@ -56,7 +57,10 @@
           <span class="shrink-0" style="color:{bankColor(b.bank)}"><Icon name={CARD_ICON} size={20} /></span>
 
           <div class="flex-1 min-w-0">
-            <div class="truncate font-bold" style="color:var(--text)">{prettyCard(b.bank)}</div>
+            <div class="flex items-center gap-1">
+              <span class="truncate font-bold" style="color:var(--text)">{prettyCard(b.bank)}</span>
+              <CardCopy card={b.bank} size={14} />
+            </div>
             <div
               class="flex items-center gap-1 text-[12px] tnum"
               style="color:{over || b.urgent ? '#f87171' : 'var(--muted)'}"

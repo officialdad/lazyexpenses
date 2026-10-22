@@ -48,7 +48,7 @@ import os
 import random
 from datetime import date, timedelta
 
-TXN_FIELDS = ["bank", "card_last4", "statement_month", "statement_date", "post_date",
+TXN_FIELDS = ["bank", "card_last4", "card_number", "statement_month", "statement_date", "post_date",
               "txn_date", "description", "amount", "type", "category", "source_file"]
 RECON_FIELDS = ["file", "bank", "smonth", "sdate", "due", "n", "prev", "debit",
                 "credit", "expected", "cur", "diff", "status"]
@@ -63,6 +63,14 @@ BANKS = {
     "hsbc":     (["0006"], 27, 2275.00),
     "rhb":      (["0007"], 8, 480.00),
 }
+
+
+def card_number(bank, last4):
+    """The full PAN the CSV mode carries, matching what parse.py reads back from the
+    synthetic PDFs (`_pdf` renderers below): every bank prints `1234-5678-9012-<last4>`
+    except SC, whose number is masked — so there it is empty, i.e. "not available"."""
+    return "" if bank == "sc" else f"123456789012{last4}"
+
 
 # Recurring everyday spend: (bank, last4, description, category, base amount, per-month count)
 REGULARS = [
@@ -111,7 +119,8 @@ def build(n_months, seed):
 
     def add(bank, last4, ym, desc, cat, amount, credit=False, excl=False):
         txns.append({
-            "bank": bank, "card_last4": last4, "statement_month": ym,
+            "bank": bank, "card_last4": last4, "card_number": card_number(bank, last4),
+            "statement_month": ym,
             "statement_date": _day(ym, BANKS[bank][1]),
             "post_date": _day(ym, rng.randint(1, 27)), "txn_date": _day(ym, rng.randint(1, 27)),
             "description": desc, "amount": round(amount, 2),

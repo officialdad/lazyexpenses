@@ -277,6 +277,7 @@ def parse_dated(path, bank, date_re, ncards_multi=False):
     """Generic: rows shaped [date(s)] desc amount[CR]; optional multi-card via card-number header."""
     txns = []
     cur_card = None
+    cur_num = None
     for pno, y, toks in all_rows(path):
         texts = [t['text'] for t in toks]
         line = ' '.join(texts)
@@ -284,6 +285,7 @@ def parse_dated(path, bank, date_re, ncards_multi=False):
         cm = CARDNUM_DASH.search(line) or CARDNUM_SPACE.search(line)
         if cm and ncards_multi:
             cur_card = cm.group(1)[-4:]
+            cur_num = re.sub(r'\D', '', cm.group(1))
         # transaction row?
         dm = date_re.match(line)
         if not dm:
@@ -308,7 +310,7 @@ def parse_dated(path, bank, date_re, ncards_multi=False):
         inst = bool(bank == 'cimb' and re.search(r'(?:^|[\s:])\d{1,3}/\d{2,3}(?=\s|$)', line))
         inst0 = bool(inst and re.search(r'(?:^|[\s:])0+/\d{2,3}(?=\s|$)', line))
         excl = (bank == 'maybank' and 'TFER' in desc.upper()) or inst0
-        txns.append(dict(card=cur_card, post=lead[0] if lead else '',
+        txns.append(dict(card=cur_card, num=cur_num, post=lead[0] if lead else '',
                          txn=lead[1] if len(lead) > 1 else (lead[0] if lead else ''),
                          desc=desc, amount=amt, credit=cr, excl=bool(excl), inst=inst))
     return txns
@@ -319,6 +321,7 @@ def parse_alliance(path):
     Requiring that adjacency rejects rewards/marketing lines that merely carry a number."""
     txns = []
     cur_card = None
+    cur_num = None
     pending_dates = None
     for pno, y, toks in all_rows(path):
         texts = [t['text'] for t in toks]
@@ -326,6 +329,7 @@ def parse_alliance(path):
         cm = CARDNUM_SPACE.search(line) or CARDNUM_DASH.search(line)
         if cm and re.search(r'VISA|CARD', line, re.I):
             cur_card = cm.group(1)[-4:]
+            cur_num = re.sub(r'\D', '', cm.group(1))
             pending_dates = None
             continue
         if re.fullmatch(r'(?:\d{2}/\d{2}/\d{2}\s*)+', line.strip()):
@@ -345,7 +349,7 @@ def parse_alliance(path):
         if not desc or not re.search(r'[A-Za-z]', desc):
             continue
         post = pd[1] if len(pd) > 1 else pd[0]
-        txns.append(dict(card=cur_card, post=post, txn=pd[0], desc=desc, amount=amt, credit=cr, excl=False))
+        txns.append(dict(card=cur_card, num=cur_num, post=post, txn=pd[0], desc=desc, amount=amt, credit=cr, excl=False))
     return txns
 
 
@@ -374,11 +378,14 @@ def parse_statement(path):
 
     # default single-card last4 if none captured (also handles masked numbers like 5520-40XX-XXXX-XXXX)
     if not any(t['card'] for t in txns):
-        m = (CARDNUM_DASH.search(text) or CARDNUM_SPACE.search(text)
-             or re.search(r'[\dX*]{4}[- ][\dX*]{4}[- ][\dX*]{4}[- ](\d{4})', text))
+        m = CARDNUM_DASH.search(text) or CARDNUM_SPACE.search(text)
+        full = re.sub(r'\D', '', m.group(1)) if m else ''   # unmasked only
+        if not m:   # masked template -> last4, and no full number is available
+            m = re.search(r'[\dX*]{4}[- ][\dX*]{4}[- ][\dX*]{4}[- ](\d{4})', text)
         last4 = m.group(1)[-4:] if m else '????'
         for t in txns:
             t['card'] = last4
+            t['num'] = full
 
     # ---- reconciliation figures (statement-level) ----
     prev, cur = recon_balances(bank, text)
@@ -580,14 +587,15 @@ def main():
                    or categorize(t['desc']))
             typ = 'credit' if t['credit'] else 'debit'
             tx_rows.append(dict(
-                bank=meta['bank'], card_last4=t['card'], statement_month=meta['smonth'],
+                bank=meta['bank'], card_last4=t['card'], card_number=t.get('num') or '',
+                statement_month=meta['smonth'],
                 statement_date=meta['sdate'], post_date=t['post'], txn_date=t['txn'],
                 description=t['desc'], amount=t['amount'], type=typ, category=cat,
                 source_file=meta['file']))
 
     # transactions.csv
     with open('transactions.csv', 'w', newline='', encoding='utf-8-sig') as fh:
-        w = csv.DictWriter(fh, fieldnames=['bank', 'card_last4', 'statement_month', 'statement_date',
+        w = csv.DictWriter(fh, fieldnames=['bank', 'card_last4', 'card_number', 'statement_month', 'statement_date',
                                            'post_date', 'txn_date', 'description', 'amount', 'type',
                                            'category', 'source_file'])
         w.writeheader()

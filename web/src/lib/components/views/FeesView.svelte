@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte';
+  import CardCopy from '$lib/components/CardCopy.svelte';
   import { app } from '$lib/data';
   import { feesByCard } from '$lib/fees';
   import { prettyCard } from '$lib/cardpick';
@@ -39,7 +40,10 @@
           <span class="shrink-0" style="color:{bankColor(bankOf(cf.card))}"><Icon name={CARD_ICON} size={20} /></span>
 
           <div class="flex-1 min-w-0">
-            <div class="truncate font-bold" style="color:var(--text)">{prettyCard(cf.card)}</div>
+            <div class="flex items-center gap-1">
+              <span class="truncate font-bold" style="color:var(--text)">{prettyCard(cf.card)}</span>
+              <CardCopy card={cf.card} size={14} />
+            </div>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] tnum mt-1">
               <span class="inline-flex items-center gap-1" style="color:{cf.late > 0 ? RED : GREEN}">
                 <Icon name="calendar-clock" size={13} />{cf.late > 0 ? `Late fee ${rm(cf.late, true)}` : 'No late fee'}
