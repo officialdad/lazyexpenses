@@ -11,9 +11,9 @@
   const cards = $derived(feesByCard(app.rows, app.cards));
   const bankOf = (c: string) => c.split('·')[0];
 
-  // small-text tokens vetted for AA contrast in the dashboard a11y pass
-  const RED = '#f87171';
-  const GREEN = '#34d399';
+  // small-text roles — --danger-text is the AA-safe red; --over is fill-grade and too dark for text
+  const RED = 'var(--danger-text)';
+  const GREEN = 'var(--ok)';
 
   const ACT: Record<WaiverStatus, { label: string; color: string; icon: string }> = {
     tocall: { label: 'Call to waive', color: 'var(--accent)', icon: 'phone' },
@@ -90,6 +90,7 @@
 
 <style>
   .feebtn {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -100,11 +101,16 @@
     background: transparent;
     cursor: pointer;
   }
+  .feebtn::before {
+    content: '';
+    position: absolute;
+    inset: -12px -4px;
+  }
   .feebtn:hover {
     background: color-mix(in srgb, currentColor 12%, transparent);
   }
   .feebtn:focus-visible {
-    outline: 2px solid var(--text);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 </style>

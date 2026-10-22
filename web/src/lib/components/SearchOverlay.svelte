@@ -71,7 +71,7 @@
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-4 py-2">
+    <div class="overlay-scroll flex-1 overflow-y-auto px-4 py-2">
       {#if !query.trim()}
         <p class="py-8 text-center text-sm" style="color:var(--muted)">
           Type to search {app.rows.length} transactions.
@@ -104,3 +104,11 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* The overlay covers the viewport but the document behind it still scrolls on touch, so a
+     flick at the end of the result list used to drag the dashboard under the results. */
+  .overlay-scroll {
+    overscroll-behavior: contain;
+  }
+</style>

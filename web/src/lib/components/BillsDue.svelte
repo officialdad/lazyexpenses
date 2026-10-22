@@ -31,7 +31,7 @@
         class="remindbtn inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-bold cursor-pointer disabled:opacity-60"
         style={on
           ? 'background:transparent;border-color:var(--divider2);color:var(--muted)'
-          : 'background:var(--accent);border-color:var(--accent);color:var(--bg)'}
+          : 'background:var(--accent);border-color:var(--accent);color:var(--accent-ink)'}
         aria-pressed={on}
         disabled={push.status === 'busy'}
         onclick={() => togglePush()}
@@ -63,11 +63,11 @@
             </div>
             <div
               class="flex items-center gap-1 text-[12px] tnum"
-              style="color:{over || b.urgent ? '#f87171' : 'var(--muted)'}"
+              style="color:{over || b.urgent ? 'var(--danger-text)' : 'var(--muted)'}"
               data-urgent={b.urgent}
             >
               {#if over}
-                <span class="inline-flex" style="color:#f87171"><Icon name="alert-circle" size={13} /></span>Overdue
+                <span class="inline-flex" style="color:var(--danger-text)"><Icon name="alert-circle" size={13} /></span>Overdue
               {:else if !b.paid && b.days === 0}
                 due today
               {:else if b.payment_due_date}
@@ -106,7 +106,15 @@
 <style>
   .remindbtn:focus-visible,
   .paidbtn:focus-visible {
-    outline: 2px solid var(--text);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
+  }
+  .paidbtn {
+    position: relative;
+  }
+  .paidbtn::before {
+    content: '';
+    position: absolute;
+    inset: -14px;
   }
 </style>

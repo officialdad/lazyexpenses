@@ -43,7 +43,7 @@ describe('BillsDue', () => {
       expect(status.getAttribute('data-urgent')).toBe('false');
       expect(status.textContent).not.toContain('Overdue');
       expect(status.textContent).not.toContain('-5d');
-      expect(container.querySelector('li [style*="#f87171"]')).toBeNull();
+      expect(container.querySelector('li [style*="--danger-text"]')).toBeNull();
     } finally {
       paid.keys.clear();
     }

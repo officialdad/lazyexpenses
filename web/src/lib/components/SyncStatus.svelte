@@ -42,7 +42,7 @@
 
 <div class="flex items-center gap-2 text-[12px] {cls}" style="color:var(--muted)">
   <span class="tnum">
-    {#if !net.online}<span style="color:#f87171">Offline · </span>{/if}synced {ago(meta.lastSynced, now)}
+    {#if !net.online}<span style="color:var(--danger-text)">Offline · </span>{/if}synced {ago(meta.lastSynced, now)}
   </span>
   <button
     type="button"
@@ -62,11 +62,17 @@
 
 <style>
   .syncbtn {
+    position: relative;
     display: inline-flex;
     padding: 0.25rem;
   }
+  .syncbtn::before {
+    content: '';
+    position: absolute;
+    inset: -10px;
+  }
   .syncbtn:focus-visible {
-    outline: 2px solid var(--text);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   .spin {

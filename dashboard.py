@@ -25,13 +25,13 @@ NON_SPEND = ["Installments/BT", "Transfers/Payments", "Rebate/Cashback"]
 
 # Stable colour per category.
 COLORS = {
-    "Installments/BT": "#6b7280", "Transfers/Payments": "#9ca3af",
-    "Rebate/Cashback": "#34d399", "Health/Insurance": "#f472b6",
-    "Travel": "#60a5fa", "Shopping": "#f59e0b", "Groceries": "#10b981",
-    "F&B": "#ef4444", "Telco/Utilities": "#a78bfa", "Subscriptions": "#22d3ee",
-    "Vehicle": "#0ea5e9", "Fees/Charges": "#94a3b8",
-    "Entertainment": "#c084fc", "Certifications": "#818cf8", "Charity": "#2dd4bf",
-    "Other": "#64748b",
+    "Installments/BT": "#7e7a73", "Transfers/Payments": "#d5d0c8",
+    "Rebate/Cashback": "#23b374", "Health/Insurance": "#e97da4",
+    "Travel": "#3cc7ce", "Shopping": "#ce7a3b", "Groceries": "#6eca73",
+    "F&B": "#f66e60", "Telco/Utilities": "#c1a6fc", "Subscriptions": "#65d9da",
+    "Vehicle": "#44a3d5", "Fees/Charges": "#96918a",
+    "Entertainment": "#d378c7", "Certifications": "#7f80dc", "Charity": "#339b77",
+    "Other": "#b6b0a7",
 }
 
 # Category -> Material Design Icon name. Icons are inlined (see MDI below) so the

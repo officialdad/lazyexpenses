@@ -41,7 +41,7 @@
     </div>
   </div>
   {#if merchants.length === 0}
-    <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
+    <p class="text-xs py-8 text-center" style="color:var(--muted)">No merchants yet.</p>
   {:else}
     <div class="space-y-1.5">
       {#each merchants as m, i (m.d)}
@@ -70,6 +70,7 @@
 
 <style>
   .chip {
+    position: relative;
     font-size: 11px;
     line-height: 1.4;
     padding: 1px 7px;
@@ -78,6 +79,11 @@
     background: transparent;
     cursor: pointer;
   }
+  .chip::before {
+    content: '';
+    position: absolute;
+    inset: -12px 0;
+  }
   .chip[aria-pressed='true'] { color: var(--accent); border-color: var(--accent); }
-  .chip:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 </style>

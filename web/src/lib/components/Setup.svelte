@@ -191,9 +191,9 @@
   }
 
   const FIELD = 'w-full border px-2 py-1.5 text-sm';
-  const FIELD_STYLE = 'background:var(--surface2);color:var(--text);border-color:var(--divider2)';
+  const FIELD_STYLE = 'background:var(--surface2);color:var(--text);border-color:var(--border-strong)';
   const BTN = 'border px-3 py-1.5 text-xs font-bold uppercase tracking-wide';
-  const BTN_STYLE = 'background:var(--surface2);color:var(--text);border-color:var(--divider2)';
+  const BTN_STYLE = 'background:var(--surface2);color:var(--text);border-color:var(--border-strong)';
 </script>
 
 {#snippet lock(name: string)}
@@ -206,7 +206,7 @@
 
 {#snippet result(r: { ok: boolean; m: string } | null)}
   {#if r}
-    <p class="mt-2 text-xs" style="color:{r.ok ? 'var(--ok)' : '#f87171'}" role="status">{r.m}</p>
+    <p class="mt-2 text-xs" style="color:{r.ok ? 'var(--ok)' : 'var(--danger-text)'}" role="status">{r.m}</p>
   {/if}
 {/snippet}
 
@@ -230,13 +230,13 @@
        deployment. `unauthenticated` wins when both are somehow true: no password is the
        worse of the two, and only one alert is worth reading. -->
   {#if cfg.unauthenticated}
-    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--over)" role="alert">
+    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--danger-text)" role="alert">
       <strong>This app has no password.</strong> Anyone who can reach it can upload statements,
       read your spending, and overwrite your mail and reminder credentials. Set
       <code>APP_PASSWORD</code> in your <code>.env</code> and restart.
     </p>
   {:else if cfg.default_password}
-    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--over)" role="alert">
+    <p class="mb-6 border p-3 text-sm" style="border-color:var(--over);color:var(--danger-text)" role="alert">
       <strong>Change your password.</strong> This app is still using the placeholder
       <code>changeme@123</code> that ships in <code>.env.example</code> — it is in a public repo,
       so it is not a secret. Set <code>APP_PASSWORD</code> in your <code>.env</code> to something
@@ -414,7 +414,7 @@
   <!-- 3 ---------------------------------------------------------------- -->
   <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s3">
     <h2 id="s3" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
-      3 · Fetch statements from Gmail <span style="color:var(--divider2)">(optional)</span>
+      3 · Fetch statements from Gmail <span style="color:var(--subtle)">(optional)</span>
     </h2>
     <p class="mt-2 text-xs" style="color:var(--muted)">
       Label the statement mail <code>CC</code> in Gmail and this checks for new ones every hour, so
@@ -468,7 +468,7 @@
         />
       </div>
       {#if noPw.length}
-        <p class="text-xs" style="color:var(--over)" role="status">
+        <p class="text-xs" style="color:var(--danger-text)" role="status">
           No password set for {noPw.map(pretty).join(', ')}. Password-protected statements from
           those will fail to parse.
         </p>
@@ -500,7 +500,7 @@
   <!-- 4 ---------------------------------------------------------------- -->
   <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s4">
     <h2 id="s4" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
-      4 · Bill reminders <span style="color:var(--divider2)">(optional)</span>
+      4 · Bill reminders <span style="color:var(--subtle)">(optional)</span>
     </h2>
     <p class="mt-2 text-xs" style="color:var(--muted)">
       One notification per bill, a few days before it is due.
@@ -529,7 +529,7 @@
     </div>
 
     <details class="mt-4">
-      <summary class="cursor-pointer text-xs" style="color:var(--muted)">
+      <summary class="cursor-pointer py-2 text-xs" style="color:var(--muted)">
         Use Telegram instead (or as well)
       </summary>
       <form class="mt-3 flex flex-col gap-3" onsubmit={saveTelegram}>
@@ -582,7 +582,7 @@
   {#if !first && app.other.length}
     <section class="mb-5 border p-4" style="border-color:var(--divider)" aria-labelledby="s5">
       <h2 id="s5" class="text-xs uppercase tracking-widest" style="color:var(--muted)">
-        5 · Unknown merchants <span style="color:var(--divider2)">(optional)</span>
+        5 · Unknown merchants <span style="color:var(--subtle)">(optional)</span>
       </h2>
       <p class="mt-2 text-xs" style="color:var(--muted)">
         These did not match anything, so they are sitting in <code>Other</code>. Pick a category
@@ -593,7 +593,7 @@
           <div>
             <label class="mb-1 block text-xs" for={'cat-' + i} style="color:var(--muted)">
               {o.m}
-              <span style="color:var(--divider2)">· {o.n}× · RM {o.rm.toFixed(2)}</span>
+              <span style="color:var(--subtle)">· {o.n}× · RM {o.rm.toFixed(2)}</span>
             </label>
             <select
               id={'cat-' + i}

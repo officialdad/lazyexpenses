@@ -19,7 +19,7 @@
     h.status === 'over'
       ? { t: 'Over ceiling', c: 'var(--over)' }
       : h.status === 'warn'
-      ? { t: 'Approaching', c: 'var(--accent)' }
+      ? { t: 'Approaching', c: 'var(--warn)' }
       : { t: 'On track', c: 'var(--ok)' }
   );
 
@@ -51,9 +51,9 @@
   <p class="tnum font-extrabold leading-none" style="font-size:40px;color:var(--accent)">{rm(h.free)}</p>
 
   <div class="flex h-6 mt-3 text-[12px] font-extrabold overflow-hidden border" style="border-color:var(--divider)">
-    <span class="flex items-center justify-center overflow-hidden" style="width:{w(h.locked)};background:var(--c-locked);color:#fff">{rm(h.locked).replace('RM','')}</span>
-    <span class="flex items-center justify-center overflow-hidden" style="width:{w(h.spent)};background:var(--c-spent);color:#fff">{rm(h.spent).replace('RM','')}</span>
-    <span class="flex items-center justify-center overflow-hidden" style="width:{w(Math.max(0,h.free))};background:var(--c-free);color:#000">{rm(Math.max(0,h.free)).replace('RM','')}</span>
+    <span class="flex items-center justify-center overflow-hidden" style="width:{w(h.locked)};background:var(--c-locked);color:var(--paper)">{rm(h.locked).replace('RM','')}</span>
+    <span class="flex items-center justify-center overflow-hidden" style="width:{w(h.spent)};background:var(--c-spent);color:var(--paper)">{rm(h.spent).replace('RM','')}</span>
+    <span class="flex items-center justify-center overflow-hidden" style="width:{w(Math.max(0,h.free))};background:var(--c-free);color:var(--ink)">{rm(Math.max(0,h.free)).replace('RM','')}</span>
   </div>
 
   <div class="flex gap-4 mt-2 text-[12px] uppercase font-bold" style="color:var(--muted)">
@@ -64,8 +64,8 @@
 
   <div class="flex items-center gap-2 mt-3">
     <span
-      class="inline-block px-2.5 py-1 text-[12px] font-extrabold uppercase tracking-wide text-black"
-      style="background:{pill.c}"
+      class="inline-block px-2.5 py-1 text-[12px] font-extrabold uppercase tracking-wide"
+      style="background:{pill.c};color:var(--ink)"
     >
       {pill.t}
     </span>
@@ -88,7 +88,7 @@
       </label>
     {:else}
       <button
-        class="text-[12px] font-bold uppercase tracking-wide px-2 py-1 border"
+        class="ceilbtn text-[12px] font-bold uppercase tracking-wide px-2 py-1 border"
         style="color:var(--muted);border-color:var(--divider);background:var(--surface)"
         onclick={openCeilingEditor}
         aria-label="Edit monthly ceiling, currently {rm(ceiling.value)}"
@@ -99,3 +99,14 @@
     {/if}
   </div>
 </section>
+
+<style>
+  .ceilbtn {
+    position: relative;
+  }
+  .ceilbtn::before {
+    content: '';
+    position: absolute;
+    inset: -8px -2px;
+  }
+</style>

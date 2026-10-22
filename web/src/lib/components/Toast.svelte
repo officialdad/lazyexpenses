@@ -12,8 +12,8 @@
     <div
       class="w-full max-w-md border px-4 py-2 text-center text-sm font-bold shadow-lg"
       role={t.kind === 'error' ? 'alert' : 'status'}
-      style="background:var(--surface2);border-color:var(--divider2);color:{t.kind === 'error'
-        ? '#f87171'
+      style="background:var(--surface3);border-color:var(--divider2);color:{t.kind === 'error'
+        ? 'var(--danger-text)'
         : 'var(--text)'}"
     >
       {t.msg}

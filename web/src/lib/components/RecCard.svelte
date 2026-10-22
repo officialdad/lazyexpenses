@@ -69,7 +69,7 @@
     {onkeydown}
   >
     <!-- Category icon -->
-    <span class="shrink-0" style="color:{app.colors[cat] ?? 'var(--muted)'}">
+    <span class="shrink-0" style="color:{app.colors[cat] ?? 'var(--faint)'}">
       <Icon name={icon} size={18} />
     </span>
 
@@ -120,7 +120,7 @@
       {/if}
 
       <!-- Cat label -->
-      <p class="uppercase tracking-wider text-xs" style="color:{app.colors[cat] ?? 'var(--muted)'}">{cat}</p>
+      <p class="uppercase tracking-wider text-xs" style="color:{app.colors[cat] ?? 'var(--faint)'}">{cat}</p>
 
       <!-- Evidence: creep shows per-merchant prev→recent breakdown -->
       {#if rec.type === 'creep'}
@@ -130,7 +130,7 @@
             {#each rec.evidence as ev}
               <div class="flex justify-between tabular-nums text-xs gap-2" style="color:var(--muted)">
                 <span class="truncate">{ev.merchant}</span>
-                <span class="shrink-0">{rm(ev.prev)} → {rm(ev.recent)} <span style="color:var(--over)">+{rm(ev.delta)}</span></span>
+                <span class="shrink-0">{rm(ev.prev)} → {rm(ev.recent)} <span style="color:var(--danger-text)">+{rm(ev.delta)}</span></span>
               </div>
             {/each}
           </div>
