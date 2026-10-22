@@ -54,10 +54,11 @@ def test_payload_has_required_keys():
         rows=[{"c": "maybank·3829", "m": "2026-06", "g": "F&B", "a": 12.0, "t": 0, "d": "x"}],
         insights_out={"installments": [], "recs": []},
     )
-    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "installments", "transfers", "range", "nonSpend", "committed", "cycles", "bills"]:
+    for k in ["rows", "months", "cards", "cats", "colors", "catIcon", "icons", "recs", "installments", "transfers", "range", "nonSpend", "committed", "cycles", "bills", "cardNumbers"]:
         assert k in payload
     assert payload["months"] == ["2026-06"]
     assert payload["committed"]["monthly"] == 0.0
+    assert payload["cardNumbers"] == {}    # no card_numbers passed -> empty, never missing
 
 
 def test_build_cycles_modes_the_statement_day(tmp_path):
@@ -96,6 +97,29 @@ def test_payload_includes_cycles():
         cycles={"maybank·3829": 28},
     )
     assert payload["cycles"] == {"maybank·3829": 28}
+
+
+def test_build_card_numbers_keeps_only_unmasked_and_first_wins(tmp_path):
+    """The copy button's source. A masked statement (SC) leaves the column empty, so that
+    card gets no entry and the UI shows no affordance — the 'if it's available' case."""
+    csv_path = tmp_path / "t.csv"
+    csv_path.write_text(
+        "bank,card_last4,card_number\n"
+        "maybank,0001,1234567890120001\n"
+        "sc,0004,\n"                        # masked -> not available
+        "cimb,0002,1234567890120002\n"
+        "cimb,0002,9999999999990002\n",     # first wins per card
+        encoding="utf-8",
+    )
+    nums = export_data.build_card_numbers(str(csv_path))
+    assert nums == {"maybank·0001": "1234567890120001", "cimb·0002": "1234567890120002"}, nums
+
+
+def test_build_card_numbers_absent_column_is_empty(tmp_path):
+    """An older transactions.csv (written before the column existed) is no numbers, not an error."""
+    csv_path = tmp_path / "t.csv"
+    csv_path.write_text("bank,card_last4\nmaybank,0001\n", encoding="utf-8")
+    assert export_data.build_card_numbers(str(csv_path)) == {}
 
 
 def test_build_bills_picks_newest_non_duplicate_per_bank():
@@ -162,6 +186,8 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         test_build_cycles_modes_the_statement_day(pathlib.Path(d))
         test_build_cycles_tie_breaks_to_latest(pathlib.Path(d))
+        test_build_card_numbers_keeps_only_unmasked_and_first_wins(pathlib.Path(d))
+        test_build_card_numbers_absent_column_is_empty(pathlib.Path(d))
     test_payload_includes_cycles()
     test_build_bills_picks_newest_non_duplicate_per_bank()
     test_build_bills_handles_null_due()

@@ -15,5 +15,8 @@ export interface AppData {
   colors: Record<string, string>; catIcon: Record<string, string>; icons: Record<string, string>;
   range: string; recs: any[]; installments: any[]; transfers: any[]; committed: Committed;
   cycles: Record<string, number>; bills: Bill[];
+  /** Full PAN digits per card ("bank·last4" -> digits), only where the statement printed
+   *  one unmasked. Absent for a card means show no copy affordance. */
+  cardNumbers: Record<string, string>;
   other: OtherMerchant[]; allCats: string[];
 }

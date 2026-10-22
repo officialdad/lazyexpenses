@@ -90,6 +90,15 @@ def main():
         assert {t["card"] for t in parsed[f"sc_demo_{newest}.pdf"][1]} == {"0004"}, \
             "SC last4 must come from the masked card number"
 
+        # ---- the FULL card number is captured when the statement prints it unmasked, and
+        #      left empty when it is masked (SC) - which is exactly what the PWA copy button
+        #      keys off ("if it's available") ----
+        _, mb = parsed[f"maybank_demo_{newest}.pdf"]
+        assert {t["num"] for t in mb} == {"1234567890120001"}, \
+            f'maybank full numbers: {sorted({t["num"] for t in mb})}'
+        assert {t["num"] for t in parsed[f"sc_demo_{newest}.pdf"][1]} == {""}, \
+            "SC prints a masked card number -> no full number must be captured"
+
         # ---- CIMB-i: the ":0/MM" principal memo is a deferred posting, excluded from
         #      the month's debit; the ":NN/MM" monthly charges are kept ----
         oldest = months[0]
@@ -175,6 +184,11 @@ def _cli_dedups_and_reconciles():
             f"{len(rows)} transactions written, {len(txns)} generated — the duplicate leaked in"
         assert not any(t["category"] == "Other" for t in rows), \
             "a demo merchant fell through CATS into Other"
+        # the copy button's source rides the CSV: unmasked cards carry digits, SC does not
+        assert "card_number" in rows[0], "transactions.csv is missing the card_number column"
+        sc_nums = {r["card_number"] for r in rows if r["bank"] == "sc"}
+        assert sc_nums == {""}, f"masked SC must carry no full number, got {sc_nums}"
+        assert any(r["card_number"] for r in rows), "no unmasked card number reached the CSV"
 
 
 if __name__ == "__main__":

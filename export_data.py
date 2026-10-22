@@ -124,6 +124,22 @@ def build_bills(csv_path="reconciliation.csv"):
     return bills
 
 
+def build_card_numbers(csv_path="transactions.csv"):
+    """Map each card -> its full PAN digits, but ONLY where the statement printed one
+    unmasked (SC prints `5520-40XX-XXXX-XXXX`, so those cards simply have no entry and
+    the UI shows no copy affordance). Keyed "<bank>·<last4>" to match rows[].c.
+
+    A missing/older transactions.csv (no card_number column) is no numbers, not an error.
+    """
+    nums: dict[str, str] = {}
+    with open(csv_path, encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            n = (r.get("card_number") or "").strip()
+            if n:
+                nums.setdefault(f"{r['bank']}·{r['card_last4']}", n)
+    return nums
+
+
 def build_other(rows, limit=50):
     """Merchants that fell through CATS into `Other` — what the confirmation UI asks
     about (#82).
@@ -149,7 +165,7 @@ def build_other(rows, limit=50):
     return out
 
 
-def build_payload(rows, insights_out, cycles=None, bills=None):
+def build_payload(rows, insights_out, cycles=None, bills=None, card_numbers=None):
     """Assemble the full app.json payload from transaction rows + insights output."""
     months = sorted({r["m"] for r in rows})
     cards = sorted({r["c"] for r in rows})
@@ -174,6 +190,9 @@ def build_payload(rows, insights_out, cycles=None, bills=None):
         "committed": build_committed(insights_out),
         "cycles": cycles or {},
         "bills": bills or [],
+        # full PAN digits per card, only where the statement printed one unmasked.
+        # The UI keeps showing the masked last4; this is only what a copy button copies.
+        "cardNumbers": card_numbers or {},
         # #82: what the categoriser could not place, and the full taxonomy to place it
         # into. `cats` above is only what APPEARS in the data — a dropdown built from
         # that could never offer a category nothing has been filed under yet.
@@ -187,7 +206,8 @@ def main():
     insights_out = insights.compute(rows)
     cycles = build_cycles()
     bills = build_bills()
-    payload = build_payload(rows, insights_out, cycles, bills)
+    card_numbers = build_card_numbers()
+    payload = build_payload(rows, insights_out, cycles, bills, card_numbers)
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:

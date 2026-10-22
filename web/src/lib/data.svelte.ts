@@ -10,7 +10,7 @@ const EMPTY: AppData = {
   colors: {}, catIcon: {}, icons: {}, range: '',
   recs: [], installments: [], transfers: [],
   committed: { monthly: 0, subs: 0, installments: 0, subCats: [], items: [] },
-  cycles: {}, bills: [], other: [], allCats: [],
+  cycles: {}, bills: [], other: [], allCats: [], cardNumbers: {},
 };
 
 // Live, reactive app data. Starts EMPTY (never rendered — +layout.svelte gates all

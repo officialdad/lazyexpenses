@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import CardCopy from '$lib/components/CardCopy.svelte';
   import { app } from '$lib/data';
   import { rankCards, prettyCard, todayMYT, type CardRank } from '$lib/cardpick';
   import { bankColor, CARD_ICON } from '$lib/banks';
@@ -31,12 +32,14 @@
         <b class="block text-base font-extrabold truncate" style="color:var(--text)">{prettyCard(top.card)}</b>
         <small style="color:var(--muted)">{top.why}</small>
       </div>
+      <CardCopy card={top.card} size={16} />
     </div>
     <ul class="text-sm">
       {#each ranked as c (c.card)}
         <li class="flex items-center gap-3 py-1">
           <span class="shrink-0" style="color:{bankColor(bankOf(c.card))}"><Icon name={CARD_ICON} size={18} /></span>
           <span class="flex-1 min-w-0 truncate" style="color:var(--text)">{prettyCard(c.card)}</span>
+          <CardCopy card={c.card} size={14} />
           <span class="tnum text-[12px] shrink-0" style="color:var(--muted)">{c.runwayDays}d</span>
           <span class="block w-16 h-2 shrink-0" style="background:var(--divider)">
             <span class="block h-2" style="width:{Math.round(c.share * 100)}%;background:var(--accent)"></span>
