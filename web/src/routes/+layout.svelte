@@ -74,7 +74,7 @@
     cats.load();
   }
 </script>
-<svelte:head><title>lazyexpenses</title><meta name="theme-color" content="#000000" /></svelte:head>
+<svelte:head><title>lazyexpenses</title><meta name="theme-color" content="#030201" /></svelte:head>
 
 <!-- The GitHub Pages demo is static: every POST route (/api/*, /ingest) 404s there, so
      Settings, mark-paid and Remind me all fail with a toast. Say so once, up top, rather
@@ -135,16 +135,16 @@
         autocomplete="current-password"
         bind:value={pw}
         class="px-3 py-2 text-sm"
-        style="background:var(--surface);color:var(--text)"
+        style="background:var(--surface);color:var(--text);border:1px solid var(--border-strong)"
       />
       <button
         type="submit"
         disabled={busy}
-        class="px-4 py-2 text-sm font-bold"
-        style="background:var(--surface);color:var(--text)"
+        class="px-4 py-2 text-sm font-bold disabled:opacity-60"
+        style="background:var(--accent);border:1px solid var(--accent);color:var(--accent-ink)"
       >{busy ? 'Checking…' : 'Unlock'}</button>
     </form>
-    {#if pwError}<p class="mt-3 text-sm font-bold" style="color:#f87171">{pwError}</p>{/if}
+    {#if pwError}<p class="mt-3 text-sm font-bold" style="color:var(--danger-text)">{pwError}</p>{/if}
   </main>
 {:else if meta.status === 'setup'}
   <!-- #40: an empty volume is not an error, it is the state onboarding exists for.
@@ -158,15 +158,15 @@
 {:else if meta.status === 'error'}
   <main class="mx-auto max-w-md px-4 py-16 text-center">
     {#if !net.online}
-      <p class="text-base font-bold" style="color:#f87171">You're offline</p>
+      <p class="text-base font-bold" style="color:var(--danger-text)">You're offline</p>
       <p class="mt-2 text-sm" style="color:var(--muted)">No cached copy yet — reconnect to load your data.</p>
     {:else}
-      <p class="text-base font-bold" style="color:#f87171">Couldn't load data</p>
+      <p class="text-base font-bold" style="color:var(--danger-text)">Couldn't load data</p>
       <p class="mt-2 text-sm" style="color:var(--muted)">{meta.error}</p>
     {/if}
     <button
       class="mt-4 px-4 py-2 text-sm font-bold"
-      style="background:var(--surface);color:var(--text)"
+      style="background:var(--accent);border:1px solid var(--accent);color:var(--accent-ink)"
       onclick={() => loadAppData()}
     >Retry</button>
   </main>

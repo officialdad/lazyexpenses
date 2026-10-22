@@ -58,7 +58,7 @@
       const delta = raw[i] * scale;
       const p = arcPath(cx, cy, r, innerR, angle, angle + Math.max(delta - 0.01, 0));
       angle += delta;
-      return { path: p, color: app.colors[s.g] ?? '#555', g: s.g, total: s.total, pct };
+      return { path: p, color: app.colors[s.g] ?? 'var(--faint)', g: s.g, total: s.total, pct };
     });
   }
 
@@ -70,7 +70,7 @@
     Spend by Category{#if month}&nbsp;· {monthLabel(month)}{/if}
   </h2>
   {#if slices.length === 0}
-    <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
+    <p class="text-xs py-8 text-center" style="color:var(--muted)">No categories yet.</p>
   {:else}
     <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
       <!-- SVG Donut — slices are clickable (mirror of the legend) to drill into a category -->
@@ -132,6 +132,9 @@
 </div>
 
 <style>
-  .slice:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
-  .legrow:focus-visible, .back:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .slice:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .legrow:focus-visible, .back:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .legrow { padding-block: 6px; }
+  .back { position: relative; }
+  .back::before { content: ''; position: absolute; inset: -12px -6px; }
 </style>

@@ -1,17 +1,58 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #000; --surface: #0a0a0a; --surface2: #111;
-  --divider: #222; --divider2: #2a2a2a;
-  --text: #f5f5f5; --muted: #888;
-  --accent: #ffb020;
-  --ok: #34d399; --over: #ef4444;
-  --c-locked: #666; --c-spent: #3b82f6; --c-free: #34d399;
+  color-scheme: dark;
+
+  --bg: oklch(0.085 0.008 75);
+  --surface: oklch(0.150 0.008 75);
+  --surface2: oklch(0.195 0.009 75);
+  --surface3: oklch(0.245 0.010 75);
+
+  --divider: oklch(0.265 0.008 75);
+  --divider2: oklch(0.340 0.010 75);
+  --border-strong: oklch(0.505 0.010 75);
+
+  --text: oklch(0.960 0.004 75);
+  --muted: oklch(0.745 0.012 75);
+  --subtle: oklch(0.590 0.010 75);
+  --faint: oklch(0.500 0.010 75);
+  --disabled: var(--subtle);
+
+  --accent: oklch(0.813 0.165 75);
+  --accent-ink: oklch(0.170 0.030 75);
+  --warn: oklch(0.730 0.160 50);
+  --ok: oklch(0.800 0.148 163);
+  --over: oklch(0.670 0.190 25);
+  --danger-text: oklch(0.735 0.150 22);
+
+  --focus: oklch(0.930 0.035 85);
+  --selection: oklch(0.430 0.075 75);
+
+  --ink: oklch(0.150 0.012 75);
+  --paper: oklch(0.985 0.004 75);
+
+  --c-locked: oklch(0.512 0.010 75);
+  --c-spent: oklch(0.520 0.190 258);
+  --c-free: oklch(0.800 0.148 163);
 }
+
 html, body { background: var(--bg); color: var(--text); }
 * { border-radius: 0 !important; }                 /* hard square edges, app-wide */
 body { font-size: 16px; }
 .tnum { font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--selection); color: var(--paper); }
+
+*:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+:where(input, select, textarea):disabled { color: var(--disabled); }
+
+/* iOS Safari zooms the viewport on focus when a field renders below 16px, which breaks
+   layout on every tap. 1rem on the narrow tiers is cheaper than suppressing zoom with
+   maximum-scale, which would also disable pinch-zoom. */
+@media (max-width: 639px) {
+  :where(input, select, textarea) { font-size: 1rem; }
+}
 
 /* Chart entrance animations. Gated two ways: (1) they only RUN once the chart scrolls into
    view — the `inview` action adds `.in-view` to each chart card, flipping play-state from

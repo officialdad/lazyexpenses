@@ -20,8 +20,8 @@ export default defineConfig({
 				name: 'lazyexpenses',
 				short_name: 'lazyexpenses',
 				description: 'Lazy credit-card overview — am I overcommitting?',
-				theme_color: '#000000',
-				background_color: '#000000',
+				theme_color: '#030201',
+				background_color: '#030201',
 				display: 'standalone',
 				start_url: '/',
 				icons: [

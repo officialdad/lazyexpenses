@@ -26,7 +26,7 @@
   {:else if !top}
     <p class="text-xs" style="color:var(--muted)">No card data yet.</p>
   {:else}
-    <div class="flex items-center gap-3 p-3 mb-3" style="background:var(--surface)">
+    <div class="flex items-center gap-3 p-3 mb-3" style="background:var(--surface3)">
       <span class="shrink-0" style="color:{bankColor(bankOf(top.card))}"><Icon name={CARD_ICON} size={28} /></span>
       <div class="min-w-0">
         <b class="block text-base font-extrabold truncate" style="color:var(--text)">{prettyCard(top.card)}</b>

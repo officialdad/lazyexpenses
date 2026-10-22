@@ -32,6 +32,7 @@
 
 <style>
   .cardcopy {
+    position: relative;
     display: inline-flex;
     align-items: center;
     padding: 2px;
@@ -40,11 +41,16 @@
     color: var(--muted);
     cursor: pointer;
   }
+  .cardcopy::before {
+    content: '';
+    position: absolute;
+    inset: -14px;
+  }
   .cardcopy:hover {
     color: var(--text);
   }
   .cardcopy:focus-visible {
-    outline: 2px solid var(--text);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 </style>

@@ -26,7 +26,7 @@
 <div class="border p-3" style="border-color:var(--divider)" use:inview>
   <h2 class="text-xs uppercase tracking-widest mb-3" style="color:var(--muted)">Monthly Spend</h2>
   {#if series.length === 0}
-    <p class="text-xs py-8 text-center" style="color:var(--muted)">No data</p>
+    <p class="text-xs py-8 text-center" style="color:var(--muted)">No months yet.</p>
   {:else}
     <div class="flex items-end gap-1 overflow-x-auto scroll-thin pb-1 px-0.5" style="min-height:170px">
       {#each series as s, i (s.month)}
@@ -60,7 +60,7 @@
         <span class="text-sm tabular-nums" style="color:var(--text)">{rm(caption.total)}</span>
         {#if caption.delta}
           {@const up = caption.delta.abs > 0}
-          <span class="text-[11px] tabular-nums" style="color:{up ? '#f87171' : '#34d399'}">
+          <span class="text-[11px] tabular-nums" style="color:{up ? 'var(--danger-text)' : 'var(--ok)'}">
             {up ? '▲' : '▼'} {rm(Math.abs(caption.delta.abs))} ({pct(Math.abs(caption.delta.pct))}) vs prev
           </span>
         {/if}
@@ -78,5 +78,7 @@
   .scroll-thin::-webkit-scrollbar { height: 6px; }
   .scroll-thin::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
   .scroll-thin::-webkit-scrollbar-track { background: transparent; }
-  .bar:focus-visible, .back:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .bar:focus-visible, .back:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .back { position: relative; }
+  .back::before { content: ''; position: absolute; inset: -12px -6px; }
 </style>

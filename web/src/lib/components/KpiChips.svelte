@@ -24,7 +24,7 @@
   <div class="flex-1 py-2">
     <b
       class="block text-base font-extrabold tnum"
-      style="color:{delta > 0 ? 'var(--over)' : 'var(--ok)'}"
+      style="color:{delta > 0 ? 'var(--danger-text)' : 'var(--ok)'}"
     >{delta > 0 ? '+' : ''}{rm(delta)}</b>
     <small class="text-[12px] uppercase font-bold" style="color:var(--muted)">vs {prev ?? '—'}</small>
   </div>
