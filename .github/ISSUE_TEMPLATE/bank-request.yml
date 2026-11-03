@@ -14,6 +14,23 @@ body:
         that path never asks you to hand a statement to anyone.
 
   - type: input
+    id: needs_you
+    attributes:
+      label: Needs you
+      description: One line. What the maintainer must do.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: 2 to 4 short sentences. Which bank and why.
+    validations:
+      required: true
+  - type: input
+    id: risk
+    attributes:
+      label: Risk
+      description: One line, or None known.
+  - type: input
     id: bank
     attributes:
       label: Bank
