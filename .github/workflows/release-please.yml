@@ -1,0 +1,53 @@
+name: release-please
+
+# Conventional commits on main feed release-please. It keeps one release PR open
+# carrying the next version and its CHANGELOG.md entry; merging that PR creates
+# the vX.Y.Z tag and the GitHub release. The tag then starts docker.yml, which
+# builds and publishes the image. That workflow's own release step is idempotent
+# by design: it sees the release already exists and leaves it alone, so the tag
+# ends up with exactly one release.
+#
+# The token is a GitHub App installation token, not GITHUB_TOKEN. Events caused
+# by GITHUB_TOKEN (a pushed tag, in particular) do not trigger other workflows,
+# and docker.yml is triggered by exactly that tag. The App token also lets the
+# release PR run the normal pull-request checks.
+
+on:
+  push:
+    branches: [main]
+
+# One run at a time. Two pushes landing together must not race to open the same
+# release PR, and a run must never be cancelled midway through writing a release.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+# The App token carries the write access below, so the workflow's own token
+# needs nothing more than read.
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '["self-hosted","Linux","X64"]') }}
+    steps:
+      # contents: tags, releases, the release PR's branch and commits.
+      # pull-requests + issues: the release PR itself, its labels and comments.
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
+      # Config and manifest are read from the target branch through the API, so
+      # this needs no checkout.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
